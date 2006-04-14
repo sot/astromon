@@ -1,0 +1,37 @@
+#
+# File locations
+#
+dirs,s,a,"Obs_data",,,"Data directory root"
+database,s,a,"DATA.rdb",,,"Offsets database file"
+#
+# Detect and file filtering parameters
+#
+snr,r,a,5.0,,,"Minimum SNR for detection"
+det_rad,r,a,3.0,,,"Detection radius (arcsec)"
+extr_rad_grating,r,a,0.4,,,"Extr. rad. around grating source (arcmin)"
+extr_rad_image,r,a,4.0,,,"Extr. rad. around imaging source (arcmin)"
+excl_rad,r,a,3,,,"Exclusion radius for multiple nearby point sources"
+max_field_dr,r,a,3.0,,,"Max field_dr for plotting (arcmin)"
+max_time,r,a,150,,,"Maximum allowable integration time (ksec)"
+range,r,a,INDEF,,,"Maximum time range for reprocessing (sec)"
+repro_param,s,a,"",,,"Aspect asp_l1_std reprocessing parameters"
+#
+# Various controls
+#
+plot,b,a,yes,,,"Update celestial location plots"
+plot_routine,s,a,"plot_off",,,"Routine name for plotting"
+clean,s,a,"event",,,"Cleaning option (none|event|all)"
+preclean,b,a,no,,,"Pre-clean observation data"
+loud,b,a,yes,,,"Run loudly"
+update,b,a,yes,,,"Update the database"
+archive,b,a,yes,,,"Use archive if necessary"
+twomass,b,a,yes,,,"Fetch 2MASS coordinates"
+reprocess,b,a,no,,,"Reprocess aspect"
+reapply,b,a,no,,,"Reapply aspect"
+force,b,a,no,,,"Process obsid even if already done"
+make_images,b,a,no,,,"Make DS9 image of matches sources"
+#
+ty2_path,s,a,"/proj/gads7/data/tycho2",,,"Path for Tycho2 catalog"
+ub1_path,s,a,"http://tdc-www.harvard.edu/cgi-bin/scat",,,"Path for USNO B1 catalog"
+#
+mode,s,h,"ql",,,""
