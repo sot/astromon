@@ -10,14 +10,14 @@ TASK = astromon
 SHARE = get_cat_obs_data.pl
 
 # These are input data file required by astromon
-DATA = ASTROMON_table.rdb ICRS_tables astromon.par astromon_table_defs
+DATA = ASTROMON_table.rdb ICRS_tables astromon.par astromon_table_defs 
 
 # Files that need to be installed in the local area for test purposes.
 # Rules defined in Makefile.FLIGHT attempt first to locate files in the
 # local t/ directory, followed by the flight root (/proj/sot/{ska,tst}). 
 # In this case, the first two come from t/ while the scat program is
 # from /proj/sot/ska
-TEST_DEPS = bin/sun4/scat
+TEST_DEPS = data/aspect_authorization/sybase-aca-aca_ops sparc_bin linux_bin
 
 # Set Flight environment to be SKA.  The other choice is TST.  Include the
 # Makefile.FLIGHT make file that does most of the hard work
@@ -35,11 +35,22 @@ include /proj/sot/ska/include/Makefile.FLIGHT
 
 test: check_install $(BIN) $(TEST_DEPS) install
 	mkdir -p $(INSTALL_DATA)/Obs_data
-	$(INSTALL_SHARE)/get_obs_xcorr_data.pl 6451
+	$(INSTALL_SHARE)/get_cat_obs_data.pl 5390
+
+test_force: check_install $(BIN) $(TEST_DEPS) install
+	mkdir -p $(INSTALL_DATA)/Obs_data
+	$(INSTALL_SHARE)/get_cat_obs_data.pl -force 5390
 
 test_quick: check_install $(BIN) $(TEST_DEPS) install
 	mkdir -p $(INSTALL_DATA)/Obs_data
-	$(INSTALL_SHARE)/get_obs_xcorr_data.pl -force 139
+	$(INSTALL_SHARE)/get_cat_obs_data.pl 6451
+
+# For some reason 'make' thinks that installing the sparc_bin version of scat
+# satisfies the linux_bin dependency and so it doesn't even try.  So these are
+# called out to allow manually forced make
+sparc_bin: sparc-SunOS/bin/scat 
+
+linux_bin: i686-Linux/bin/scat
 
 install:
 ifdef BIN

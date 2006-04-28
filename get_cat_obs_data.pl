@@ -31,15 +31,16 @@ use Getopt::Long;
 use CXC::Envs;
 
 use Ska::Convert qw(time2date);
-use Ska::Process qw(get_params);
+use Ska::Process qw(get_params get_archive_files);
 use Ska::CatQuery qw(get_seqnum_info);
 use Ska::Message;
 use IO::All;
 use Data::Dumper;
+use DBI;
+use DBD::Sybase;
 
 our $ASTROMON_SHARE = "$ENV{SKA_SHARE}/astromon";
 our $ASTROMON_DATA  = "$ENV{SKA_DATA}/astromon";
-
 # Set up some constants
 
 $ENV{UPARM} = $ASTROMON_DATA;
@@ -50,7 +51,14 @@ $| = 1;
 ##****************************************************************************
 
 our %par = get_options();	# Parse command line options
-our $log = Ska::Message->new(file => "$ASTROMON_DATA/log");
+our $log = Ska::Message->new(file => "$ASTROMON_DATA/log",
+			     append => 1,
+			    );
+my $date = localtime;
+my $banner = "----------- Starting get_cat_obs_data.pl at $date ------------";
+$log->message("");
+$log->message('-'x length $banner, "\n$banner\n", '-'x length $banner);
+$log->message("");
 print_options();
 
 %ENV = CXC::Envs::ciao();	# Use CIAO environment everywhere
@@ -60,49 +68,114 @@ my @BAD_CATEG = ("SN, SNR, and isolated NS",
 		 "Clusters of Galaxies",
 		 "Solar System and Misc.");
 
+# Get sybase database handle for aca database for user=aca_ops
+my $dbh = get_dbh();
+
+my %astromon_table_def = eval scalar io("$ASTROMON_DATA/astromon_table_defs")->slurp;
+
 OBSID: foreach my $obsid (@obsid) {
-    my $date = localtime;
+    $date = localtime;
     $log->message("********* PROCESSING OBSID $obsid at $date ***********");
 
-    my $obs = Obs->new(obsid => $obsid,
-		       dbh   => $dbh,
-		      );
+    my $obs = Obs->new(obsid => $obsid);
 
-    if (defined $obs->astromon_obs->{process_status}) {	# Don't redo cross correlation, don't log message
+    my %table;			# Final tables that will get put to database
+
+    # Check for an existing entry in database for this observation
+    my $astromon_obs = get_astromon_obs_from_db($dbh, $obsid);
+
+    # Don't redo cross correlation, don't log message
+    if (defined $astromon_obs->{process_status} and not $par{force}) {	
 	$log->message("  Already processed");
 	next OBSID;
     }
 
     # These routines throw exceptions for any problems or stop signals in processing
     eval {
+	my %td;			# Table definition hashes
 	# Set a working directory, make it, and cd there
-	$obs->work_dir("$par{dirs}/obs" . $obsid);
+	$obs->work_dir(sprintf("$par{dirs}/obs%02d/%d", $obsid/1000, $obsid));
 	io($obs->work_dir)->mkpath;
 	chdir $obs->work_dir;
     
 	# Clean files if needed
 	$obs->preclean($par{preclean_files});
 
-	# Set all the fields in astromon_obs
-	$obs->set_astromon_obs();
+	# Set all the fields in the astromon_obs table
+	
+	%td = @{$astromon_table_def{astromon_obs}}; # How to coerce table to hash in one step??
+	foreach (sort keys %td) {$table{astromon_obs}->{$_} = $obs->$_;} 
 
-	my %info = get_seqnum_info($obsid); 
+	my %info = get_seqnum_info($obs->obspar->{seq_num});
 	die "Category ($info{categ}) is bad\n" if grep { $_ eq $info{categ} } @BAD_CATEG;
 
 	# Get the X-ray source list for this obsid
-	$obs->get_source_list();
-
+	%td = @{$astromon_table_def{astromon_xray_src}}; 
+	my $src2_data = Data::ParseTable::parse_table($obs->src2); 
+	foreach my $src2 (@$src2_data) {
+	    my $xray_source = XraySource->new(obs  => $obs,
+					      src2 => $src2);
+	    push @{$table{astromon_xray_src}}, { map { $_ => $xray_source->$_ } sort keys %td };
+	}
+	    
 	# Get counterpart information from various catalogs
-	$obs->get_catalog_sources();
+	$table{astromon_cat_src} = $obs->get_catalog_source_list();
+
+	$table{astromon_obs}->{process_status} = 'OK';
     };
 
     if ($@) {
-	# Something 
+	# Observation not fully processed for some reason.  Could be benign (wrong
+	# obs type) or serious (couldn't get a needed file)
 	chomp $@;
 	$log->message("  $@\n");
-	$obs->process_status($@);
+	$table{astromon_obs}->{process_status} = $@;
+    }
+	
+    # Finally store the available data, writing over any existing entries.
+    for my $table_name (qw(astromon_obs astromon_xray_src astromon_cat_src)) {
+	overwrite_table_rows($dbh,         # database handle
+			     $table_name,  # database table name
+			     {'obsid' => $obsid},  # key columns and value for dropping existing records
+			     $astromon_table_def{$table_name},  # array ref of table definition
+			     $table{$table_name}  # actual data (either array ref or hash ref)
+			    );
+    }
+
+    $obs->clean_up($par{clean});
+    $obs->gzip_fits();
+}
+
+##****************************************************************************
+sub overwrite_table_rows {
+##****************************************************************************
+    my $dbh = shift;       # database handle
+    my $table_name = shift;	# database table name
+    my $delete_keys = shift;	# key columns and values for dropping existing records
+    my $table_def  = shift;	# array ref of table definition
+    my $table_data = shift;	# Actual data (either array ref or hash ref)
+				#  that may contain extra key/val pairs
+
+    $log->message("Writing table $table_name");
+
+    # Force table data into an array of table rows (each one being a hashref)
+    my @table_data = ref($table_data) eq 'ARRAY' ? @$table_data : ($table_data);
+
+    # Get the columns from table definition (which is an array ref of col=>def pairs)
+    my @table_cols = keys %{ {@$table_def} };
+
+    my $where = join(' AND ', map { "$_=$delete_keys->{$_}" } keys %$delete_keys);
+    my $do = "DELETE FROM $table_name WHERE $where";
+    $log->message($do);
+    sql_do($dbh, $do);
+
+    foreach my $data (@table_data) {
+	# Insert new row of data, passing only the cols that are in the DB table
+	insert_hash($dbh, $table_name, { map { $_ => $data->{$_} } @table_cols })
+	  or die "Failed to insert a row into $table_name";
     }
 }
+
 
 ##****************************************************************************
 sub get_options {
@@ -113,6 +186,7 @@ sub get_options {
 			 'caldb=s',
 			 "month!",
 			 'preclean_files=s',
+			 'force',
 			);
 
     die unless (%par);
@@ -130,6 +204,27 @@ sub get_options {
     $par{dirs} = "$ASTROMON_DATA/$par{dirs}" unless io($par{dirs})->is_absolute;
 
     return %par;
+}
+
+##****************************************************************************
+sub get_dbh {
+# Accessor returning (and possibly creating) global sybase handle
+##****************************************************************************
+    my $sybase_pwd < io("$ENV{SKA}/data/aspect_authorization/sybase-aca-aca_ops");
+    chomp $sybase_pwd;
+
+    ##-- Make database connection 2: sybase 
+    my $server 	= "server=sybase";
+    my $db     	= "database=aca";
+    my $db_user = "aca_ops";
+    my $dbh = DBI->connect("DBI:Sybase:$server;$db", $db_user, $sybase_pwd,
+			    { PrintError => 0,
+			      RaiseError => 1
+			    }
+			   );
+    die "Couldn't connect: $DBI::errstr" unless ($dbh);
+
+    return $dbh;
 }
 
 ##****************************************************************************
@@ -169,20 +264,100 @@ sub get_obsids {
 
 	$log->message("Processing obsids from $par{tstart} to $par{tstop}\n");
 
-	my $tmp_dir = io->tmpdir;
+	my $obspar_dir = io("$ASTROMON_DATA/obspar");
+	$obspar_dir->rmtree if $obspar_dir->exists;
+	$obspar_dir->mkpath;
+
 	my @obsfiles =  get_archive_files(tstart    => $par{tstart},
 					  tstop     => $par{tstop},
 					  prod      => "obspar",
 					  file_glob => "axaf*obs0a.par*",
-					  dir       => "$tmp_dir",
+					  dir       => "$obspar_dir",
+					  gunzip    => 0,
 					  loud      => 0);
-	unlink @obsfiles;
+	$obspar_dir->rmtree if $obspar_dir->exists;
+
 	push @ARGV, grep {$_ = $1+0 if (/axaff(\d+)/ && $1 < 50000)} @obsfiles;
     }
 
     $log->message("Processing following obsids: @ARGV");
     return @ARGV;
 }
+
+##****************************************************************************
+sub get_astromon_obs_from_db {
+##****************************************************************************
+    my $dbh = shift;
+    my $obsid = shift;
+    my $astromon_obs;
+
+    my @row = fetchall_array_of_hashref($dbh,
+					"select * from astromon_obs where obsid=?", $obsid);
+    if (@row == 0) {
+	$astromon_obs = {};
+    } elsif (@row == 1) {
+	$astromon_obs = $row[0];
+    } else {
+	die "Database is corrupted: multiple entries in astromon_obs for obsid $obsid\n";
+    }
+
+    return $astromon_obs;
+}
+
+##************************************************************************---
+  sub insert_hash {
+##***************************************************************************
+    my ($dbh, $table, $field_values) = @_;
+    my @fields = sort keys %$field_values; # sort required
+    my @values = @{$field_values}{@fields};
+    my $sql = sprintf "insert into %s (%s) values (%s)",
+        $table, join(",", @fields), join(",", ("?")x@fields);
+    my $sth = $dbh->prepare_cached($sql);
+    return $sth->execute(@values);
+}
+
+#########################################################################
+sub sql_do {
+#########################################################################
+    my $dbh = shift;
+    my $sql = shift;
+    $dbh->do($sql) or die "$sql: " . $dbh->errstr;
+}	
+
+
+##****************************************************************************
+sub fetchall_array_of_hashref {
+##****************************************************************************
+    my $dbh = shift;
+    my $statement = shift;
+    my @arg = @_;
+    my @out;
+
+    my $sth = $dbh->prepare($statement)
+      or die "Bad SQL statement '$statement': " . $dbh->errstr;
+    
+    $sth->execute(@arg);
+    while (my $row = $sth->fetchrow_hashref) {
+	push @out, $row;
+    }
+
+    return @out;
+ }
+
+##************************************************************************---
+sub calc_y_z_r {
+##************************************************************************---
+    my ($ra, $dec, $roll, $src_ra, $src_dec) = @_;
+    my $r2d = 180/3.14159265358979;
+    my $q = Quat->new($ra, $dec, $roll);
+    my ($y_angle, $z_angle) = Quat::radec2yagzag($src_ra, $src_dec, $q);
+    $y_angle *= $r2d * 60;	# in arcmin
+    $z_angle *= $r2d * 60;	# in arcmin
+    my $r_angle = sqrt( $y_angle**2 + $z_angle**2 );
+
+    return ($y_angle, $z_angle, $r_angle);
+}
+
 
 ##****************************************************************************
 ##****************************************************************************
@@ -194,105 +369,25 @@ use Ska::IO qw(read_param_file);
 use Ska::Convert qw(dec2hms radec_dist hms2dec);
 use Ska::CatQuery qw(get_simbad get_2mass);
 use Ska::Process qw(get_archive_files);
-use Data::ParseTable qw(parse_table);
+use Data::ParseTable;
 use RDB;
 use IO::All;
+use Data::Dumper;
 
 
 use Class::MakeMethods::Standard::Hash ( 
 					new   => 'new',
 					scalar => [ qw( 
-						       n_match
 						       work_dir
 						       obsid
-						       detector
-						       instrument
-						       frame_time
-						       extr_rad
 						       process_status
-						       ra_hms
-						       dec_hms
-						       dbh
 						      )
 						  ],
-					hash  => 'obs',
-					hash  => 'obspar',
 					array => 'cat',
 					array => 'sources',
 				       );
 
 our $dbh;
-
-##****************************************************************************
-sub dbh {
-##****************************************************************************
-    return $dbh if defined $dbh;
-
-    my $sybase_pwd < io("$ASTROMON_DATA/.sybase_pwd");
-    chomp $sybase_pwd;
-
-    ##-- Make database connection 2: sybase 
-    my $server 	= "server=sybase";
-    my $db     	= "database=aca";
-    my $db_user = "aca_ops";
-    my $dbh = DBI->connect("DBI:Sybase:$server;$db", $db_user, $sybase_pwd,
-			    { PrintError => 0,
-			      RaiseError => 1
-			    }
-			   );
-    die "Couldn't connect: $DBI::errstr" unless ($dbh);
-
-    return $dbh;
-}
-
-##****************************************************************************
-sub astromon_obs {
-##****************************************************************************
-    my $self = shift;
-    $self->{astromon_obs} = shift if @_;
-    return $self->{astromon_obs} if defined $self->{astromon_obs};
-
-    # If not already set, then get from astrom_obs table in database
-    my $obsid = $self->obsid;
-    my @row = fetchall_array_of_hashref($self->dbh,
-					"select * from astromon_obs where obsid=?", $obsid);
-    
-    if (@row == 0) {
-	$self->{astromon_obs} = {};
-    } elsif (@row == 1) {
-	$self->{astromon_obs} = $row[0];
-    } else {
-	die "Database is corrupted: multiple entries in astromon_obs for obsid $obsid\n";
-    }
-
-    return $self->{astromon_obs};
-}
-
-##****************************************************************************
-sub fetchall_array_of_hashref {
-##****************************************************************************
-    my $dbh = shift;
-    my $statement = shift;
-    my @arg = @_;
-
-    my $sth = $dbh->prepare($statement)
-      or die "Bad SQL statement '$statement': " . $dbh->errstr;
-    
-    $sth->execute($self->obsid);
-    while (my $row = $sth->fetchrow_hashref) {
-	print Dumper $row;
-	$self->obs($row);
-	$self->process_status($row->{process_status});
-    }
-    
-
-##****************************************************************************
-sub set_astromon_par {
-#
-# For convenience set a globar %par hash to the astromon tool parameters
-##****************************************************************************
-    %par = @_;
-}
 
 ##**************************************************************************--
 sub obspar {
@@ -372,7 +467,7 @@ sub frame_time {
 sub extr_rad {
 ##****************************************************************************
     my $self = shift;
-    $self->{extr_rad} = ($obspar{grating} eq 'NONE' ? $par{extr_rad_image} : $par{extr_rad_grating})
+    $self->{extr_rad} = ($self->obspar->{grating} eq 'NONE' ? $par{extr_rad_image} : $par{extr_rad_grating})
       unless defined $self->{extr_rad};
     return $self->{extr_rad};
 }
@@ -382,8 +477,8 @@ sub ra_hms {
 ##****************************************************************************
     my $self = shift;
     unless (defined $self->{ra_hms}) {
-	my ($self->{ra_hms}, $self->{dec_hms}) = dec2hms ($self->obspar->{ra_targ},
-							  $self->obspar->{dec_targ});
+	($self->{ra_hms}, $self->{dec_hms}) = dec2hms ($self->obspar->{ra_targ},
+						       $self->obspar->{dec_targ});
     }
     return $self->{ra_hms};
 }
@@ -393,8 +488,8 @@ sub dec_hms {
 ##****************************************************************************
     my $self = shift;
     unless (defined $self->{dec_hms}) {
-	my ($self->{ra_hms}, $self->{dec_hms}) = dec2hms ($self->obspar->{ra_targ},
-							  $self->obspar->{dec_targ});
+	($self->{ra_hms}, $self->{dec_hms}) = dec2hms ($self->obspar->{ra_targ},
+						       $self->obspar->{dec_targ});
     }
     return $self->{dec_hms};
 }
@@ -440,47 +535,35 @@ sub tstart {
 }
     
 ##****************************************************************************
-sub ascds_ver {
+sub ascdsver {
 ##****************************************************************************
     my $self = shift;
-    $self->{ascds_ver} = $self->obspar->{ascds_ver} unless defined $self->{ascds_ver};
-    return $self->{ascds_ver};
+    $self->{ascdsver} = $self->obspar->{ascdsver} unless defined $self->{ascdsver};
+    return $self->{ascdsver};
 }
 
 ##****************************************************************************
-sub ra_nom {
+sub ra {
 ##****************************************************************************
     my $self = shift;
-    $self->{ra_nom} = $self->obspar->{ra_nom} unless defined $self->{ra_nom};
-    return $self->{ra_nom};
+    $self->{ra} = $self->obspar->{ra_nom} unless defined $self->{ra};
+    return $self->{ra};
 }
 
 ##****************************************************************************
-sub dec_nom {
+sub dec {
 ##****************************************************************************
     my $self = shift;
-    $self->{dec_nom} = $self->obspar->{dec_nom} unless defined $self->{dec_nom};
-    return $self->{dec_nom};
+    $self->{dec} = $self->obspar->{dec_nom} unless defined $self->{dec};
+    return $self->{dec};
 }
 
 ##****************************************************************************
-sub roll_nom {
+sub roll {
 ##****************************************************************************
     my $self = shift;
-    $self->{roll_nom} = $self->obspar->{roll_nom} unless defined $self->{roll_nom};
-    return $self->{roll_nom};
-}
-
-##****************************************************************************
-sub set_astromon_obs {
-# Set fields in astromon_obs based on obspar etc data
-##****************************************************************************
-    my $self = shift;
-
-    my @td = @{$self->sql_table_def->{astromon_obs}};
-    while (my $col_name = shift @td and my $col_def = shift @td) {
-	$self->astromon->{$col_name} = $self->$col_name;
-    }
+    $self->{roll} = $self->obspar->{roll_nom} unless defined $self->{roll};
+    return $self->{roll};
 }
 
 ##****************************************************************************
@@ -517,9 +600,8 @@ sub get_source_list {
     my $self = shift;
     
     # Read the cell detect source file, and then eliminate any sources
-    # which are within $par{excl_rad} of another source
 
-    my $src_data = parse_table($self->src2); # Read src2 FITS file as array of hashes
+    my $src_data = Data::ParseTable::parse_table($self->src2); # Read src2 FITS file as array of hashes
     $self->sources( $src_data );
 }
 
@@ -544,7 +626,6 @@ sub src2 {
 	    my ($evt2) = get_archive_files(obsid     => $self->obsid,
 					   prod      => $self->instrument . '2[*evt2*]',
 					   file_glob => $self->instrument . '*evt2.fits*',
-					   gunzip    => 1,
 					   dir       => $self->work_dir,
 					  );
 	    die "Could not get evt2 file\n" unless $evt2;
@@ -572,7 +653,6 @@ sub fidpr {
 				      file_glob => "pcad*fidpr*fits*",
 				      version   => [4,3,2,1],
 				      dir       => $self->work_dir,
-				      gunzip    => 1,
 				     );
 	$self->{fidpr} = \@fidpr;
     }
@@ -631,13 +711,13 @@ sub make_src2_file {
     system($dmcopy);
 
     $dmcopy = "dmcopy \"${src_evt2}\[$img_bin\]\" $src_img clobber=yes";
-    print "$dmcopy\n" if ($par{loud});
+    $log->message("$dmcopy");
     system($dmcopy);
 
 # Find sources in the small field
 
     my $celldet = "celldetect $src_img $src_src2 thresh=$par{snr} clobber=yes";
-    print "$celldet\n" if ($par{loud});
+    $log->message("$celldet");
     system($celldet);
 
     die "Failed to make src2 file\n" unless (-e $src_src2);
@@ -646,7 +726,7 @@ sub make_src2_file {
 }
 
 ##*************************************************************************---
-sub get_catalog_sources {
+sub get_catalog_source_list {
 ##****************************************************************************
     my $self = shift;
 
@@ -727,7 +807,7 @@ sub get_catalog_sources {
     $log->message("Reading Tycho2 and USNO B1 catalogs");
     for my $cat_name (keys %cat_short_name) {
 	my $radius   = $extr_rad*60;
-	my $scat_cmd = sprintf(qq{$ENV{SKA_BIN}/sun4/scat -n 1000 -y $year -c $cat_short_name{$cat_name} -r %.2f %s %s J2000},
+	my $scat_cmd = sprintf(qq{scat -n 1000 -y $year -c $cat_short_name{$cat_name} -r %.2f %s %s J2000},
 			       $extr_rad*60, $self->ra_hms, $self->dec_hms);
 	$log->message("$scat_cmd");
 	my @cat_lines = `$scat_cmd`;
@@ -735,6 +815,7 @@ sub get_catalog_sources {
 	foreach (@cat_lines) {
 	    my @a = split;
 	    my ($ra, $dec) = hms2dec($a[1], $a[2]);
+	    next if ($a[4] > $par{ub1_mag_lim} and $cat_name eq 'USNO-B1.0');
 	    push @cat, {name    => $a[0],
 			ra_hms  => $a[1],
 			dec_hms => $a[2],
@@ -752,13 +833,10 @@ sub get_catalog_sources {
 
     if (defined $ra and defined $dec) {
 	# Apply proper motion correction since 2000.0 epoch
-	$log->message("pm_ra = $pm_ra  pm_dec=$pm_dec  n_years=$n_years_2000 $ra $dec")
-	  if (defined $pm_ra and defined $pm_dec);
 	if (defined $pm_ra and defined $pm_dec) {
 	    $ra  += $pm_ra / $d2a / cos($dec*$d2r) * $n_years_2000;
 	    $dec += $pm_dec / $d2a * $n_years_2000;
 	}
-	$log->message("After: $ra $dec") if (defined $pm_ra and defined $pm_dec);
 	my ($rah, $decd) = dec2hms($ra, $dec);
 	push @cat, {name    => $obspar{object},
 		    ra_hms  => $rah,
@@ -769,24 +847,23 @@ sub get_catalog_sources {
 		    catalog => "SIMBAD_$precision" };
     }
 
-    $log->message("Source catalog for matching:");
-    open CATALOG, "> catalog.dat" or die "Couldn't open catalog.dat for writing\n";
+    # print source catalog and add Y,Z angle for database
     foreach $cat (@cat) {
-	my $out = sprintf "%-15s %12.7f %12.6f %-15s", $cat->{name}, $cat->{ra}, $cat->{dec}, $cat->{catalog};
-	$log->message($out);
-	print CATALOG "$out\n";
+	$cat->{id} = $cat->{name};
+	$cat->{obsid} = $self->obsid;
+	($cat->{y_angle}, $cat->{z_angle}) = main::calc_y_z_r($self->ra, $self->dec, $self->roll,
+							      $cat->{ra}, $cat->{dec});
     }
-    close CATALOG;
 
-    $self->cat(\@cat);
+    return \@cat;
 }
 
 ##************************************************************************---
 sub clean_up {
 ##***************************************************************************
     my $self = shift;
+    (my $clean = shift) =~ tr/A-Z/a-z/;
 
-    (my $clean = $par{clean}) =~ tr/A-Z/a-z/;
     my $asp_glob = "ASP_L1_STD* aca0* asp05* pcad0* sim05* obspar*"; # pcad*asol*";
     my %glob_list = (event => "*evt2.fits* $asp_glob",
 		     all   => "*src2.fits* *evt2.fits* axaf*obs0a.par* $asp_glob",
@@ -794,7 +871,21 @@ sub clean_up {
 		    );
     my $glob = $glob_list{$clean} || '';
 	
-    io($_)->rmtree for glob($glob);
+    foreach (glob($glob)) {
+	$log->message("Cleaning up $_");
+	my $io = io($_);
+	$io->type eq 'dir' ? $io->rmtree : $io->unlink;
+    }
+}
+
+##************************************************************************---
+sub gzip_fits {
+##***************************************************************************
+    my $self = shift;
+
+    for (glob("*.fits")) {
+	system("gzip $_") and die "Couldn't gzip $_" ;
+    }
 }
 
 ##*************************************************************************--
@@ -815,19 +906,7 @@ sub preclean {
 }
 
 ##************************************************************************---
-  sub insert_hash {
-##***************************************************************************
-#    my ($table, $field_values) = @_;
-#    my @fields = sort keys %$field_values; # sort required
-#    my @values = @{$field_values}{@fields};
-#    my $sql = sprintf "insert into %s (%s) values (%s)",
-#        $table, join(",", @fields), join(",", ("?")x@fields);
-#    my $sth = $dbh->prepare_cached($sql);
-#    return $sth->execute(@values);
-  }
-
-##************************************************************************---
-  sub search_hash {
+sub search_hash {
 ##***************************************************************************
 #    my ($table, $field_values) = @_;
 #    my @fields = sort keys %$field_values; # sort required
@@ -836,4 +915,116 @@ sub preclean {
 #    $qualifier = "where ".join(" and ", map { "$_=?" } @fields) if @fields;
 #    $sth = $dbh->prepare_cached("SELECT * FROM $table $qualifier");
 #    return $dbh->selectall_arrayref($sth, {}, @values);
-  }
+}
+
+
+##****************************************************************************
+##****************************************************************************
+package XraySource;
+##****************************************************************************
+##****************************************************************************
+
+use Quat;
+use Ska::Convert qw(dec2hms);
+use Data::Dumper;
+
+# A pseudo-object to provide a clean way of getting all the fields
+# needed for the astromon_xray_source table
+
+use Class::MakeMethods::Standard::Hash ( 
+					scalar => [ qw(ra dec net_counts net_rate snr) ],
+					hash => 'src2',
+					object => 'obs',
+				       );
+
+# 			   obsid      => 'int',
+# 			   id         => 'varchar(22)', # ala 'CXOU J123456.7+765432'
+# 			   ra         => 'double precision', 
+# 			   dec        => 'double precision',
+# 			   net_counts => 'float',  
+# 			   net_rate   => 'float',  
+# 			   y_angle   => 'float',  
+# 			   z_angle   => 'float',  
+# 			   r_angle   => 'float',  
+# 			   snr        => 'float',
+# 			   status_id  => 'int null',
+#
+
+##************************************************************************---
+sub new {
+##************************************************************************---
+    my $class = shift;
+    my $self = { @_ };
+    bless $self, $class;
+
+    $self->$_( $self->src2($_) ) for qw(ra dec net_counts net_rate snr);
+    
+    return $self;
+}
+
+
+##************************************************************************---
+sub obsid {
+##***************************************************************************
+    my $self = shift;
+    return $self->{obsid} = $self->obs->obsid;
+}
+
+##************************************************************************---
+sub id {
+##***************************************************************************
+    my $self = shift;
+    local $_;
+    my ($ra_hms, $dec_hms) = dec2hms($self->src2('ra'), $self->src2('dec'));
+    $ra_hms =~ s/(\..).*/$1/;
+    $dec_hms =~ s/\..*//;
+    (my $id = "CXOU ${ra_hms}${dec_hms}") =~ s/://g;
+    return $self->{id} = $id;
+}
+    
+##************************************************************************---
+sub y_angle {
+##***************************************************************************
+    my $self = shift;
+    return $self->{y_angle} if defined $self->{y_angle};
+
+    my $obs = $self->obs;
+    ($self->{y_angle}, $self->{z_angle}, $self->{off_axis_angle}) =
+      main::calc_y_z_r($obs->ra, $obs->dec, $obs->roll, $self->src2('ra'), $self->src2('dec'));
+    
+    return $self->{y_angle};
+}
+
+##************************************************************************---
+sub z_angle {
+##***************************************************************************
+    my $self = shift;
+    return $self->{z_angle} if defined $self->{z_angle};
+
+    my $obs = $self->obs;
+    ($self->{z_angle}, $self->{z_angle}, $self->{r_angle}) =
+      main::calc_y_z_r($obs->ra, $obs->dec, $obs->roll, $self->src2('ra'), $self->src2('dec'));
+    
+    return $self->{z_angle};
+}
+
+##************************************************************************---
+sub r_angle {
+##***************************************************************************
+    my $self = shift;
+    return $self->{r_angle} if defined $self->{r_angle};
+
+    my $obs = $self->obs;
+    ($self->{r_angle}, $self->{z_angle}, $self->{r_angle}) =
+      main::calc_y_z_r($obs->ra, $obs->dec, $obs->roll, $self->src2('ra'), $self->src2('dec'));
+    
+    return $self->{r_angle};
+}
+
+##************************************************************************---
+sub status_id {
+##***************************************************************************
+    my $self = shift;
+    return $self->{status_id};
+}
+
