@@ -1,7 +1,7 @@
 # -*- cperl -*-
     (
      astromon_obs => [		# observation
-		      obsid      => 'int',
+		      obsid      => 'int not null',
 		      version    => 'float null',
 		      detector   => 'varchar(6) null',  
 		      target     => 'varchar(28) null', 
@@ -15,12 +15,16 @@
 		      dec    	 => 'double precision null',
 		      roll   	 => 'double precision null',
 		      process_status => 'varchar(128) null',
+		      [ q/CONSTRAINT pk_obs PRIMARY KEY (obsid)/ ],
 		     ],
+     # create clustered index obsind on astromon_obs(obsid,version)
 
+     
      # detected x-ray source 
      astromon_xray_src => [
-			   obsid      => 'int',
-			   id         => 'varchar(22)', # ala 'CXOU J123456.7+765432'
+			   obsid      => 'int not null',
+			   id         => 'int not null',
+			   name       => 'varchar(22)', # ala 'CXOU J123456.7+765432'
 			   ra         => 'double precision', 
 			   dec        => 'double precision',
 			   net_counts => 'float',  
@@ -29,29 +33,38 @@
 			   z_angle   => 'float',  
 			   r_angle   => 'float',  
 			   snr        => 'float',
+			   near_neighbor_dist => 'float',
+			   double_id => 'int',
 			   status_id  => 'int null',
+			   [ q{CONSTRAINT pk_xray_src PRIMARY KEY (obsid,id)} ],
 			  ],
+     # create clustered index posind on astromon_xray_src(obsid,y_angle,z_angle)
+
      # catalog source
      astromon_cat_src => [
-			  obsid      => 'int',
+			  obsid      => 'int not null',
+			  id         => 'int not null',
 			  catalog    => 'varchar(16)', 
-			  id         => 'varchar(24)',
+			  name       => 'varchar(24)',
 			  ra         => 'double precision', 
 			  dec        => 'double precision',
 			  mag        => 'float null',
 			  y_angle   => 'float',  
 			  z_angle   => 'float',  
+			  [ q{CONSTRAINT pk_cat_src PRIMARY KEY (obsid,id)} ],
 			 ],
+     # create clustered index posind on astromon_cat_src(obsid,y_angle,z_angle)
 
      # Cross-correlated source
      astromon_xcorr => [
-			obsid   => 'int',
-			catalog => 'varchar(16)',
-			c_id    => 'varchar(24)',
-			x_id    => 'int',
-			dy      => 'float',  
-			dz      => 'float',  
-			dr      => 'float',
+			select_name  => 'varchar(24) not null',
+			obsid   => 'int  not null',
+			c_id    => 'int not null',
+			x_id    => 'int not null',
+			dy      => 'float not null',  
+			dz      => 'float not null',  
+			dr      => 'float not null',
+			[ q{CONSTRAINT pk_cat_src PRIMARY KEY (select_name,obsid,c_id,x_id)} ],
 		       ],
      # Status messages
      astromon_status => [

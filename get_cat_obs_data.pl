@@ -39,8 +39,8 @@ use Data::Dumper;
 use DBI;
 use DBD::Sybase;
 
-our $ASTROMON_SHARE = "$ENV{SKA_SHARE}/astromon";
-our $ASTROMON_DATA  = "$ENV{SKA_DATA}/astromon";
+our $ASTROMON_SHARE = "$ENV{SKA}/share/astromon";
+our $ASTROMON_DATA  = "$ENV{SKA}/data/astromon";
 # Set up some constants
 
 $ENV{UPARM} = $ASTROMON_DATA;
@@ -79,7 +79,10 @@ OBSID: foreach my $obsid (@obsid) {
 
     my $obs = Obs->new(obsid => $obsid);
 
-    my %table;			# Final tables that will get put to database
+    my %table = (astromon_obs      => {},
+		 astromon_xray_src => [],
+		 astromon_cat_src  => [],
+		);			# Final tables that will get put to database
 
     # Check for an existing entry in database for this observation
     my $astromon_obs = get_astromon_obs_from_db($dbh, $obsid);
@@ -103,18 +106,20 @@ OBSID: foreach my $obsid (@obsid) {
 
 	# Set all the fields in the astromon_obs table
 	
-	%td = @{$astromon_table_def{astromon_obs}}; # How to coerce table to hash in one step??
+	%td = grep {not ref} @{$astromon_table_def{astromon_obs}}; # How to coerce table to hash in one step??
 	foreach (sort keys %td) {$table{astromon_obs}->{$_} = $obs->$_;} 
 
 	my %info = get_seqnum_info($obs->obspar->{seq_num});
 	die "Category ($info{categ}) is bad\n" if grep { $_ eq $info{categ} } @BAD_CATEG;
 
 	# Get the X-ray source list for this obsid
-	%td = @{$astromon_table_def{astromon_xray_src}}; 
+	%td = grep {not ref} @{$astromon_table_def{astromon_xray_src}}; 
 	my $src2_data = Data::ParseTable::parse_table($obs->src2); 
-	foreach my $src2 (@$src2_data) {
-	    my $xray_source = XraySource->new(obs  => $obs,
-					      src2 => $src2);
+
+	my @xray_sources = map { XraySource->new(obs  => $obs, src2 => $_) } @$src2_data;
+	foreach my $xray_source (@xray_sources) {
+	    # Tell source about the other sources
+	    $xray_source->xray_sources([ grep { $xray_source != $_ } @xray_sources ]); 
 	    push @{$table{astromon_xray_src}}, { map { $_ => $xray_source->$_ } sort keys %td };
 	}
 	    
@@ -162,7 +167,7 @@ sub overwrite_table_rows {
     my @table_data = ref($table_data) eq 'ARRAY' ? @$table_data : ($table_data);
 
     # Get the columns from table definition (which is an array ref of col=>def pairs)
-    my @table_cols = keys %{ {@$table_def} };
+    my @table_cols = keys %{ {grep {not ref} @$table_def} };
 
     my $where = join(' AND ', map { "$_=$delete_keys->{$_}" } keys %$delete_keys);
     my $do = "DELETE FROM $table_name WHERE $where";
@@ -351,8 +356,8 @@ sub calc_y_z_r {
     my $r2d = 180/3.14159265358979;
     my $q = Quat->new($ra, $dec, $roll);
     my ($y_angle, $z_angle) = Quat::radec2yagzag($src_ra, $src_dec, $q);
-    $y_angle *= $r2d * 60;	# in arcmin
-    $z_angle *= $r2d * 60;	# in arcmin
+    $y_angle *= $r2d * 3600;	# in arcsec
+    $z_angle *= $r2d * 3600;	# in arcsec
     my $r_angle = sqrt( $y_angle**2 + $z_angle**2 );
 
     return ($y_angle, $z_angle, $r_angle);
@@ -847,9 +852,10 @@ sub get_catalog_source_list {
 		    catalog => "SIMBAD_$precision" };
     }
 
-    # print source catalog and add Y,Z angle for database
+    # Add Y,Z angle for database
+    my $cat_id = 1;
     foreach $cat (@cat) {
-	$cat->{id} = $cat->{name};
+	$cat->{id} = $cat_id++;
 	$cat->{obsid} = $self->obsid;
 	($cat->{y_angle}, $cat->{z_angle}) = main::calc_y_z_r($self->ra, $self->dec, $self->roll,
 							      $cat->{ra}, $cat->{dec});
@@ -932,7 +938,8 @@ use Data::Dumper;
 # needed for the astromon_xray_source table
 
 use Class::MakeMethods::Standard::Hash ( 
-					scalar => [ qw(ra dec net_counts net_rate snr) ],
+					scalar => [ qw(ra dec net_counts snr double_id) ],
+					array => 'xray_sources',
 					hash => 'src2',
 					object => 'obs',
 				       );
@@ -971,15 +978,15 @@ sub obsid {
 }
 
 ##************************************************************************---
-sub id {
+sub name {
 ##***************************************************************************
     my $self = shift;
     local $_;
     my ($ra_hms, $dec_hms) = dec2hms($self->src2('ra'), $self->src2('dec'));
     $ra_hms =~ s/(\..).*/$1/;
     $dec_hms =~ s/\..*//;
-    (my $id = "CXOU ${ra_hms}${dec_hms}") =~ s/://g;
-    return $self->{id} = $id;
+    (my $name = "CXOU ${ra_hms}${dec_hms}") =~ s/://g;
+    return $self->{name} = $name;
 }
     
 ##************************************************************************---
@@ -1022,9 +1029,37 @@ sub r_angle {
 }
 
 ##************************************************************************---
+sub id {
+##***************************************************************************
+    my $self = shift;
+    return $self->src2('component');
+}
+
+##************************************************************************---
 sub status_id {
 ##***************************************************************************
     my $self = shift;
     return $self->{status_id};
 }
+
+##************************************************************************---
+sub near_neighbor_dist {
+##***************************************************************************
+    my $self = shift;
+    
+    return $self->{near_neighbor_dist} if defined $self->{near_neighbor_dist};
+
+    # Find the distance to the nearest neighbor
+    my $near_neighbor_dist2 = 1e38;
+    foreach my $xs (@{$self->xray_sources}) {
+	next if $xs == $self;
+	if ((my $dist2 = ($xs->y_angle - $self->y_angle)**2 + ($xs->z_angle - $self->z_angle)**2) 
+	    < $near_neighbor_dist2) {
+	    $near_neighbor_dist2 = $dist2;
+	}
+    }
+
+    return $self->{near_neighbor_dist} =  sqrt($near_neighbor_dist2) ;
+}
+
 

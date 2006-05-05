@@ -10,7 +10,7 @@ TASK = astromon
 SHARE = get_cat_obs_data.pl
 
 # These are input data file required by astromon
-DATA = ASTROMON_table.rdb ICRS_tables astromon.par astromon_table_defs 
+DATA = ASTROMON_table.rdb ICRS_tables astromon.par astromon_table_defs standard_xcorr.sql
 
 # Files that need to be installed in the local area for test purposes.
 # Rules defined in Makefile.FLIGHT attempt first to locate files in the
@@ -35,11 +35,11 @@ include /proj/sot/ska/include/Makefile.FLIGHT
 
 test: check_install $(BIN) $(TEST_DEPS) install
 	mkdir -p $(INSTALL_DATA)/Obs_data
-	$(INSTALL_SHARE)/get_cat_obs_data.pl 5390
+	$(INSTALL_SHARE)/get_cat_obs_data.pl 6893
 
 test_force: check_install $(BIN) $(TEST_DEPS) install
 	mkdir -p $(INSTALL_DATA)/Obs_data
-	$(INSTALL_SHARE)/get_cat_obs_data.pl -force 5390
+	$(INSTALL_SHARE)/get_cat_obs_data.pl -force 5390 6893
 
 test_quick: check_install $(BIN) $(TEST_DEPS) install
 	mkdir -p $(INSTALL_DATA)/Obs_data

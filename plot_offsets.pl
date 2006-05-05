@@ -3,39 +3,67 @@
 use warnings;
 use strict;
 
+use IO::All;
+use Getopt::Long;
+use Ska::Process qw(get_params);
+use Ska::DatabaseUtil qw(:all);
 use PDL;
 use PDL::Graphics::PGPLOT::Window;
+use Data::Dumper;
 
-our $PLOT_DATA_FILE = "$CELMON_DATA/PLOT_DATA.rdb";
+our $ASTROMON_SHARE = "$ENV{SKA}/share/astromon";
+our $ASTROMON_DATA  = "$ENV{SKA}/data/astromon";
+our $PLOT_DATA_FILE = "$ASTROMON_DATA/plot.dat";
+
+my $query = <<END_OF_QUERY ;
+SELECT *
+  FROM  astromon_xcorr AS xc 
+    JOIN astromon_cat_src  AS c ON xc.obsid = c.obsid AND xc.c_id = c.id
+    JOIN astromon_xray_src AS x ON xc.obsid = x.obsid AND xc.x_id = x.id
+    JOIN astromon_obs      AS o ON xc.obsid = o.obsid
+END_OF_QUERY
+
+$ENV{UPARM} = $ASTROMON_DATA;
+my %par = get_params("astromon.par");
+
+# Get sybase database handle for aca database for user=aca_ops
+my $dbh = sql_connect('sybase-aca-aca_ops');
+
+my @query_data = sql_fetchall_array_of_hashref($dbh, $query);
+
+print Dumper \@query_data;
 
 ##***************************************************************************
 sub make_plots {
 ##***************************************************************************
-    $tmp_data_file = $PLOT_DATA_FILE;
-    %det_mapping = ('ACIS-S' => 0,
+    my $tmp_data_file = $PLOT_DATA_FILE;
+    my %det_mapping = ('ACIS-S' => 0,
 		    'ACIS-I' => 1,
 		    'HRC-S' => 2,
 		    'HRC-I' => 3);
+    my @db;
+    my %obsid;
+    my %data;
     
 # Read celestial location database
 
     print "Making celestial location plots\n" if ($par{loud});
-    $rdb = new RDB "${cel_loc_db}" or die "Couldn't open ${cel_loc_db}\n";
-    while( $rdb->read( \%data )) {
-	unless ($data{status}) { # Any non-blank status indicates a problem with data
-	    push @db, {%data};
-	    $obsid{$data{obsid}} = 1;
-	}
-    }
-    undef $rdb;
+#    my $rdb = new RDB "${cel_loc_db}" or die "Couldn't open ${cel_loc_db}\n";
+#    while( $rdb->read( \%data )) {
+#	unless ($data{status}) { # Any non-blank status indicates a problem with data
+#	    push @db, {%data};
+#	    $obsid{$data{obsid}} = 1;
+#	}
+#    }
+#    undef $rdb;
 
     open DATA, "> $tmp_data_file" or die "Couldn't open $tmp_data_file\n";
     print DATA join("\t", qw(detector tstart dy dz pos_ref version obsid det date_obs)), "\n";
     print DATA join("\t", qw(  N        N    N   N    N      N      N     S       s)), "\n";
-    foreach $obsid (keys %obsid) {
-	@dbo = grep {$_->{obsid} == $obsid} @db;
-	@cat = unique_sources(@dbo);
-	foreach $cat (@cat) {
+    foreach my $obsid (keys %obsid) {
+	my @dbo = grep {$_->{obsid} == $obsid} @db;
+	my @cat = unique_sources(@dbo);
+	foreach my $cat (@cat) {
 	    next unless ($cat->{field_dr} < $par{max_field_dr});
 	    print DATA join("\t", $det_mapping{$cat->{detector}},
 				  $cat->{tstart},
@@ -52,8 +80,8 @@ sub make_plots {
 
     plot_time_history($tmp_data_file);
 
-    system("ps2gif -scale 1.3 $CELMON_DATA/offsets.ps");
-    print "Files offsets.ps and offsets.gif created\n" if ($par{loud});
+    system("ps2gif -scale 1.3 $ASTROMON_DATA/offsets.ps");
+#    print "Files offsets.ps and offsets.gif created\n" if ($par{loud});
 }
 
 ##*****************************************************************************
@@ -63,7 +91,7 @@ sub plot_time_history {
     my @dets = qw(ACIS-S ACIS-I HRC-S HRC-I);
     my $d = Ska::HashTable->new($file)->row("pos_ref <= 1");
 
-    my $device = "$CELMON_DATA/offsets.ps/cps";	# color postscript file
+    my $device = "$ASTROMON_DATA/offsets.ps/cps";	# color postscript file
 
     my $win = PDL::Graphics::PGPLOT::Window->new(Device => $device,
 					      NXPanel => 1,
@@ -102,9 +130,9 @@ sub unique_sources {
     my @src = ();
     my $match;
 
-    foreach $db (@db) {
+    foreach my $db (@db) {
 	$match = 0;
-	foreach $src (@src) {
+	foreach my $src (@src) {
 	    if (radec_dist($db->{ra}, $db->{dec}, $src->{ra}, $src->{dec})*3600 < $par{det_rad}) {
 		$match = 1;
 		# Replace the source entry if DB version is "better" than source
@@ -131,5 +159,54 @@ sub catalog_order {
 #   $ord = 3 if (/SIMBAD/);
 
     return $ord;
+}
+
+##****************************************************************************
+sub fetchall_array_of_hashref {
+##****************************************************************************
+    my $dbh = shift;
+    my $statement = shift;
+    my @arg = @_;
+    my @out;
+
+    my $sth = $dbh->prepare($statement)
+      or die "Bad SQL statement '$statement': " . $dbh->errstr;
+    
+    $sth->execute(@arg);
+    while (my $row = $sth->fetchrow_hashref) {
+	push @out, $row;
+    }
+
+    return @out;
+ }
+
+#########################################################################
+sub sql_do {
+#########################################################################
+    my $dbh = shift;
+    my $sql = shift;
+    $dbh->do($sql) or die "$sql: " . $dbh->errstr;
+}	
+
+
+##****************************************************************************
+sub get_dbh {
+# Accessor returning (and possibly creating) global sybase handle
+##****************************************************************************
+    my $sybase_pwd < io("$ENV{SKA}/data/aspect_authorization/sybase-aca-aca_ops");
+    chomp $sybase_pwd;
+
+    ##-- Make database connection 2: sybase 
+    my $server 	= "server=sybase";
+    my $db     	= "database=aca";
+    my $db_user = "aca_ops";
+    my $dbh = DBI->connect("DBI:Sybase:$server;$db", $db_user, $sybase_pwd,
+			    { PrintError => 0,
+			      RaiseError => 1
+			    }
+			   );
+    die "Couldn't connect: $DBI::errstr" unless ($dbh);
+
+    return $dbh;
 }
 
