@@ -38,6 +38,7 @@ use IO::All;
 use Data::Dumper;
 use DBI;
 use DBD::Sybase;
+use POSIX qw(strftime);
 
 our $ASTROMON_SHARE = "$ENV{SKA}/share/astromon";
 our $ASTROMON_DATA  = "$ENV{SKA}/data/astromon";
@@ -51,9 +52,10 @@ $| = 1;
 ##****************************************************************************
 
 our %par = get_options();	# Parse command line options
-our $log = Ska::Message->new(file => "$ASTROMON_DATA/log",
-			     append => 1,
-			    );
+
+my $log_dir = io("$ASTROMON_DATA/log")->mkpath;
+our $log = Ska::Message->new(file => "$log_dir/" . strftime("%Y-%m-%d_%H:%M", localtime));
+
 my $date = localtime;
 my $banner = "----------- Starting get_cat_obs_data.pl at $date ------------";
 $log->message("");
