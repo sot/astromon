@@ -17,7 +17,7 @@ DATA = ASTROMON_table.rdb ICRS_tables astromon.par astromon_table_defs standard_
 # local t/ directory, followed by the flight root (/proj/sot/{ska,tst}). 
 # In this case, the first two come from t/ while the scat program is
 # from /proj/sot/ska
-TEST_DEPS = data/aspect_authorization/sybase-aca-aca_ops sparc_bin linux_bin
+TEST_DEPS = data/aspect_authorization/sybase-aca-aca_ops sparc_bin linux_bin bin/ps2any
 
 # Set Flight environment to be SKA.  The other choice is TST.  Include the
 # Makefile.FLIGHT make file that does most of the hard work

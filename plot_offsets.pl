@@ -5,101 +5,109 @@ use strict;
 
 use IO::All;
 use Getopt::Long;
-use Ska::Process qw(get_params);
+use Ska::Process qw(get_params run_tool get_archive_files);
 use Ska::DatabaseUtil qw(:all);
+use Ska::RDB qw(write_rdb);
+use Ska::HashTable;
 use PDL;
 use PDL::Graphics::PGPLOT::Window;
+use PDL::Graphics::LUT;
 use Data::Dumper;
+use List::MoreUtils;
+use CXC::Envs;
+use Carp;
+use Chandra::Tools::dmcoords;
+
 
 our $ASTROMON_SHARE = "$ENV{SKA}/share/astromon";
 our $ASTROMON_DATA  = "$ENV{SKA}/data/astromon";
-our $PLOT_DATA_FILE = "$ASTROMON_DATA/plot.dat";
+%ENV = CXC::Envs::ciao();
+
+our %opt = (select_name => 'standard_xcorr',
+	    batch => 0,
+	   );
+our %title = (dy_dz => 'DY = red triangle  DZ = blue square',
+	      dr    => 'DR = green circle',
+	     );
+
+GetOptions(\%opt,
+	   'select_name=s',
+	   'batch!',
+	  );
 
 my $query = <<END_OF_QUERY ;
-SELECT *
+SELECT *,
+       x.ra AS x_ra, x.dec AS x_dec,
+       c.ra AS c_ra, c.dec AS c_dec
   FROM  astromon_xcorr AS xc 
     JOIN astromon_cat_src  AS c ON xc.obsid = c.obsid AND xc.c_id = c.id
     JOIN astromon_xray_src AS x ON xc.obsid = x.obsid AND xc.x_id = x.id
     JOIN astromon_obs      AS o ON xc.obsid = o.obsid
+    WHERE xc.select_name='$opt{select_name}'
 END_OF_QUERY
 
-$ENV{UPARM} = $ASTROMON_DATA;
-my %par = get_params("astromon.par");
-
 # Get sybase database handle for aca database for user=aca_ops
-my $dbh = sql_connect('sybase-aca-aca_ops');
+our $dbh = sql_connect('sybase-aca-aca_ops');
 
 my @query_data = sql_fetchall_array_of_hashref($dbh, $query);
 
-print Dumper \@query_data;
+# Take the raw cross-correlation data and massage a bit for plotting
+my @plot_data = get_plot_data(@query_data);
+
+# Write to an RDB file for convenience later
+my $plot_data_file = "$ASTROMON_DATA/$opt{select_name}_plot.rdb";
+write_rdb($plot_data_file,
+	  \@plot_data,
+	 );
+
+# Now plot using the RDB file
+plot_all_offsets($plot_data_file);
+
+# Convert to gif
+# system("ps2gif -scale 1.3 $ASTROMON_DATA/offsets.ps");
 
 ##***************************************************************************
-sub make_plots {
+sub get_plot_data {
 ##***************************************************************************
-    my $tmp_data_file = $PLOT_DATA_FILE;
-    my %det_mapping = ('ACIS-S' => 0,
-		    'ACIS-I' => 1,
-		    'HRC-S' => 2,
-		    'HRC-I' => 3);
-    my @db;
-    my %obsid;
-    my %data;
-    
-# Read celestial location database
+    my @db = @_;
+    my @plot_data;
+    my %det_ref = ('acis-s' => 0,
+		   'acis-i' => 1,
+		   'hrc-s' => 2,
+		   'hrc-i' => 3);
 
-    print "Making celestial location plots\n" if ($par{loud});
-#    my $rdb = new RDB "${cel_loc_db}" or die "Couldn't open ${cel_loc_db}\n";
-#    while( $rdb->read( \%data )) {
-#	unless ($data{status}) { # Any non-blank status indicates a problem with data
-#	    push @db, {%data};
-#	    $obsid{$data{obsid}} = 1;
-#	}
-#    }
-#    undef $rdb;
-
-    open DATA, "> $tmp_data_file" or die "Couldn't open $tmp_data_file\n";
-    print DATA join("\t", qw(detector tstart dy dz pos_ref version obsid det date_obs)), "\n";
-    print DATA join("\t", qw(  N        N    N   N    N      N      N     S       s)), "\n";
-    foreach my $obsid (keys %obsid) {
+    my @obsids = List::MoreUtils::uniq map {$_->{obsid}} @db;
+    foreach my $obsid (@obsids) {
 	my @dbo = grep {$_->{obsid} == $obsid} @db;
 	my @cat = unique_sources(@dbo);
 	foreach my $cat (@cat) {
-	    next unless ($cat->{field_dr} < $par{max_field_dr});
-	    print DATA join("\t", $det_mapping{$cat->{detector}},
-				  $cat->{tstart},
-				  $cat->{dy},
-				  $cat->{dz},
-				  catalog_order($cat->{pos_ref}),
-				  $cat->{version},
-				  $obsid,
-				  $cat->{detector},
-			          $cat->{date_obs}), "\n";
+# 	    next unless ($cat->{field_dr} < $par{max_field_dr});
+	    push @plot_data, { pos_ref  => catalog_accuracy($cat->{catalog}),
+			       obsid    => $obsid,
+			       detector => uc $cat->{detector},
+			       det_ref  => $det_ref{ $cat->{detector} },
+			       map { $_ => $cat->{$_} } qw(tstart dy dz dr catalog version date_obs
+							   c_id x_id r_angle near_neighbor_dist double_id
+							   status_id process_status grating sim_z net_counts snr
+							   fids target x_ra x_dec c_ra c_dec),
+			     };
 	}
     }
-    close DATA;
 
-    plot_time_history($tmp_data_file);
-
-    system("ps2gif -scale 1.3 $ASTROMON_DATA/offsets.ps");
-#    print "Files offsets.ps and offsets.gif created\n" if ($par{loud});
+    return @plot_data;
 }
 
 ##*****************************************************************************
-sub plot_time_history {
+sub plot_all_offsets {
 ##*****************************************************************************
     my $file = shift;
-    my @dets = qw(ACIS-S ACIS-I HRC-S HRC-I);
-    my $d = Ska::HashTable->new($file)->row("pos_ref <= 1");
+    my $d = Ska::HashTable->new($file)->row("pos_ref < 10");
+
+    my @det_names = qw(ACIS-S ACIS-I HRC-S HRC-I);
 
     my $device = "$ASTROMON_DATA/offsets.ps/cps";	# color postscript file
-
-    my $win = PDL::Graphics::PGPLOT::Window->new(Device => $device,
-					      NXPanel => 1,
-					      NYPanel => 4,
-					      WindowXSize => 7,
-					      WindowYSize => 10.
-					     );
-
+    $device = '/xs';
+    
     my $t = pdl $d->col("tstart");
     my $yr = $t / 86400. / 365.25 + 1998.0;
     my ($x0, $x1) = minmax($yr);
@@ -107,106 +115,492 @@ sub plot_time_history {
     $x1 += 0.1;
     my ($y0, $y1) = (-3, 3);
 
-    for my $det (0 .. 3) {
-	$win->env($x0, $x1, $y0, $y1, {Panel => $det+1, charsize=>2.0});
-	$win->label_axes("Year", "Offset (arcsec)", "$dets[$det]: DY = red triangle  DZ = blue square",
-			 {
-			  charsize=>2.0});
-	my $d_det = $d->row("detector eq $det");
-	my $dy = pdl $d_det->col("dy");
-	my $dz = pdl $d_det->col("dz");
-	my $x  = pdl($d_det->col("tstart")) / 86400. / 365.25 + 1998.0;
-	$win->points($x, $dy, {color => 'red', symbol => 13, charsize=>2.5});
-	$win->points($x, $dz, {color => 'blue', symbol => 16, charsize=>2.5});
+    # Make a HashTable object for each of the four detectors
+    my @d_for_det = map { scalar $d->row("det_ref eq $_") } (0..3);
 
-	map { $win->line([$x0,$x1], [$_, $_], {linestyle => 'dotted'}) } (-2,-1,0,1,2);
-    }    
+    my $plot_info = {data => \@d_for_det,
+		     det_num => 0,
+		     interactive => 1,
+		     x0 => $x0,
+		     x1 => $x1,
+		     y0 => $y0,
+		     y1 => $y1,
+		     x0_lim => $x0,
+		     x1_lim => $x1,
+		     y0_lim => $y0,
+		     y1_lim => $y1,
+		     charsize => 1.4,
+		     symbol_size => 1.4,
+		     xsize => 7,
+		     ysize => 4,
+		     device => '/xs',
+		     det_names => \@det_names,
+		     plot_dr  => 0,
+		     plot_bad => 0,
+		     title => $title{dy_dz},
+		    };
+
+    if ($opt{batch}) {
+	foreach my $det (0..3) {
+	    $plot_info = { %$plot_info,
+			   device      => "$ASTROMON_DATA/offsets-$det_names[$det].ps/cps",
+			   det_num     => $det,
+			   interactive => 0,
+			   charsize    => 2.0,
+			   symbol_size => 2.0,
+			 };
+	    plot_offsets( $plot_info );
+	}
+    } else {
+	while (plot_offsets($plot_info)) {};
+    }
+}
+
+##*****************************************************************************
+sub plot_offsets {
+##*****************************************************************************
+    my $pi = shift;		# Plot Info
+
+    unless (defined $pi->{win}) {
+	$pi->{win} = PDL::Graphics::PGPLOT::Window->new(Device => $pi->{device},
+							WindowXSize => $pi->{xsize},
+							WindowYSize => $pi->{ysize},
+						       );
+	$pi->{win}->ctab(lut_data('rainbow2')); # set up color palette to 'idl5' 
+    }
+
+    my $win = $pi->{win};
+    
+    # Draw the new plot window
+    $win->env($pi->{x0}, $pi->{x1}, $pi->{y0}, $pi->{y1},
+	      {charsize => $pi->{charsize}}
+	     );
+    $win->label_axes("Year",
+		     "Offset (arcsec)", 
+		     $pi->{det_names}[$pi->{det_num}] . " : $pi->{title}",
+		     {charsize=>$pi->{charsize}});
+
+    # Define the data.  Each var is an array ref
+    my @points = get_plot_points($pi);
+
+    # Collate (by color and symbol) the points and plot
+    for my $p (collate(@points)) {
+	$win->points($p->{x}, $p->{y}, {color => $p->{color}, symbol => $p->{symbol}, charsize=>$pi->{symbol_size}});
+    }
+
+    # Draw reference dashed lines to show -2..+2 arcsec offsets
+    foreach (-2,-1,0,1,2) {
+	$win->line([$pi->{x0},$pi->{x1}], [$_, $_], {linestyle => 'dotted'});
+    }
+
+    # If batch mode, just close window and return
+    if (not $pi->{interactive}) {
+	$win->close;
+	delete $pi->{win};
+	return;
+    }
+
+    # Get key/mouse inputs and perform actions
+    my $ch = '';
+    ($pi->{x}, $pi->{y}, $ch) = $win->cursor({# Type => 'CrossHair',
+					      Xref => $pi->{xref},
+					      Yref => $pi->{yref},
+					     });
+    if ($ch eq 'A') {
+	zoom_in($pi, $win);
+    } elsif ($ch eq 'p' or $ch eq 'X') {
+	pan_out($pi);
+    } elsif ($ch =~ /\A [1234] \Z/x) {
+	$pi->{det_num} = $ch-1;
+    } elsif ($ch =~ /[Dics ]/) {
+	inspect_data_point($pi, $ch, @points);
+    } elsif ($ch =~ /b/) {
+	$pi->{plot_bad} = not $pi->{plot_bad};
+    } elsif ($ch =~ /r/) {
+	$pi->{plot_dr} = not $pi->{plot_dr};
+	$pi->{title} = $pi->{plot_dr} ? $title{dr} : $title{dy_dz}; 
+    } elsif ($ch eq 'h') {
+	print <<COMMANDS;
+Commands:
+  Left-click   : Zoom (left-click again to define other corner)
+  Middle-click : Info about point at cursor
+   or <space>
+  Right-click  : Pan 
+   or 'p'            
+  1 2 3 4      : Change detector (ACIS-S, ACIS-I, HRC-S, HRC-I)
+  i            : Make image of point at cursor (gets evt data from archive)
+  c            : Clean files associated with point at cursor 
+  s            : Change status_id for point (set as extended etc)
+  b            : Toggle whether to plot 'bad' points (with status_id != 0)
+  r            : Toggle plotting dy/dz or dr
+  h            : List this help
+COMMANDS
+    }
+	
+    $pi->{xref} = $pi->{x};
+    $pi->{yref} = $pi->{y};
+
+    
+    return ($ch ne 'q');
+}
+
+##*****************************************************************************
+sub collate {
+# Take a single array of points with different symbols and colors and collect into
+# arrays for each symbol and color
+##*****************************************************************************
+    my %symbol = ();
+    my %color  = ();
+    my %coll = ();
+    my @points = @_;
+    my @out;
+
+    # Find all the symbols and colors
+    for my $p (@points) {
+	$symbol{$p->{symbol}} = 1;
+	$color{$p->{color}} = 1;
+    }
+
+    # Do the collection.  Not the most efficient algorithm (repeated greps) but
+    # performance is not an issue
+    for my $s (keys %symbol) {
+	for my $c (keys %color) {
+	    my @p_ok = grep { $_->{color} eq $c and $_->{symbol} eq $s } @points;
+	    my %out = ();
+	    for my $f (qw(x y data)) {
+		$out{$f} = [ map { $_->{$f} } @p_ok ];
+	    }
+	    $out{symbol} = $s;
+	    $out{color} = $c;
+	    push @out, \%out;
+	}
+    }
+
+    return @out;
+}
+
+##*****************************************************************************
+sub get_plot_points {
+##*****************************************************************************
+    my $pi = shift;
+    my @point;
+    
+    my %symbol = ( dy => 13,
+		   dz => 16,
+		   dr => 16,
+		 );
+    my %color = ( 'ok'  => { dy => 'red',
+			     dz => 'blue',
+			     dr => 'green',
+			   },
+		  'bad' => { dy => 'yellow',
+			     dz => 'green',
+			     dr => 'blue',
+			   },
+		);
+
+    # Define axes and status vals to plot
+    my @plot_axis   = $pi->{plot_dr}  ? qw(dr)     : qw(dy dz);
+    my @plot_status = $pi->{plot_bad} ? qw(ok bad) : qw(ok);
+
+    my $d_det = $pi->{data}->[$pi->{det_num}];
+    $d_det->reset();
+    while (my %d = $d_det->row) {
+	for my $status (@plot_status) {
+	    next if ($status eq 'bad' and $d{status_id}==0);
+	    next if ($status eq 'ok'  and $d{status_id}!=0);
+	    for my $axis (@plot_axis) {
+		push @point, { x      => $d{tstart} / 86400. / 365.25 + 1998.0,
+			       y      => $d{$axis},
+		               color  =>  $color{$status}{$axis},
+			       symbol => $symbol{$axis},
+			       data   => \%d,
+			     };
+	    }
+	}
+    }
+	    
+    return @point;
+}
+
+##*****************************************************************************
+sub inspect_data_point {
+##*****************************************************************************
+    my ($pi, $ch, @points) = @_;
+    my $src = find_nearest($pi, @points);
+
+    printf("Record nearest %.5f, %.2f: Obsid=%d x_id=%d c_id=%d\n",
+	   $pi->{x}, $pi->{y}, $src->{obsid}, $src->{x_id}, $src->{c_id});
+    $Data::Dumper::Sortkeys = 1;
+    print Dumper $src;
+
+    # Create and display image of source
+    if ($ch eq 'i') {
+	my $img_jpeg = make_source_image($src);
+	system("display $img_jpeg &");
+    }
+    # Clean files associated with the data point
+    elsif ($ch eq 'c') {
+	print "Clean: (e)vent file, (i)mage files, (a)ll :";
+	(undef, undef, $ch) = $pi->{win}->cursor();
+	print "$ch\n";
+	my $dir = io(obs_dir($src->{obsid}));
+	$dir->chdir;
+	my $fileglob;
+	$fileglob = "acis*evt2.fits* hrc*evt2.fits*" if $ch eq 'e';
+	$fileglob = "img_*"                          if $ch eq 'i';
+	$fileglob = "*"                              if $ch eq 'a';
+	my @files = glob($fileglob);
+	if (@files) {
+	    print "Removing: ", join("\n",@files), "\n";
+	    print "OK (N/y)? ";
+	    (undef, undef, $ch) = $pi->{win}->cursor();
+	    print "$ch\n";
+	    unlink @files if ($ch eq 'y');
+	} else {
+	    print "No matching files\n";
+	}
+    }
+    # Set status_id
+    elsif ($ch eq 's') {
+	print "Set status_id for x_id=$src->{x_id}.  Current status_id=$src->{status_id}\n";
+	my @status = sql_fetchall_array_of_hashref($dbh,
+						   "select * from astromon_status order by id");
+	foreach (@status) {
+	    printf("%-3d: %s\n", $_->{id}, $_->{status});
+	}
+	print "Value: ";
+	(undef, undef, $ch) = $pi->{win}->cursor();
+	print "$ch\n";
+	
+	if (grep { $ch eq $_->{id} } @status) {
+	    print "Setting status_id to $ch\n";
+	    my $update = <<END_UPDATE;
+UPDATE astromon_xray_src SET status_id=$ch
+ WHERE obsid=$src->{obsid}
+   AND id=$src->{x_id}
+END_UPDATE
+	    sql_do($dbh, $update) or die "Update failed: ", $dbh->errstr;
+	}
+    }
+
+    
+}
+
+##*****************************************************************************
+sub find_nearest {
+##*****************************************************************************
+    my $pi = shift;
+    my @points = @_;
+
+    my $x = pdl( map { $_->{x} } @points );
+    my $y = pdl( map { $_->{y} } @points );
+
+    my $delx = ($x - $pi->{x}) / ($pi->{x1}-$pi->{x0});
+    my $dely = ($y - $pi->{y}) / ($pi->{y1}-$pi->{y0});
+    my (undef, undef, $min_index) = minmaximum( $delx**2 + $dely**2 );
+
+    return $points[ sclr($min_index) ]->{data};
+}
+
+##*****************************************************************************
+sub zoom_in {
+##*****************************************************************************
+    my $pi = shift;
+    my $win = shift;
+    my $ch;
+
+    my $x0 = $pi->{x};
+    my $y0 = $pi->{y};
+
+    ($pi->{x}, $pi->{y}, $ch) = $win->cursor({Type => 'Rectangle',
+					      Xref => $x0,
+					      Yref => $y0,
+					     });
+    return if ($ch ne 'A');
+
+    $pi->{x0} = $x0;
+    $pi->{y0} = $y0;
+
+    for my $a (qw(x y)) {
+	$pi->{"${a}1"} = $pi->{${a}};
+	if ($pi->{"${a}0"} > $pi->{"${a}1"}) {
+	    my $tmp = $pi->{"${a}0"};
+	    $pi->{"${a}0"} = $pi->{"${a}1"};
+	    $pi->{"${a}1"} = $tmp;
+	}
+	if ($pi->{"${a}0"} == $pi->{"${a}1"}) {
+	    $pi->{"${a}0"} = $pi->{"${a}0_lim"};
+	    $pi->{"${a}1"} = $pi->{"${a}1_lim"};
+	}
+	$pi->{$a} = ($pi->{"${a}0"} + $pi->{"${a}1"})/2;
+    }
+}
+
+
+##*****************************************************************************
+sub pan_out {
+##*****************************************************************************
+    my $pi = shift;
+
+    for my $a (qw(x y)) {
+	my $mid = ($pi->{"${a}0"} + $pi->{"${a}1"})/2;
+	my $dist = ($pi->{"${a}1"} - $pi->{"${a}0"});
+	$pi->{"${a}0"} = $mid - $dist;
+	$pi->{"${a}1"} = $mid + $dist;
+	$pi->{"${a}0"} = $pi->{"${a}0_lim"} if ($pi->{"${a}0"} < $pi->{"${a}0_lim"});
+	$pi->{"${a}1"} = $pi->{"${a}1_lim"} if ($pi->{"${a}1"} > $pi->{"${a}1_lim"});
+    }
 }
 
 ##*****************************************************************************
 sub unique_sources {
+# Get the "best" corresponding catalog source for each X-ray source
 ##*****************************************************************************
     my @db = @_;
     my @src = ();
     my $match;
 
-    foreach my $db (@db) {
-	$match = 0;
-	foreach my $src (@src) {
-	    if (radec_dist($db->{ra}, $db->{dec}, $src->{ra}, $src->{dec})*3600 < $par{det_rad}) {
-		$match = 1;
-		# Replace the source entry if DB version is "better" than source
-		$src = $db if ($db->{version} > $src->{version}
-			       || catalog_order($db->{pos_ref}) < catalog_order($src->{pos_ref}));
-		last;
-	    }
+    # Get all the unique X-ray IDs
+    my @x_ids = List::MoreUtils::uniq map { $_->{x_id} } @db;
+
+    # For each unique X-ray ID, find all the corresponding xcorr db entries
+    # and find the "best" catalog among those
+    foreach my $x_id (@x_ids) {
+	my @db_for_x_id = grep { $_->{x_id} == $x_id } @db;
+	my $src;
+	foreach my $db (@db_for_x_id) {
+	    $src = $db if (not defined $src
+			   or $db->{version} > $src->{version}
+			   or catalog_accuracy($db->{catalog}) < catalog_accuracy($src->{catalog}));
 	}
-	push @src, $db unless ($match);
+	push @src, $src;
     }
+
     return @src;
 }
 
 ##*****************************************************************************
-sub catalog_order {
+sub catalog_accuracy {
+# Return a numerical code ranking accuracy
+#  0-9   :   < 0.1 arcsec
+#  10-19 :   < 0.5 arcsec
+#  20    :   > 0.5 arcsec
 ##*****************************************************************************
-    $_ = shift;
-    my $ord = 3;
+    my $catalog = shift;
+    my %accuracy = ( ICRS => 0,
+		     Tycho => 1,
+		     SIMBAD_high => 2,
+		     CELMON => 3,
+		     USNO => 10,
+		     SIMBAD_med => 11,
+		     '2MASS' => 12,
+		   );
 
-    $ord = 2 if (/2MASS/ || /USNO/ || /CELMON/ || /SIMBAD_med/);
-    $ord = 1 if (/SIMBAD_high/ || /CELMON/);
-    $ord = 0 if (/ICRS/ || /Tycho/);
-
-#   $ord = 3 if (/SIMBAD/);
-
-    return $ord;
-}
-
-##****************************************************************************
-sub fetchall_array_of_hashref {
-##****************************************************************************
-    my $dbh = shift;
-    my $statement = shift;
-    my @arg = @_;
-    my @out;
-
-    my $sth = $dbh->prepare($statement)
-      or die "Bad SQL statement '$statement': " . $dbh->errstr;
-    
-    $sth->execute(@arg);
-    while (my $row = $sth->fetchrow_hashref) {
-	push @out, $row;
+    my $accuracy = 20;
+    for (keys %accuracy) {
+	$accuracy = $accuracy{$_} if ($catalog =~ /$_/i);
     }
 
-    return @out;
- }
-
-#########################################################################
-sub sql_do {
-#########################################################################
-    my $dbh = shift;
-    my $sql = shift;
-    $dbh->do($sql) or die "$sql: " . $dbh->errstr;
-}	
-
-
-##****************************************************************************
-sub get_dbh {
-# Accessor returning (and possibly creating) global sybase handle
-##****************************************************************************
-    my $sybase_pwd < io("$ENV{SKA}/data/aspect_authorization/sybase-aca-aca_ops");
-    chomp $sybase_pwd;
-
-    ##-- Make database connection 2: sybase 
-    my $server 	= "server=sybase";
-    my $db     	= "database=aca";
-    my $db_user = "aca_ops";
-    my $dbh = DBI->connect("DBI:Sybase:$server;$db", $db_user, $sybase_pwd,
-			    { PrintError => 0,
-			      RaiseError => 1
-			    }
-			   );
-    die "Couldn't connect: $DBI::errstr" unless ($dbh);
-
-    return $dbh;
+    return $accuracy;
 }
 
+##****************************************************************************
+sub make_source_image {
+# Use PGPLOT to make color image map of source and immediate surrounding
+# and the source extraction / background regions
+##****************************************************************************
+    # Define various file names for use later
+    my $src = shift;
+    my $obsid = $src->{obsid};
+    my $dir = io(obs_dir($obsid));
+    $dir->chdir;
+    (my $instrument = lc $src->{detector}) =~ s/-.+//;
+
+    my $img_ps = sprintf("img_obs%d_x%d_c%d.ps", $src->{obsid}, $src->{x_id}, $src->{c_id});
+    (my $img_fits = $img_ps) =~ s/\.ps\Z/.fits/;
+    (my $img_jpeg = $img_ps) =~ s/\.ps\Z/.jpg/;
+
+    return io($img_jpeg)->absolute->pathname if (-r $img_jpeg);
+
+    print "Getting evt2 data for obsid $obsid: ";
+    my ($evt2) = get_archive_files(obsid     => $obsid,
+				   prod      => $instrument . '2[*evt2*]',
+				   file_glob => $instrument . '*evt2.fits*',
+				   dir       => "$dir",
+				  );
+    die "Could not get evt2 file\n" unless $evt2;
+    print "$evt2\n";
+
+    print "Running dmcoords...\n";
+    confess "Dmcoords error" unless my $DMcoord = Chandra::Tools::dmcoords->new( $evt2 );
+
+    my ($out) = $DMcoord->coords( cel => ($src->{x_ra}, $src->{x_dec}));
+    my $x_x = $out->{sky}{'x'};
+    my $x_y = $out->{sky}{'y'};
+
+    ($out) = $DMcoord->coords( cel => ($src->{c_ra}, $src->{c_dec}));
+    my $c_x = $out->{sky}{'x'};
+    my $c_y = $out->{sky}{'y'};
+
+    my $bin = $instrument eq 'acis' ? 0.5 : 2;
+    my $skypix_per_arcsec = $bin / 0.25; # This is tied to definition of $bin
+    my $sz2 = $bin * 50;
+    my $energy = $instrument eq 'acis' ? '[energy=500:8000]' : '';
+    run_tool(sprintf("dmcopy '%s[bin x=%d:%d:%f,y=%d:%d:%f]$energy' $img_fits clobber=yes",
+		     $evt2, $x_x-$sz2, $x_x+$sz2, $bin, $x_y-$sz2, $x_y+$sz2, $bin),
+	     { loud=>1 }
+	    );
+
+    my $win = PDL::Graphics::PGPLOT::Window->new(device => "$img_ps/vcps",
+						 size => 5,
+						 unit => 'inch', # Inches
+						 hold => 1,
+						 axis =>  'box',  # Make plain (empty) axes
+						);
+    $win->ctab(lut_data('heat', 1));
+    my $img = rfits($img_fits);
+    
+    # Force fits_imag to use Physical (sky) WCS coords instead of (RA,Dec)
+    # which is the default
+    for my $axis (1, 2) {
+	for my $hdrkey (qw(CTYPE CRVAL CRPIX CDELT)) {
+	    $img->hdr->{"${hdrkey}${axis}"} = $img->hdr->{"${hdrkey}${axis}P"};
+	}
+    }
+    $win->fits_imag($img, { itf => 'log',
+			    DrawWedge => 0,
+			    xtitle => ' ',
+			    ytitle=> ' ',
+			  });
+    $win->hold(1);
+    my %figure_opt = ( linewidth => 4,
+		       filltype => 'outline',
+		       color => 'green',
+		     );
+    # make a circle with radius 1"
+    $win->circle($x_x, $x_y, $skypix_per_arcsec, {%figure_opt});
+    $win->line([$c_x-$skypix_per_arcsec/2, $c_x+$skypix_per_arcsec/2],
+	       [$c_y, $c_y],
+	       { %figure_opt });
+    $win->line(	[$c_x, $c_x],
+		[$c_y-$skypix_per_arcsec/2, $c_y+$skypix_per_arcsec/2],
+		{ %figure_opt },
+	      );
+
+    $win->close();
+
+    # Convert to jpeg by using the eps2png perl script
+    run_tool("$ENV{SKA}/bin/ps2any $img_ps -size 400",
+	     { loud=>1 });
+    unlink $img_ps if (-e $img_ps);
+
+    return io($img_jpeg)->absolute->pathname;
+}
+
+sub obs_dir {
+    my $obsid = shift;
+    my $dir = sprintf("$ASTROMON_DATA/obs%02d/%d", $obsid/1000, $obsid);
+    io($dir)->mkpath unless io($dir)->exists;
+    return $dir;
+}

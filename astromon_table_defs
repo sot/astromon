@@ -28,7 +28,6 @@
 			   ra         => 'double precision', 
 			   dec        => 'double precision',
 			   net_counts => 'float',  
-			   net_rate   => 'float',  
 			   y_angle   => 'float',  
 			   z_angle   => 'float',  
 			   r_angle   => 'float',  

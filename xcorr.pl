@@ -19,6 +19,7 @@ our %opt = (select => 'standard_xcorr',
 
 GetOptions(\%opt,
 	   'select=s',
+	   'loud',
 	   )
   or die "Couldn't get options, stopped ";
 
@@ -43,21 +44,19 @@ my @xcorr_data = sql_fetchall_array_of_hashref($dbh, $xcorr_query);
 
 my @obsids = uniq map { $_->{obsid} } @xcorr_data;
 
-# Delete any previous xcorr data for these obsids
-foreach my $obsid (@obsids) {
-    sql_do($dbh,
-	   qq/DELETE FROM astromon_xcorr WHERE obsid=$obsid AND select_name='$opt{select}'/);
-}
+# Delete any previous xcorr data for this select name
+sql_do($dbh,
+       qq/DELETE FROM astromon_xcorr WHERE select_name='$opt{select}'/);
 
 # Insert the new data
-my @astromon_xcorr_cols = keys %{ {@{$table_def{astromon_xcorr}}} };
+my @astromon_xcorr_cols = keys %{ {grep {not ref} @{$table_def{astromon_xcorr}}} };
 
 foreach my $xcorr_data (@xcorr_data) {
     printf("Inserting data for obsid=%d c_id=%d x_id=%d\n",
 	   $xcorr_data->{obsid},
 	   $xcorr_data->{c_id},
 	   $xcorr_data->{x_id},
-	  );
+	  ) if $opt{loud};
     $xcorr_data->{select_name} = $opt{select};
     sql_insert_hash($dbh,
 		    'astromon_xcorr',

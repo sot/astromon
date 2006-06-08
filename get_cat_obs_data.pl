@@ -134,6 +134,9 @@ OBSID: foreach my $obsid (@obsid) {
 	# obs type) or serious (couldn't get a needed file)
 	chomp $@;
 	$log->message("  $@\n");
+
+	# Explicitly set obsid and process status for this failure case
+	$table{astromon_obs}->{obsid} = $obsid;
 	$table{astromon_obs}->{process_status} = $@;
     }
 	
@@ -964,7 +967,7 @@ sub new {
     my $self = { @_ };
     bless $self, $class;
 
-    $self->$_( $self->src2($_) ) for qw(ra dec net_counts net_rate snr);
+    $self->$_( $self->src2($_) ) for qw(ra dec net_counts snr);
     
     return $self;
 }
