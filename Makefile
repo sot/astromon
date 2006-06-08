@@ -7,7 +7,7 @@ TASK = astromon
 
 # Astromon uses this dedicated script to calculate offsets, accounting for
 # improvements in boresight calibration since the data products were processed
-SHARE = get_cat_obs_data.pl
+SHARE = get_cat_obs_data.pl plot_offsets.pl xcorr.pl
 
 # These are input data file required by astromon
 DATA = ASTROMON_table.rdb ICRS_tables astromon.par astromon_table_defs standard_xcorr.sql
