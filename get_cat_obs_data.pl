@@ -53,7 +53,7 @@ $| = 1;
 
 our %par = get_options();	# Parse command line options
 
-my $log_dir = io("$ASTROMON_DATA/log")->mkpath;
+my $log_dir = io("$ASTROMON_DATA/logs/get_cat_obs_data")->mkpath;
 our $log = Ska::Message->new(file => "$log_dir/" . strftime("%Y-%m-%d_%H:%M", localtime));
 
 my $date = localtime;
@@ -112,7 +112,7 @@ OBSID: foreach my $obsid (@obsid) {
 	foreach (sort keys %td) {$table{astromon_obs}->{$_} = $obs->$_;} 
 
 	my %info = get_seqnum_info($obs->obspar->{seq_num});
-	die "Category ($info{categ}) is bad\n" if grep { $_ eq $info{categ} } @BAD_CATEG;
+	die "OK: Category ($info{categ}) is bad\n" if grep { $_ eq $info{categ} } @BAD_CATEG;
 
 	# Get the X-ray source list for this obsid
 	%td = grep {not ref} @{$astromon_table_def{astromon_xray_src}}; 
@@ -135,7 +135,8 @@ OBSID: foreach my $obsid (@obsid) {
 	# Observation not fully processed for some reason.  Could be benign (wrong
 	# obs type) or serious (couldn't get a needed file)
 	chomp $@;
-	$log->message("  $@\n");
+	my $error = ($@ =~ s/^OK: //) ? '' : 'ERROR: ';
+	$log->message("  ${error}$@\n");
 
 	# Explicitly set obsid and process status for this failure case
 	$table{astromon_obs}->{obsid} = $obsid;
