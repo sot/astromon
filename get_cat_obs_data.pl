@@ -158,8 +158,6 @@ OBSID: foreach my $obsid (@obsid) {
 }
 
 $dbh->disconnect();
-print "Exiting successfully!\n";
-POSIX::_exit(0);
 
 ##****************************************************************************
 sub overwrite_table_rows {
@@ -290,6 +288,7 @@ sub get_obsids {
 					  dir       => "$obspar_dir",
 					  gunzip    => 0,
 					  loud      => 0);
+	undef $Ska::Process::arc5gl;
 	$obspar_dir->rmtree if $obspar_dir->exists;
 
 	push @ARGV, grep {$_ = $1+0 if (/axaff(\d+)/ && $1 < 50000)} @obsfiles;
