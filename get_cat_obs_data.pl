@@ -157,6 +157,10 @@ OBSID: foreach my $obsid (@obsid) {
     $obs->gzip_fits();
 }
 
+$dbh->disconnect();
+print "Exiting successfully!\n";
+POSIX::_exit(0);
+
 ##****************************************************************************
 sub overwrite_table_rows {
 ##****************************************************************************
