@@ -66,6 +66,8 @@ plot_all_offsets($plot_data_file);
 # Convert to gif
 # system("ps2gif -scale 1.3 $ASTROMON_DATA/offsets.ps");
 
+undef $Ska::Process::arc5gl;  # Close down arc5gl properly
+
 ##***************************************************************************
 sub get_plot_data {
 ##***************************************************************************
