@@ -435,11 +435,11 @@ sub obspar {
     }
 
     if (exists $obspar{readmode} && $obspar{readmode} =~ /CONTINUOUS/i) {
-	die "Continuous clocking observation\n";
+	die "OK: Continuous clocking observation\n";
     }
 
     if ($obspar{tstop} - $obspar{tstart} > $par{max_time}*1000) {
-	die sprintf("Observation too long (%7.1f > %7.1f ksec)\n",
+	die sprintf("OK: Observation too long (%7.1f > %7.1f ksec)\n",
 		    ($obspar{tstop} - $obspar{tstart})/1000., $par{max_time});
     }
     
