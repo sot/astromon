@@ -83,7 +83,11 @@ sub get_plot_data {
 	my @dbo = grep {$_->{obsid} == $obsid} @db;
 	my @cat = unique_sources(@dbo);
 	foreach my $cat (@cat) {
-# 	    next unless ($cat->{field_dr} < $par{max_field_dr});
+	    # Annoying hack because Data::ParseTable fails for fields like BAADE'S WINDOW
+	    foreach (values %{$cat}) {
+		s/['"]//g if defined $_;
+	    }
+
 	    push @plot_data, { pos_ref  => catalog_accuracy($cat->{catalog}),
 			       obsid    => $obsid,
 			       detector => uc $cat->{detector},
