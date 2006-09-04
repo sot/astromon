@@ -1,6 +1,6 @@
 -- Standard cross X-ray -- Catalog cross correlation query
 --
---  X-ray sources within 4 arcmin off-axis (NONE) or 0.4 arcmin (grating)
+--  X-ray sources within 3 arcmin off-axis (NONE) or 0.4 arcmin (grating)
 --  X-ray snr >  5.0
 --  X-ray extr_rad_grating,r,a,0.4,,,"Extr. rad. around grating source (arcmin)"
 --
@@ -27,6 +27,6 @@ SELECT *, x.id  AS x_id,
 	AND x.snr > 5.0
 ---     AND (x.status_id = NULL or x.status_id = 0) [KEEP so they can be seen if desired]
         AND x.near_neighbor_dist > 6.0
-        AND (x.r_angle < 24 OR (o.grating = 'NONE' AND x.r_angle < 120))
+        AND (x.r_angle < 24 OR (o.grating = 'NONE' AND x.r_angle < 180))
         AND c.catalog IN ('Tycho2', 'SIMBAD_high', 'CELMON', 'ICRS')
         AND (power(c.y_angle-x.y_angle,2) + power(c.z_angle-x.z_angle,2)) < 9.0
