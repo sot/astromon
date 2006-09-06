@@ -1,4 +1,4 @@
-#!/usr/bin/env /proj/sot/ska/bin/perlska
+#!/usr/bin/env /proj/sot/ska/bin/perl
 
 use warnings;
 use strict;
@@ -12,6 +12,7 @@ use Ska::HashTable;
 use PDL;
 use PDL::Graphics::PGPLOT::Window;
 use PDL::Graphics::LUT;
+use PDL::NiceSlice;
 use Data::Dumper;
 use List::MoreUtils;
 use CXC::Envs;
@@ -22,9 +23,16 @@ use Chandra::Tools::dmcoords;
 our $ASTROMON_SHARE = "$ENV{SKA}/share/astromon";
 our $ASTROMON_DATA  = "$ENV{SKA}/data/astromon";
 %ENV = CXC::Envs::ciao();
+our %SIM_z_nom = ('acis-s' => -190.14,
+		  'acis-i' => -233.59,
+		  'hrc-s'  => 250.47,
+		  'hrc-i'  => 126.98);
+
+our %evt2_files; # Event files downloaded to make images.  Ask if want to delete on exit.
 
 our %opt = (select_name => 'standard_xcorr',
 	    batch => 0,
+	    sim_offset => 4.0,  # Max SIM-z offset in mm
 	   );
 our %title = (dy_dz => 'DY = red triangle  DZ = blue square',
 	      dr    => 'DR = green circle',
@@ -33,6 +41,7 @@ our %title = (dy_dz => 'DY = red triangle  DZ = blue square',
 GetOptions(\%opt,
 	   'select_name=s',
 	   'batch!',
+	   'sim_offset=f'
 	  );
 
 my $query = <<END_OF_QUERY ;
@@ -63,10 +72,23 @@ write_rdb($plot_data_file,
 # Now plot using the RDB file
 plot_all_offsets($plot_data_file);
 
-# Convert to gif
-# system("ps2gif -scale 1.3 $ASTROMON_DATA/offsets.ps");
+# Close down arc5gl properly
+undef $Ska::Process::arc5gl;
 
-undef $Ska::Process::arc5gl;  # Close down arc5gl properly
+# Ask user about deleting left over event files
+# First make sure the files are still there:
+do { delete $evt2_files{$_} unless -e $evt2_files{$_}} for keys %evt2_files;
+
+if (my @evt2_files = keys %evt2_files) {
+    print "Some event files were left over:\n";
+    print join("\n", @evt2_files), "\n";
+    print "Clean now (y/N)? ";
+    chomp (my $a = <STDIN>);
+    if ($a eq 'y') {
+	print "Deleting files..\n";
+	unlink @evt2_files{@evt2_files} ;
+    }
+}
 
 ##***************************************************************************
 sub get_plot_data {
@@ -87,6 +109,9 @@ sub get_plot_data {
 	    foreach (values %{$cat}) {
 		s/['"]//g if defined $_;
 	    }
+
+	    # Ignore sources with a SIM-z offset that is too large (more than 4mm by default)
+	    next if abs($cat->{sim_z} - $SIM_z_nom{ $cat->{detector} }) > $opt{sim_offset};
 
 	    push @plot_data, { pos_ref  => catalog_accuracy($cat->{catalog}),
 			       obsid    => $obsid,
@@ -127,6 +152,7 @@ sub plot_all_offsets {
     my $plot_info = {data => \@d_for_det,
 		     det_num => 0,
 		     interactive => 1,
+		     plot_type   => 'strip',
 		     x0 => $x0,
 		     x1 => $x1,
 		     y0 => $y0,
@@ -148,14 +174,38 @@ sub plot_all_offsets {
 
     if ($opt{batch}) {
 	foreach my $det (0..3) {
-	    $plot_info = { %$plot_info,
-			   device      => "$ASTROMON_DATA/offsets-$det_names[$det].ps/cps",
-			   det_num     => $det,
-			   interactive => 0,
-			   charsize    => 2.0,
-			   symbol_size => 2.0,
-			 };
-	    plot_offsets( $plot_info );
+	    # Make strip plot of Y,Z offsets vs. time
+	    my $strip_plot_info = { %$plot_info,
+				    device      => "$ASTROMON_DATA/offsets-$det_names[$det].ps/cps",
+				    plot_type   => 'strip',
+				    det_num     => $det,
+				    interactive => 0,
+				    charsize    => 2.0,
+				    symbol_size => 2.0,
+				  };
+	    plot_offsets( $strip_plot_info );
+
+	    # Make histogram of radial offsets
+	    my $hist_plot_info = { %$plot_info,
+				   device      => "$ASTROMON_DATA/offsets-$det_names[$det]-hist.ps/cps",
+				   det_num     => $det,
+				   interactive => 0,
+				   charsize    => 2.0,
+				   symbol_size => 2.0,
+				   plot_type   => 'histogram',
+				   x0 => 0,
+				   x1 => 1.2,
+				   y0 => 0,
+				   y1 => 1,
+				   x0_lim => 0,
+				   x1_lim => 1.2,
+				   y0_lim => 0,
+				   y1_lim => 1,
+				   xsize => 8,
+				   ysize => 6,
+				   plot_dr => 1,
+				 };
+	    plot_offsets( $hist_plot_info );
 	}
     } else {
 	while (plot_offsets($plot_info)) {};
@@ -181,26 +231,46 @@ sub plot_offsets {
     $win->env($pi->{x0}, $pi->{x1}, $pi->{y0}, $pi->{y1},
 	      {charsize => $pi->{charsize}}
 	     );
-    $win->label_axes("Year",
-		     "Offset (arcsec)", 
-		     $pi->{det_names}[$pi->{det_num}] . " : $pi->{title}",
-		     {charsize=>$pi->{charsize}});
 
     # Define the data.  Each var is an array ref
     my @points = get_plot_points($pi);
 
+    if ($pi->{plot_type} eq 'histogram') {
+	my ($p) = collate(@points);
+	my ($x, $y) = hist pdl($p->{y});
+	my $cy = cumusumover $y;
+	$cy /= $cy($cy->nelem-1);
+	$win->bin($x, $cy);
+	$win->label_axes('Radial offset (arcsec)', 'Cumulative fraction', $pi->{det_names}[$pi->{det_num}],
+			 {charsize=>$pi->{charsize}});
+	$win->hold();
+	plot_hist_lim($win, $x, $cy, 0.9, '90% limit');
+	plot_hist_lim($win, $x, $cy, 0.68, '68% limit');
+    } elsif ($pi->{plot_type} eq 'vector') {
+	$win->label_axes('Y angle (arcmin)', 'Z angle (arcmin)', $pi->{det_names}[$pi->{det_num}],
+			 {charsize=>$pi->{charsize}});
+	$win->hold();
+	foreach my $p (@points) {
+	}
+    } elsif ($pi->{plot_type} eq 'strip') {
     # Collate (by color and symbol) the points and plot
-    for my $p (collate(@points)) {
-	$win->points($p->{x}, $p->{y}, {color => $p->{color}, symbol => $p->{symbol}, charsize=>$pi->{symbol_size}});
+	$win->label_axes("Year",
+			 "Offset (arcsec)", 
+			 $pi->{det_names}[$pi->{det_num}] . " : $pi->{title}",
+			 {charsize=>$pi->{charsize}});
+
+	for my $p (collate(@points)) {
+	    $win->points($p->{x}, $p->{y}, {color => $p->{color}, symbol => $p->{symbol}, charsize=>$pi->{symbol_size}});
+	}
+
+	# Draw reference dashed lines to show -2..+2 arcsec offsets
+	foreach (-2,-1,0,1,2) {
+	    $win->line([$pi->{x0},$pi->{x1}], [$_, $_], {linestyle => 'dotted'});
+	}
     }
 
-    # Draw reference dashed lines to show -2..+2 arcsec offsets
-    foreach (-2,-1,0,1,2) {
-	$win->line([$pi->{x0},$pi->{x1}], [$_, $_], {linestyle => 'dotted'});
-    }
-
-    # If batch mode, just close window and return
-    if (not $pi->{interactive}) {
+    # If batch mode or histogram or vector, just close window and return
+    if ($pi->{plot_type} =~ /histogram|vector/ or not $pi->{interactive}) {
 	$win->close;
 	delete $pi->{win};
 	return;
@@ -248,6 +318,24 @@ COMMANDS
 
     
     return ($ch ne 'q');
+}
+
+##*****************************************************************************
+sub plot_hist_lim {
+##*****************************************************************************
+    my $win = shift;
+    my $x = shift;
+    my $cy = shift;
+    my $lim = shift;
+    my $txt = shift;
+    my $offset = shift || -0.01;
+    my $ok = which ($cy > $lim);
+    my $x0 = $x($ok(0));
+    my $y0 = $cy($ok(0));
+    my $x20 = $x0->append($x0);
+    $win->line($x20, pdl(-1,$y0->at(0)), {linestyle=>'DASHED'});
+    $win->line(pdl(-1,$x0->at(0)), pdl($lim,$lim), {linestyle=>'DASHED'});
+    $win->text($txt, $x0->at(0) + $offset, 0.1, {Angle=>90});
 }
 
 ##*****************************************************************************
@@ -304,6 +392,10 @@ sub get_plot_points {
 			     dr => 'blue',
 			   },
 		);
+    my %off_axis = ( dy => 'y_angle',
+		     dz => 'z_angle',
+		     dr => 'r_angle'
+		   );
 
     # Define axes and status vals to plot
     my @plot_axis   = $pi->{plot_dr}  ? qw(dr)     : qw(dy dz);
@@ -318,6 +410,7 @@ sub get_plot_points {
 	    for my $axis (@plot_axis) {
 		push @point, { x      => $d{tstart} / 86400. / 365.25 + 1998.0,
 			       y      => $d{$axis},
+			       oaa    => $d{ $off_axis{$axis} }, 
 		               color  =>  $color{$status}{$axis},
 			       symbol => $symbol{$axis},
 			       data   => \%d,
@@ -478,7 +571,9 @@ sub unique_sources {
 	foreach my $db (@db_for_x_id) {
 	    $src = $db if (not defined $src
 			   or $db->{version} > $src->{version}
-			   or catalog_accuracy($db->{catalog}) < catalog_accuracy($src->{catalog}));
+			   or catalog_accuracy($db->{catalog}) < catalog_accuracy($src->{catalog})
+			   or $db->{dr} < $src->{dr}
+			  );
 	}
 	push @src, $src;
     }
@@ -537,6 +632,16 @@ sub make_source_image {
 				  );
     die "Could not get evt2 file\n" unless $evt2;
     print "$evt2\n";
+
+    # Set global hash of event files to allow option of deleting on program exit
+    $evt2_files{$evt2} = io($evt2)->absolute->pathname;
+
+    # Weird problem with remote arc5gl causing dismount of /soft/ciao/CALDB.
+    # See: http://jeeves.cfa.harvard.edu/CXCAspect/Aspect/RemoteArcFiveGlProblem
+    while (not -d "$ENV{CALDB}/") {
+	print "Waiting to see $ENV{CALDB}/\n";
+	sleep 2;
+    }
 
     print "Running dmcoords...\n";
     confess "Dmcoords error" unless my $DMcoord = Chandra::Tools::dmcoords->new( $evt2 );
