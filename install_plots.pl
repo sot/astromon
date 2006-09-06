@@ -14,8 +14,8 @@ chdir $ASTROMON_DATA;
 io($ASTROMON_WWW)->mkpath;
 
 foreach my $det (qw(ACIS-S ACIS-I HRC-S HRC-I)) {
-    run("ps2any -size 300 -rotate 90 -frame black " .
+    run("ps2any -size 375 -rotate 90 " .
 	"offsets-${det}.ps $ASTROMON_WWW/offsets-${det}.gif");
-    run("ps2any -size 300 -rotate 90 -frame black " .
+    run("ps2any -size 300 -rotate 90  " .
 	"offsets-${det}-hist.ps $ASTROMON_WWW/offsets-${det}-hist.gif");
 }

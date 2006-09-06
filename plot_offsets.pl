@@ -237,11 +237,14 @@ sub plot_offsets {
 
     if ($pi->{plot_type} eq 'histogram') {
 	my ($p) = collate(@points);
+	my $n_points = @{$p->{x}};
 	my ($x, $y) = hist pdl($p->{y});
 	my $cy = cumusumover $y;
 	$cy /= $cy($cy->nelem-1);
 	$win->bin($x, $cy);
-	$win->label_axes('Radial offset (arcsec)', 'Cumulative fraction', $pi->{det_names}[$pi->{det_num}],
+	$win->label_axes('Radial offset (arcsec)',
+			 'Cumulative fraction',
+			 $pi->{det_names}[$pi->{det_num}] . " ($n_points points)",
 			 {charsize=>$pi->{charsize}});
 	$win->hold();
 	plot_hist_lim($win, $x, $cy, 0.9, '90% limit');
@@ -254,14 +257,14 @@ sub plot_offsets {
 	}
     } elsif ($pi->{plot_type} eq 'strip') {
     # Collate (by color and symbol) the points and plot
+	for my $p (collate(@points)) {
+	    $win->points($p->{x}, $p->{y}, {color => $p->{color}, symbol => $p->{symbol}, charsize=>$pi->{symbol_size}});
+	}
+
 	$win->label_axes("Year",
 			 "Offset (arcsec)", 
 			 $pi->{det_names}[$pi->{det_num}] . " : $pi->{title}",
 			 {charsize=>$pi->{charsize}});
-
-	for my $p (collate(@points)) {
-	    $win->points($p->{x}, $p->{y}, {color => $p->{color}, symbol => $p->{symbol}, charsize=>$pi->{symbol_size}});
-	}
 
 	# Draw reference dashed lines to show -2..+2 arcsec offsets
 	foreach (-2,-1,0,1,2) {
