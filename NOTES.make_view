@@ -1,0 +1,51 @@
+CREATE VIEW astromon_all AS
+SELECT
+   c.obsid as c_obsid,
+   c.id as c_id,
+   c.catalog as c_catalog,
+   c.name as c_name,
+   c.ra as c_ra,
+   c.dec as c_dec,
+   c.mag as c_mag,
+   c.y_angle as c_y_angle,
+   c.z_angle as c_z_angle,
+   x.obsid as x_obsid,
+   x.id as x_id,
+   x.name as x_name,
+   x.ra as x_ra,
+   x.dec as x_dec,
+   x.net_counts as x_net_counts,
+   x.y_angle as x_y_angle,
+   x.z_angle as x_z_angle,
+   x.r_angle as x_r_angle,
+   x.snr as x_snr,
+   x.near_neighbor_dist as x_near_neighbor_dist,
+   x.double_id as x_double_id,
+   x.status_id as x_status_id,
+   xc.select_name as xc_select_name,
+   xc.obsid as xc_obsid,
+   xc.c_id as xc_c_id,
+   xc.x_id as xc_x_id,
+   xc.dy as xc_dy,
+   xc.dz as xc_dz,
+   xc.dr as xc_dr,
+   o.obsid as o_obsid,
+   o.version as o_version,
+   o.detector as o_detector,
+   o.target as o_target,
+   o.grating as o_grating,
+   o.sim_z as o_sim_z,
+   o.date_obs as o_date_obs,
+   o.tstart as o_tstart,
+   o.fids as o_fids,
+   o.ascdsver as o_ascdsver,
+   o.ra as o_ra,
+   o.dec as o_dec,
+   o.roll as o_roll,
+   o.process_status as o_process_status
+  FROM  astromon_xcorr AS xc 
+    JOIN astromon_cat_src  AS c ON xc.obsid = c.obsid AND xc.c_id = c.id
+    JOIN astromon_xray_src AS x ON xc.obsid = x.obsid AND xc.x_id = x.id
+    JOIN astromon_obs      AS o ON xc.obsid = o.obsid
+    WHERE xc.select_name='standard_xcorr'
+;

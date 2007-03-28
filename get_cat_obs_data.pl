@@ -794,7 +794,6 @@ sub get_catalog_source_list {
 		    catalog => 'ICRS' };
     }
 
-
     my %cat_short_name = ('Tycho2'    => 'ty2',
 			  'USNO-B1.0' => 'ub1');
     
