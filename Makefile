@@ -10,7 +10,7 @@ TASK = astromon
 SHARE = get_cat_obs_data.pl plot_offsets.pl xcorr.pl install_plots.pl
 
 # These are input data file required by astromon
-DATA = ASTROMON_table.rdb ICRS_tables astromon.par astromon_table_defs standard_xcorr.sql task_schedule.cfg
+DATA = ASTROMON_table.rdb ICRS_tables astromon.par astromon_table_defs standard_xcorr.sql oaa4_snr4.sql task_schedule.cfg
 
 # Files that need to be installed in the local area for test purposes.
 # Rules defined in Makefile.FLIGHT attempt first to locate files in the
