@@ -596,6 +596,7 @@ sub catalog_accuracy {
 		     Tycho => 1,
 		     SIMBAD_high => 2,
 		     CELMON => 3,
+		     ASTROMON => 4,
 		     USNO => 10,
 		     SIMBAD_med => 11,
 		     '2MASS' => 12,
