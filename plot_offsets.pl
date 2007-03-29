@@ -33,6 +33,7 @@ our %evt2_files; # Event files downloaded to make images.  Ask if want to delete
 our %opt = (select_name => 'standard_xcorr',
 	    batch => 0,
 	    sim_offset => 4.0,  # Max SIM-z offset in mm
+	    pos_ref_lim => 10,
 	   );
 our %title = (dy_dz => 'DY = red triangle  DZ = blue square',
 	      dr    => 'DR = green circle',
@@ -42,6 +43,7 @@ GetOptions(\%opt,
 	   'select_name=s',
 	   'batch!',
 	   'sim_offset=f'
+	   'pos_ref_lim=i'
 	  );
 
 my $query = <<END_OF_QUERY ;
@@ -132,7 +134,7 @@ sub get_plot_data {
 sub plot_all_offsets {
 ##*****************************************************************************
     my $file = shift;
-    my $d = Ska::HashTable->new($file)->row("pos_ref < 10");
+    my $d = Ska::HashTable->new($file)->row("pos_ref < $par{pos_ref_lim}");
 
     my @det_names = qw(ACIS-S ACIS-I HRC-S HRC-I);
 
@@ -597,9 +599,10 @@ sub catalog_accuracy {
 		     SIMBAD_high => 2,
 		     CELMON => 3,
 		     ASTROMON => 4,
-		     USNO => 10,
-		     SIMBAD_med => 11,
-		     '2MASS' => 12,
+		     SDSS => 10,
+		     USNO => 11,
+		     SIMBAD_med => 12,
+		     '2MASS' => 13,
 		   );
 
     my $accuracy = 20;

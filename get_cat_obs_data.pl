@@ -387,6 +387,8 @@ use Data::ParseTable;
 use RDB;
 use IO::All;
 use Data::Dumper;
+use Ska::Web qw(get_url);
+use XML::Simple;
 
 
 use Class::MakeMethods::Standard::Hash ( 
@@ -860,6 +862,8 @@ sub get_catalog_source_list {
 		    catalog => "SIMBAD_$precision" };
     }
 
+    push @cat, $self->get_sdss();
+
     # Add Y,Z angle for database
     my $cat_id = 1;
     foreach $cat (@cat) {
@@ -871,6 +875,52 @@ sub get_catalog_source_list {
 
     return \@cat;
 }
+
+##************************************************************************---
+sub get_sdss {
+#
+#
+# SELECT top 20 p.objid, p.run, p.rerun, p.camcol, p.field, p.obj, p.type, 
+#        p.ra, p.dec, p.u,p.g,p.r,p.i,
+#        p.z, p.Err_u, p.Err_g, p.Err_r,p.Err_i,p.Err_z 
+#  FROM fGetNearbyObjEq(180,-0.2,3) n, PhotoPrimary p 
+#  WHERE n.objID=p.objID
+##************************************************************************---
+    my $self = shift;
+    my @cat;
+    my %sdss_opt = (format => 'xml',
+		    topnum => 300,
+		    ra     => sprintf("%.5f",$self->ra),
+		    dec    => sprintf("%.4f",$self->dec),
+		    radius => $self->extr_rad,
+		   );
+    my $url = $par{sdss_url}
+      . '/x_radial.asp?'
+      . join('&', map { "$_=$sdss_opt{$_}" } keys %sdss_opt);
+    $log->message("Getting SDSS stellar objects: $url");
+    my ($xml, $error) = get_url($url, timeout => 120);
+    die "Error accessing '$url': $error\n" if defined $error;
+
+    my $vals = XMLin($xml);
+    return () unless ref($vals->{Answer}{Row}) eq 'ARRAY';
+
+    foreach my $object (@{$vals->{Answer}{Row}}) {
+	next unless $object->{type} == 6; # Accept only stellar objects
+	my $ra = $object->{ra};
+	my $dec = $object->{dec};
+	my ($rah, $decd) = dec2hms($ra, $dec);
+	push @cat, {name    => $object->{objid},
+		    ra_hms  => $rah,
+		    dec_hms => $decd,
+		    ra      => $ra,
+		    dec     => $dec,
+		    mag     => $object->{r} ,
+		    catalog => "SDSS" };
+    }
+
+    return @cat;
+}
+
 
 ##************************************************************************---
 sub clean_up {
