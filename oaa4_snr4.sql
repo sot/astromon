@@ -28,5 +28,5 @@ SELECT *, x.id  AS x_id,
 ---     AND (x.status_id = NULL or x.status_id = 0) [KEEP so they can be seen if desired]
         AND x.near_neighbor_dist > 6.0
         AND (x.r_angle < 24 OR (o.grating = 'NONE' AND x.r_angle < 240))
-        AND c.catalog IN ('Tycho2', 'SIMBAD_high', 'CELMON', 'ICRS', 'ASTROMON')
+        AND c.catalog IN ('Tycho2', 'SIMBAD_high', 'CELMON', 'ICRS', 'ASTROMON', 'SDSS')
         AND (power(c.y_angle-x.y_angle,2) + power(c.z_angle-x.z_angle,2)) < 9.0
