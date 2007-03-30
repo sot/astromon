@@ -34,6 +34,9 @@ our %opt = (select_name => 'standard_xcorr',
 	    batch => 0,
 	    sim_offset => 4.0,  # Max SIM-z offset in mm
 	    pos_ref_lim => 10,
+	    angle_lim   => 240,
+	    snr_lim     => 4.0,
+	    all         => 0,
 	   );
 our %title = (dy_dz => 'DY = red triangle  DZ = blue square',
 	      dr    => 'DR = green circle',
@@ -43,7 +46,10 @@ GetOptions(\%opt,
 	   'select_name=s',
 	   'batch!',
 	   'sim_offset=f',
-	   'pos_ref_lim=i'
+	   'pos_ref_lim=i',
+	   'angle_lim=f',
+	   'snr_lim=f',
+	   'all!',
 	  );
 
 my $query = <<END_OF_QUERY ;
@@ -55,6 +61,8 @@ SELECT *,
     JOIN astromon_xray_src AS x ON xc.obsid = x.obsid AND xc.x_id = x.id
     JOIN astromon_obs      AS o ON xc.obsid = o.obsid
     WHERE xc.select_name='$opt{select_name}'
+       AND x.r_angle<=$opt{angle_lim}
+       AND x.snr>=$opt{snr_lim}
 END_OF_QUERY
 
 # Get sybase database handle for aca database for user=aca_ops
@@ -576,6 +584,7 @@ sub unique_sources {
 	my $src;
 	foreach my $db (@db_for_x_id) {
 	    $src = $db if (not defined $src
+			   or $opt{all}
 			   or $db->{version} > $src->{version}
 			   or catalog_accuracy($db->{catalog}) < catalog_accuracy($src->{catalog})
 			   or $db->{dr} < $src->{dr}
@@ -601,9 +610,9 @@ sub catalog_accuracy {
 		     CELMON => 3,
 		     ASTROMON => 4,
 		     SDSS => 10,
-		     USNO => 11,
-		     SIMBAD_med => 12,
-		     '2MASS' => 13,
+		     '2MASS' => 12,
+		     SIMBAD_med => 14,
+		     USNO => 20,
 		   );
 
     my $accuracy = 20;
