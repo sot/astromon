@@ -42,7 +42,7 @@ our %title = (dy_dz => 'DY = red triangle  DZ = blue square',
 GetOptions(\%opt,
 	   'select_name=s',
 	   'batch!',
-	   'sim_offset=f'
+	   'sim_offset=f',
 	   'pos_ref_lim=i'
 	  );
 
@@ -134,7 +134,7 @@ sub get_plot_data {
 sub plot_all_offsets {
 ##*****************************************************************************
     my $file = shift;
-    my $d = Ska::HashTable->new($file)->row("pos_ref < $par{pos_ref_lim}");
+    my $d = Ska::HashTable->new($file)->row("pos_ref < $opt{pos_ref_lim}");
 
     my @det_names = qw(ACIS-S ACIS-I HRC-S HRC-I);
 
@@ -315,6 +315,7 @@ Commands:
   b            : Toggle whether to plot 'bad' points (with status_id != 0)
   r            : Toggle plotting dy/dz or dr
   h            : List this help
+  q            : Quit
 COMMANDS
     }
 	
