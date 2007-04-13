@@ -9,6 +9,7 @@ use Ska::Process qw(get_params run_tool get_archive_files);
 use Ska::DatabaseUtil qw(:all);
 use Ska::RDB qw(write_rdb);
 use Ska::HashTable;
+use Chandra::Time;
 use PDL;
 use PDL::Graphics::PGPLOT::Window;
 use PDL::Graphics::LUT;
@@ -19,8 +20,6 @@ use CXC::Envs;
 use Carp;
 use Chandra::Tools::dmcoords;
 
-
-our $ASTROMON_SHARE = "$ENV{SKA}/share/astromon";
 our $ASTROMON_DATA  = "$ENV{SKA}/data/astromon";
 %ENV = CXC::Envs::ciao();
 our %SIM_z_nom = ('acis-s' => -190.14,
@@ -37,6 +36,8 @@ our %opt = (select_name => 'standard_xcorr',
 	    angle_lim   => 240,
 	    snr_lim     => 4.0,
 	    all         => 0,
+	    tstart      => '1998:001:00:00:00',
+	    tstop       => '2037:001:00:00:00',
 	   );
 our %title = (dy_dz => 'DY = red triangle  DZ = blue square',
 	      dr    => 'DR = green circle',
@@ -50,7 +51,12 @@ GetOptions(\%opt,
 	   'angle_lim=f',
 	   'snr_lim=f',
 	   'all!',
+	   'tstart=s',
+	   'tstop=s',
 	  );
+
+# Convert start and stop times to secs
+$opt{$_} = Chandra::Time->new($opt{$_})->secs() for (qw(tstart tstop));
 
 my $query = <<END_OF_QUERY ;
 SELECT *,
@@ -63,6 +69,8 @@ SELECT *,
     WHERE xc.select_name='$opt{select_name}'
        AND x.r_angle<=$opt{angle_lim}
        AND x.snr>=$opt{snr_lim}
+       AND o.tstart >= $opt{tstart}								     
+       AND o.tstart < $opt{tstop}								     
 END_OF_QUERY
 
 # Get sybase database handle for aca database for user=aca_ops
@@ -202,7 +210,7 @@ sub plot_all_offsets {
 				   interactive => 0,
 				   charsize    => 2.0,
 				   symbol_size => 2.0,
-				   plot_type   => 'histogram',
+				   plot_type   => 'r_histogram',
 				   x0 => 0,
 				   x1 => 1.2,
 				   y0 => 0,
@@ -214,6 +222,48 @@ sub plot_all_offsets {
 				   xsize => 8,
 				   ysize => 6,
 				   plot_dr => 1,
+				 };
+	    plot_offsets( $hist_plot_info );
+
+	    # Make histogram of radial offsets
+	    $hist_plot_info = { %$plot_info,
+				   device      => "$ASTROMON_DATA/offsets-$det_names[$det]-xyhist.ps/cps",
+				   det_num     => $det,
+				   interactive => 0,
+				   charsize    => 2.0,
+				   symbol_size => 2.0,
+				   plot_type   => 'xy_histogram',
+				   x0 => -1.5,
+				   x1 => 1.5,
+				   y0 => 0,
+				   y1 => 1,
+				   x0_lim => -1.5,
+				   x1_lim => 1.5,
+				   y0_lim => 0,
+				   y1_lim => 1,
+				   xsize => 8,
+				   ysize => 6,
+				 };
+	    plot_offsets( $hist_plot_info );
+
+	    # Make cumulative histogram of x,y offsets
+	    $hist_plot_info = { %$plot_info,
+				   device      => "$ASTROMON_DATA/offsets-$det_names[$det]-cxyhist.ps/cps",
+				   det_num     => $det,
+				   interactive => 0,
+				   charsize    => 2.0,
+				   symbol_size => 2.0,
+				   plot_type   => 'cxy_histogram',
+				   x0 => -1,
+				   x1 => 1,
+				   y0 => 0,
+				   y1 => 1,
+				   x0_lim => -1,
+				   x1_lim => 1,
+				   y0_lim => 0,
+				   y1_lim => 1,
+				   xsize => 8,
+				   ysize => 6,
 				 };
 	    plot_offsets( $hist_plot_info );
 	}
@@ -245,7 +295,7 @@ sub plot_offsets {
     # Define the data.  Each var is an array ref
     my @points = get_plot_points($pi);
 
-    if ($pi->{plot_type} eq 'histogram') {
+    if ($pi->{plot_type} eq 'r_histogram') {
 	my ($p) = collate(@points);
 	my $n_points = @{$p->{x}};
 	my ($x, $y) = hist pdl($p->{y});
@@ -280,6 +330,41 @@ sub plot_offsets {
 	foreach (-2,-1,0,1,2) {
 	    $win->line([$pi->{x0},$pi->{x1}], [$_, $_], {linestyle => 'dotted'});
 	}
+    } elsif ($pi->{plot_type} eq 'cxy_histogram') {
+	# Collate (by color and symbol) the points and plot
+	my %color_map = ('blue' => 'dz',
+			 'red' => 'dy');
+	for my $p (collate(@points)) {
+	    my ($x, $y) = hist(pdl($p->{'y'}), -3, 3, 0.02);
+	    my $cy = cumusumover $y;
+	    $cy /= $cy($cy->nelem-1);
+	    $win->bin($x, $cy, {color => $p->{color}});
+	    printf("%-6s : %-3s : %6.2f\n", 
+		   $pi->{det_names}->[$pi->{det_num}],
+		   $color_map{$p->{color}},
+		   median(pdl($p->{'y'}))
+		  );
+	}
+
+	$win->label_axes("Offset (arcsec)",
+			 "Distribution", 
+			 $pi->{det_names}[$pi->{det_num}] . " : $pi->{title}",
+			 {charsize=>$pi->{charsize}});
+	# Draw reference dashed lines to show 50%
+	$win->line([$pi->{x0},$pi->{x1}], [0.5, 0.5], {linestyle => 'dotted'});
+	
+    } elsif ($pi->{plot_type} eq 'xy_histogram') {
+	# Collate (by color and symbol) the points and plot
+	for my $p (collate(@points)) {
+	    my ($x, $y) = hist(pdl($p->{'y'}), -3, 3, 0.1);
+	    $y  /= max($y);
+	    $win->bin($x, $y,  {color => $p->{color}});
+	}
+
+	$win->label_axes("Offset (arcsec)",
+			 "Distribution", 
+			 $pi->{det_names}[$pi->{det_num}] . " : $pi->{title}",
+			 {charsize=>$pi->{charsize}});
     }
 
     # If batch mode or histogram or vector, just close window and return
@@ -374,6 +459,7 @@ sub collate {
     for my $s (keys %symbol) {
 	for my $c (keys %color) {
 	    my @p_ok = grep { $_->{color} eq $c and $_->{symbol} eq $s } @points;
+	    next unless @p_ok;
 	    my %out = ();
 	    for my $f (qw(x y data)) {
 		$out{$f} = [ map { $_->{$f} } @p_ok ];
