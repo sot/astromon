@@ -15,6 +15,7 @@
 		      dec    	 => 'double precision null',
 		      roll   	 => 'double precision null',
 		      process_status => 'varchar(128) null',
+		      category_id => 'int null',
 		      [ q/CONSTRAINT pk_obs PRIMARY KEY (obsid)/ ],
 		     ],
      # create clustered index obsind on astromon_obs(obsid,version)

@@ -17,7 +17,7 @@ DATA = ASTROMON_table.rdb ICRS_tables astromon.par astromon_table_defs standard_
 # local t/ directory, followed by the flight root (/proj/sot/{ska,tst}). 
 # In this case, the first two come from t/ while the scat program is
 # from /proj/sot/ska
-TEST_DEPS = data/aspect_authorization/sybase-aca-aca_ops sparc_bin linux_bin bin/ps2any
+TEST_DEPS = data/aspect_authorization/sybase-aca-aca_ops linux_bin sparc_bin bin/ps2any bin/time_convert.pl
 
 # Set Flight environment to be SKA.  The other choice is TST.  Include the
 # Makefile.FLIGHT make file that does most of the hard work
@@ -39,7 +39,7 @@ test: check_install $(BIN) $(TEST_DEPS) install
 
 test_force: check_install $(BIN) $(TEST_DEPS) install
 	mkdir -p $(INSTALL_DATA)/Obs_data
-	$(INSTALL_SHARE)/get_cat_obs_data.pl -force 5390 6893
+	$(INSTALL_SHARE)/get_cat_obs_data.pl -force 8538
 
 test_quick: check_install $(BIN) $(TEST_DEPS) install
 	mkdir -p $(INSTALL_DATA)/Obs_data

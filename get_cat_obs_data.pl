@@ -66,9 +66,21 @@ print_options();
 %ENV = CXC::Envs::ciao();	# Use CIAO environment everywhere
 
 my @obsid = get_obsids();	# Extract the list of obsids
-my @BAD_CATEG = ("SN, SNR, and isolated NS",
-		 "Clusters of Galaxies",
-		 "Solar System and Misc.");
+
+our %Category_ID_Map = (
+		     'Normal Stars and WD'      => 10,
+		     'WD Binaries and CVs'      => 20,
+		     'BH and NS Binaries'       => 30,
+		     'Normal Galaxies'          => 40,
+		     'Active Galaxies and Quasars' => 50,
+		     'Extragalactic Diffuse Emission & Surveys' => 60,
+		     'Galactic Diffuse Emission & Surveys' => 70,
+		     'Solar System and Misc'    => 100,
+		     'SN, SNR, and Isolated NS' => 110,
+		     'Clusters of Galaxies'     => 120,
+		     'NO MATCH'                 => 200,
+		    );
+$Category_ID_Map{lc($_)} = $Category_ID_Map{$_} for keys %Category_ID_Map;
 
 # Get sybase database handle for aca database for user=aca_ops
 my $dbh = get_dbh();
@@ -106,13 +118,14 @@ OBSID: foreach my $obsid (@obsid) {
 	# Clean files if needed
 	$obs->preclean($par{preclean_files});
 
+	# Get the category (e.g. Extragalactic) for obs and map to numerical value for database
+	# (Should be done self-consistently with DB table, foreign keys etc!)
+	my %info = get_seqnum_info($obs->obspar->{seq_num});
+	$obs->category_id( $Category_ID_Map{lc($info{categ})} || $Category_ID_Map{'NO MATCH'} );
+
 	# Set all the fields in the astromon_obs table
-	
 	%td = grep {not ref} @{$astromon_table_def{astromon_obs}}; # How to coerce table to hash in one step??
 	foreach (sort keys %td) {$table{astromon_obs}->{$_} = $obs->$_;} 
-
-	my %info = get_seqnum_info($obs->obspar->{seq_num});
-	die "OK: Category ($info{categ}) is bad\n" if grep { $_ eq $info{categ} } @BAD_CATEG;
 
 	# Get the X-ray source list for this obsid
 	%td = grep {not ref} @{$astromon_table_def{astromon_xray_src}}; 
@@ -200,6 +213,7 @@ sub get_options {
 			 "month!",
 			 'preclean_files=s',
 			 'force',
+			 'nodb',
 			);
 
     die unless (%par);
@@ -326,6 +340,12 @@ sub get_astromon_obs_from_db {
     my @values = @{$field_values}{@fields};
     my $sql = sprintf "insert into %s (%s) values (%s)",
         $table, join(",", @fields), join(",", ("?")x@fields);
+
+    if ($par{nodb}) {
+	print "Ignoring insert_hash: $sql\n";
+	return 1;
+    }
+
     my $sth = $dbh->prepare_cached($sql);
     return $sth->execute(@values);
 }
@@ -335,6 +355,10 @@ sub sql_do {
 #########################################################################
     my $dbh = shift;
     my $sql = shift;
+    if ($par{nodb}) {
+	print "Ignoring dbh->do($sql)\n";
+	return;
+    }
     $dbh->do($sql) or die "$sql: " . $dbh->errstr;
 }	
 
@@ -397,6 +421,7 @@ use Class::MakeMethods::Standard::Hash (
 						       work_dir
 						       obsid
 						       process_status
+						       category_id
 						      )
 						  ],
 					array => 'cat',
