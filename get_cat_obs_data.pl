@@ -1,4 +1,4 @@
-#!/usr/bin/env /proj/sot/ska/bin/perlska
+#!/usr/bin/env /proj/sot/ska/bin/perl
 
 use warnings;
 use strict;
@@ -301,6 +301,7 @@ sub get_obsids {
 					  file_glob => "axaf*obs0a.par*",
 					  dir       => "$obspar_dir",
 					  gunzip    => 0,
+                                          version   => [''],
 					  loud      => 0);
 	undef $Ska::Process::arc5gl;
 	$obspar_dir->rmtree if $obspar_dir->exists;
