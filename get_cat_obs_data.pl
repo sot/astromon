@@ -28,7 +28,7 @@ use strict;
 ##########################################################################################
 
 use Getopt::Long;
-use CXC::Envs;
+use App::Env qw( CIAO );
 
 use Ska::Convert qw(time2date);
 use Ska::Process qw(get_params get_archive_files);
@@ -62,8 +62,6 @@ $log->message("");
 $log->message('-'x length $banner, "\n$banner\n", '-'x length $banner);
 $log->message("");
 print_options();
-
-%ENV = CXC::Envs::ciao();	# Use CIAO environment everywhere
 
 my @obsid = get_obsids();	# Extract the list of obsids
 

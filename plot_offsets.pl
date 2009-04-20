@@ -16,12 +16,11 @@ use PDL::Graphics::LUT;
 use PDL::NiceSlice;
 use Data::Dumper;
 use List::MoreUtils;
-use CXC::Envs;
+use App::Env qw(CIAO);
 use Carp;
 use Chandra::Tools::dmcoords;
 
 our $ASTROMON_DATA  = "$ENV{SKA}/data/astromon";
-%ENV = CXC::Envs::ciao();
 our %SIM_z_nom = ('acis-s' => -190.14,
 		  'acis-i' => -233.59,
 		  'hrc-s'  => 250.47,

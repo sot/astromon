@@ -14,7 +14,7 @@ use Expect::Simple;
 use PDL;
 use PDL::NiceSlice;
 use PDL::Slatec;
-use CXC::Envs;
+use App::Env;
 use Cwd;
 use CFITSIO::Simple;
 use Data::Dumper;
@@ -241,9 +241,9 @@ sub get_current_calalign {
 
     # Get the latest alignment for this time and date, in format "file <number>"
 
-    local %ENV = CXC::Envs::ascds();
-#    delete $ENV{LD_LIBRARY_PATH}; # bozo CGI environment
-    CXC::Envs::pfiles( { rpl_W => 1}, $ENV{PWD} );
+    my $ascds_env = App::Env->new('ASCDS');
+    local %ENV = %{$ascds_env};
+    $ENV{PFILES} = "$ENV{PWD};$ENV{PFILES}";
 
     if ($par{caldb}) {
 	$ENV{CALDB} = $par{caldb};
