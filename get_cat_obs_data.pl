@@ -28,7 +28,7 @@ use strict;
 ##########################################################################################
 
 use Getopt::Long;
-use App::Env qw( CIAO );
+use App::Env;
 
 use Ska::Convert qw(time2date);
 use Ska::Process qw(get_params get_archive_files);
@@ -43,6 +43,8 @@ use POSIX qw(strftime);
 our $ASTROMON_SHARE = "$ENV{SKA}/share/astromon";
 our $ASTROMON_DATA  = "$ENV{SKA}/data/astromon";
 # Set up some constants
+
+App::Env::import('CIAO');
 
 $ENV{UPARM} = $ASTROMON_DATA;
 $| = 1;
