@@ -746,6 +746,7 @@ sub make_source_image {
     }
 
     print "Running dmcoords...\n";
+    run_tool("punlearn dmcoords");
     confess "Dmcoords error" unless my $DMcoord = Chandra::Tools::dmcoords->new( $evt2 );
 
     my ($out) = $DMcoord->coords( cel => ($src->{x_ra}, $src->{x_dec}));
