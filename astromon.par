@@ -32,7 +32,7 @@ force,b,a,no,,,"Process obsid even if already done"
 make_images,b,a,no,,,"Make DS9 image of matches sources"
 ub1_mag_lim,r,a,17.0,,,"Magnitude limit for USNO B1.0"
 #
-ty2_path,s,a,"/data/baffin1/gads7/data/tycho2",,,"Path for Tycho2 catalog"
+ty2_path,s,a,"/data/baffin/data1/gads7/data/tycho2",,,"Path for Tycho2 catalog"
 ub1_path,s,a,"http://tdc-www.harvard.edu/cgi-bin/scat",,,"Path for USNO B1 catalog"
 sdss_url,s,a,"http://cas.sdss.org/astro/en/tools/search",,,"Search engine for SDSS"
 #
