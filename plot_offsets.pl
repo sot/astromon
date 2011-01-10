@@ -31,7 +31,6 @@ our %evt2_files; # Event files downloaded to make images.  Ask if want to delete
 our %opt = (select_name => 'standard_xcorr',
 	    batch => 0,
 	    sim_offset => 4.0,  # Max SIM-z offset in mm
-	    pos_ref_lim => 10,
 	    angle_lim   => 240,
 	    snr_lim     => 4.0,
 	    all         => 0,
@@ -53,6 +52,10 @@ GetOptions(\%opt,
 	   'tstart=s',
 	   'tstop=s',
 	  );
+
+unless (defined $opt{'pos_ref_lim'}) {
+    $opt{'pos_ref_lim'} = $opt{'batch'} ? 10 : 11;
+}
 
 # Convert start and stop times to secs
 $opt{$_} = Chandra::Time->new($opt{$_})->secs() for (qw(tstart tstop));
