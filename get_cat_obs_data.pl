@@ -228,8 +228,6 @@ sub get_options {
 	$par{tstop} = Chandra::Time->new($tstop)->fits;
     }
 
-    print %par;
-    die "stop now";
     $par{dirs} = "$ASTROMON_DATA/$par{dirs}" unless io($par{dirs})->is_absolute;
     print "Par{dirs} is $par{dirs}\n";
 
@@ -685,7 +683,7 @@ sub fidpr {
     if (not defined $self->{fidpr}) {
 	$log->message("Getting fidpr file(s)");
 	my @fidpr = get_archive_files(obsid     => $self->obsid,
-				      prod      => "asp1[*fidpr*]",
+				      prod      => "asp1{fidprops}",
 				      file_glob => "pcad*fidpr*fits*",
 				      version   => [4,3,2,1],
 				      dir       => $self->work_dir,
@@ -951,7 +949,7 @@ sub clean_up {
     my $asp_glob = "ASP_L1_STD* aca0* asp05* pcad0* sim05* obspar*"; # pcad*asol*";
     my %glob_list = (event => "*evt2.fits* $asp_glob",
 		     all   => "*src2.fits* *evt2.fits* axaf*obs0a.par* $asp_glob",
-		     most  => "hrc*evt2.fits* acis*evt2.fits* $asp_glob",
+		     most  => "source_evt2.fits* hrc*evt2.fits* acis*evt2.fits* $asp_glob",
 		    );
     my $glob = $glob_list{$clean} || '';
 	

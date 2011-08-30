@@ -16,8 +16,11 @@ install:
 	mkdir -p $(INSTALL_DATA)
 	rsync --times --cvs-exclude $(DATA) $(INSTALL_DATA)/
 
+	mkdir -p $(INSTALL_DATA)/standard_xcorr
 	if [ ! -e $(INSTALL_DATA)/standard_xcorr/www ] ; then \
            ln -s $(SKA)/www/ASPECT_PUBLIC/celmon $(INSTALL_DATA)/standard_xcorr/www ; fi
+
+	mkdir -p $(INSTALL_DATA)/oaa4_snr4
 	if [ ! -e $(INSTALL_DATA)/oaa4_snr4/www ] ; then \
            ln -s $(SKA)/www/ASPECT/celmon $(INSTALL_DATA)/oaa4_snr4/www ; fi
 

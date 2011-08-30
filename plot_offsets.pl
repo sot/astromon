@@ -751,7 +751,7 @@ sub make_source_image {
 
     print "Getting evt2 data for obsid $obsid: ";
     my ($evt2) = get_archive_files(obsid     => $obsid,
-				   prod      => $instrument . '2[*evt2*]',
+				   prod      => $instrument . '2{evt2}',
 				   file_glob => $instrument . '*evt2.fits*',
 				   dir       => "$dir",
 				  );
