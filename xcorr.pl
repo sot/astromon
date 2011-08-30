@@ -1,4 +1,4 @@
-#!/usr/bin/env /proj/sot/ska/bin/perlska
+#!/usr/bin/env perl
 
 use warnings;
 use strict;
@@ -7,12 +7,12 @@ use IO::All;
 use Getopt::Long;
 use Ska::DatabaseUtil qw(:all);
 use DBI;
-use DBD::Sybase;
 use Data::Dumper;
 use List::MoreUtils qw(uniq);
+use File::Basename qw(dirname);
+use Cwd qw(abs_path);
 
-our $ASTROMON_SHARE = "$ENV{SKA}/share/astromon";
-our $ASTROMON_DATA  = "$ENV{SKA}/data/astromon";
+our $ASTROMON_DATA  = abs_path(dirname(__FILE__)) . "/data";
 
 our %opt = (select => 'standard_xcorr',
 	   );
@@ -37,7 +37,8 @@ my %table_def = eval scalar io("$ASTROMON_DATA/astromon_table_defs")->slurp;
 my $xcorr_query < io($xcorr_file);
 
 # Connect to aca database with read/write access
-my $dbh = sql_connect('sybase-aca-aca_ops');
+my $dbh = DBI->connect("DBI:SQLite:dbname=$ASTROMON_DATA/astromon.db3", "", "");
+die "Couldn't connect: $DBI::errstr" unless ($dbh);
 
 # Do the actual query to cross-correlate the X-ray and Catalog data for each obsid
 my @xcorr_data = sql_fetchall_array_of_hashref($dbh, $xcorr_query);
@@ -58,6 +59,7 @@ foreach my $xcorr_data (@xcorr_data) {
 	   $xcorr_data->{x_id},
 	  ) if $opt{loud};
     $xcorr_data->{select_name} = $opt{select};
+    $xcorr_data->{dr} = sqrt($xcorr_data->{dr2});
     sql_insert_hash($dbh,
 		    'astromon_xcorr',
 		    { map { $_ => $xcorr_data->{$_} } @astromon_xcorr_cols }

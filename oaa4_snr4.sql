@@ -18,7 +18,7 @@ SELECT *, x.id  AS x_id,
 	  c.name AS c_name,
           (c.y_angle - x.y_angle) AS dy,
           (c.z_angle - x.z_angle) AS dz,
-          sqrt(power(c.y_angle-x.y_angle,2) + power(c.z_angle-x.z_angle,2)) AS dr
+          (c.y_angle-x.y_angle)*(c.y_angle-x.y_angle) + (c.z_angle-x.z_angle)*(c.z_angle-x.z_angle) AS dr2
   FROM  astromon_xray_src AS x 
 --  WHERE x.obsid NOT IN (SELECT unique obsid FROM astromon_xcorr)
     JOIN astromon_cat_src AS c ON x.obsid = c.obsid
@@ -29,4 +29,5 @@ SELECT *, x.id  AS x_id,
         AND x.near_neighbor_dist > 6.0
         AND (x.r_angle < 24 OR (o.grating = 'NONE' AND x.r_angle < 240))
         AND c.catalog IN ('Tycho2', 'SIMBAD_high', 'CELMON', 'ICRS', 'ASTROMON', 'SDSS', '2MASS')
-        AND (power(c.y_angle-x.y_angle,2) + power(c.z_angle-x.z_angle,2)) < 9.0
+        AND (c.y_angle-x.y_angle)*(c.y_angle-x.y_angle) + (c.z_angle-x.z_angle)*(c.z_angle-x.z_angle) < 9.0
+

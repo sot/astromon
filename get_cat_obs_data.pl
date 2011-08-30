@@ -1,4 +1,4 @@
-#!/usr/bin/env /proj/sot/ska/bin/perl
+#!/usr/bin/env perl
 
 use warnings;
 use strict;
@@ -34,14 +34,16 @@ use Ska::Convert qw(time2date);
 use Ska::Process qw(get_params get_archive_files);
 use Ska::CatQuery qw(get_seqnum_info);
 use Ska::Message;
+use Chandra::Time;
 use IO::All;
 use Data::Dumper;
 use DBI;
 use DBD::Sybase;
 use POSIX qw(strftime);
+use File::Basename qw(dirname);
+use Cwd qw(abs_path);
 
-our $ASTROMON_SHARE = "$ENV{SKA}/share/astromon";
-our $ASTROMON_DATA  = "$ENV{SKA}/data/astromon";
+our $ASTROMON_DATA  = abs_path(dirname(__FILE__)) . "/data";
 # Set up some constants
 
 App::Env::import('CIAO');
@@ -83,7 +85,7 @@ our %Category_ID_Map = (
 $Category_ID_Map{lc($_)} = $Category_ID_Map{$_} for keys %Category_ID_Map;
 
 # Get sybase database handle for aca database for user=aca_ops
-my $dbh = get_dbh();
+my $dbh = get_dbh("$ASTROMON_DATA/astromon.db3");
 
 my %astromon_table_def = eval scalar io("$ASTROMON_DATA/astromon_table_defs")->slurp;
 
@@ -219,16 +221,17 @@ sub get_options {
     die unless (%par);
 
     if ($par{month}) {
-	my $time_now = $par{tstart} || time2date(time,1); # Current time
-	my $date_now = `time_convert.pl $time_now fits`;
-	my ($year_now,$month_now) = ($date_now =~ /(\d\d\d\d)-(\d\d)/);
-	my $month_last = sprintf("%02d", ($month_now == 1) ? 12 : $month_now-1);
-	my $year_last = ($month_now == 1) ? $year_now-1 : $year_now;
-	$par{tstart} = "$year_last-$month_last-01T00:00:00";
-	$par{tstop}  = "$year_now-$month_now-01T00:00:00";
+	my $date_now = $par{tstart} || Chandra::Time->new(time, {format => 'unix'})->date;
+        my $tstop = Chandra::Time->new($date_now)->secs;
+        my $tstart = $tstop - 31 * 86400.0;
+	$par{tstart} = Chandra::Time->new($tstart)->fits;
+	$par{tstop} = Chandra::Time->new($tstop)->fits;
     }
 
+    print %par;
+    die "stop now";
     $par{dirs} = "$ASTROMON_DATA/$par{dirs}" unless io($par{dirs})->is_absolute;
+    print "Par{dirs} is $par{dirs}\n";
 
     return %par;
 }
@@ -237,18 +240,9 @@ sub get_options {
 sub get_dbh {
 # Accessor returning (and possibly creating) global sybase handle
 ##****************************************************************************
-    my $sybase_pwd < io("$ENV{SKA}/data/aspect_authorization/sybase-aca-aca_ops");
-    chomp $sybase_pwd;
-
     ##-- Make database connection 2: sybase 
-    my $server 	= "server=sybase";
-    my $db     	= "database=aca";
-    my $db_user = "aca_ops";
-    my $dbh = DBI->connect("DBI:Sybase:$server;$db", $db_user, $sybase_pwd,
-			    { PrintError => 0,
-			      RaiseError => 1
-			    }
-			   );
+    my $dbfile 	= shift;
+    my $dbh = DBI->connect("DBI:SQLite:dbname=$dbfile", "", "");
     die "Couldn't connect: $DBI::errstr" unless ($dbh);
 
     return $dbh;
@@ -347,7 +341,7 @@ sub get_astromon_obs_from_db {
 	return 1;
     }
 
-    my $sth = $dbh->prepare_cached($sql);
+    my $sth = $dbh->prepare($sql);
     return $sth->execute(@values);
 }
 
@@ -656,7 +650,7 @@ sub src2 {
     if (not defined $self->{src2}) {
 	$log->message("Getting src2 file");
 	my ($src2) = get_archive_files(obsid     => $self->obsid,
-				       prod      => $self->instrument . '2[*src2*]',
+				       prod      => $self->instrument . '2{src2}',
 				       file_glob => "*src2.fits*",
 				       gunzip    => 1,
 				       dir       => $self->work_dir,
@@ -666,7 +660,7 @@ sub src2 {
 	if (not defined $src2) {
 	    $log->message("Getting evt2 file");
 	    my ($evt2) = get_archive_files(obsid     => $self->obsid,
-					   prod      => $self->instrument . '2[*evt2*]',
+					   prod      => $self->instrument . '2{evt2}',
 					   file_glob => $self->instrument . '*evt2.fits*',
 					   dir       => $self->work_dir,
 					  );
@@ -974,7 +968,7 @@ sub gzip_fits {
     my $self = shift;
 
     for (glob("*.fits")) {
-	system("gzip $_") and die "Couldn't gzip $_" ;
+	system("gzip -f $_") and die "Couldn't gzip $_" ;
     }
 }
 

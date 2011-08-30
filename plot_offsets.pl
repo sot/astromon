@@ -1,8 +1,9 @@
-#!/usr/bin/env /proj/sot/ska/bin/perl
+#!/usr/bin/env perl
 
 use warnings;
 use strict;
 
+use DBI;
 use IO::All;
 use Getopt::Long;
 use Ska::Process qw(get_params run_tool get_archive_files);
@@ -19,8 +20,10 @@ use List::MoreUtils;
 use App::Env qw(CIAO);
 use Carp;
 use Chandra::Tools::dmcoords;
+use File::Basename qw(dirname);
+use Cwd qw(abs_path);
 
-our $ASTROMON_DATA  = "$ENV{SKA}/data/astromon";
+our $ASTROMON_DATA  = abs_path(dirname(__FILE__)) . "/data";
 our %SIM_z_nom = ('acis-s' => -190.14,
 		  'acis-i' => -233.59,
 		  'hrc-s'  => 250.47,
@@ -30,6 +33,7 @@ our %evt2_files; # Event files downloaded to make images.  Ask if want to delete
 
 our %opt = (select_name => 'standard_xcorr',
 	    batch => 0,
+            pos_ref_lim => 11,  # Include SDSS
 	    sim_offset => 4.0,  # Max SIM-z offset in mm
 	    angle_lim   => 240,
 	    snr_lim     => 4.0,
@@ -53,9 +57,9 @@ GetOptions(\%opt,
 	   'tstop=s',
 	  );
 
-unless (defined $opt{'pos_ref_lim'}) {
-    $opt{'pos_ref_lim'} = $opt{'batch'} ? 10 : 11;
-}
+# Make directory for plots
+our $PLOT_DIR = sprintf("$ASTROMON_DATA/$opt{select_name}");
+io($PLOT_DIR)->mkpath unless io($PLOT_DIR)->exists;
 
 # Convert start and stop times to secs
 $opt{$_} = Chandra::Time->new($opt{$_})->secs() for (qw(tstart tstop));
@@ -74,9 +78,10 @@ SELECT *,
        AND o.tstart >= $opt{tstart}								     
        AND o.tstart < $opt{tstop}								     
 END_OF_QUERY
+    ;
 
-# Get sybase database handle for aca database for user=aca_ops
-our $dbh = sql_connect('sybase-aca-aca_ops');
+# Get sqlite database handle for astromon database
+my $dbh = get_dbh("$ASTROMON_DATA/astromon.db3");
 
 my @query_data = sql_fetchall_array_of_hashref($dbh, $query);
 
@@ -84,7 +89,7 @@ my @query_data = sql_fetchall_array_of_hashref($dbh, $query);
 my @plot_data = get_plot_data(@query_data);
 
 # Write to an RDB file for convenience later
-my $plot_data_file = "$ASTROMON_DATA/$opt{select_name}_plot.rdb";
+my $plot_data_file = "$ASTROMON_DATA/$opt{select_name}/plot.rdb";
 write_rdb($plot_data_file,
 	  \@plot_data,
 	 );
@@ -108,6 +113,17 @@ if (my @evt2_files = keys %evt2_files) {
 	print "Deleting files..\n";
 	unlink @evt2_files{@evt2_files} ;
     }
+}
+
+##****************************************************************************
+sub get_dbh {
+##****************************************************************************
+    ##-- Make database connection 
+    my $dbfile 	= shift;
+    my $dbh = DBI->connect("DBI:SQLite:dbname=$dbfile", "", "");
+    die "Couldn't connect: $DBI::errstr" unless ($dbh);
+
+    return $dbh;
 }
 
 ##***************************************************************************
@@ -137,7 +153,8 @@ sub get_plot_data {
 			       obsid    => $obsid,
 			       detector => uc $cat->{detector},
 			       det_ref  => $det_ref{ $cat->{detector} },
-			       map { $_ => $cat->{$_} } qw(tstart dy dz dr catalog version date_obs
+                               dr => $cat->{dr},
+			       map { $_ => $cat->{$_} } qw(tstart dy dz catalog version date_obs
 							   c_id x_id r_angle near_neighbor_dist double_id
 							   status_id process_status grating sim_z net_counts snr
 							   fids target x_ra x_dec c_ra c_dec),
@@ -156,11 +173,11 @@ sub plot_all_offsets {
 
     my @det_names = qw(ACIS-S ACIS-I HRC-S HRC-I);
 
-    my $device = "$ASTROMON_DATA/offsets.ps/cps";	# color postscript file
+    my $device = "$PLOT_DIR/offsets.ps/cps";	# color postscript file
     $device = '/xs';
     
     my $t = pdl $d->col("tstart");
-    my $yr = $t / 86400. / 365.25 + 1998.0;
+    my $yr = $t / 86400. / 365.25 + 1998.0; # /  (something wrong with emacs perl mode)
     my ($x0, $x1) = minmax($yr);
     $x0 -= 0.1;
     $x1 += 0.1;
@@ -182,7 +199,7 @@ sub plot_all_offsets {
 		     y0_lim => $y0,
 		     y1_lim => $y1,
 		     charsize => 1.4,
-		     symbol_size => 1.4,
+		     symbol_size => 1.0,
 		     xsize => 7,
 		     ysize => 4,
 		     device => '/xs',
@@ -196,18 +213,18 @@ sub plot_all_offsets {
 	foreach my $det (0..3) {
 	    # Make strip plot of Y,Z offsets vs. time
 	    my $strip_plot_info = { %$plot_info,
-				    device      => "$ASTROMON_DATA/offsets-$det_names[$det].ps/cps",
+				    device      => "$PLOT_DIR/offsets-$det_names[$det].ps/cps",
 				    plot_type   => 'strip',
 				    det_num     => $det,
 				    interactive => 0,
 				    charsize    => 2.0,
-				    symbol_size => 2.0,
+				    symbol_size => 1.5,
 				  };
 	    plot_offsets( $strip_plot_info );
 
 	    # Make histogram of radial offsets
 	    my $hist_plot_info = { %$plot_info,
-				   device      => "$ASTROMON_DATA/offsets-$det_names[$det]-hist.ps/cps",
+				   device      => "$PLOT_DIR/offsets-$det_names[$det]-hist.ps/cps",
 				   det_num     => $det,
 				   interactive => 0,
 				   charsize    => 2.0,
@@ -229,7 +246,7 @@ sub plot_all_offsets {
 
 	    # Make histogram of radial offsets
 	    $hist_plot_info = { %$plot_info,
-				   device      => "$ASTROMON_DATA/offsets-$det_names[$det]-xyhist.ps/cps",
+				   device      => "$PLOT_DIR/offsets-$det_names[$det]-xyhist.ps/cps",
 				   det_num     => $det,
 				   interactive => 0,
 				   charsize    => 2.0,
@@ -250,7 +267,7 @@ sub plot_all_offsets {
 
 	    # Make cumulative histogram of x,y offsets
 	    $hist_plot_info = { %$plot_info,
-				   device      => "$ASTROMON_DATA/offsets-$det_names[$det]-cxyhist.ps/cps",
+				   device      => "$PLOT_DIR/offsets-$det_names[$det]-cxyhist.ps/cps",
 				   det_num     => $det,
 				   interactive => 0,
 				   charsize    => 2.0,
@@ -394,7 +411,9 @@ sub plot_offsets {
 	$pi->{plot_bad} = not $pi->{plot_bad};
     } elsif ($ch =~ /r/) {
 	$pi->{plot_dr} = not $pi->{plot_dr};
-	$pi->{title} = $pi->{plot_dr} ? $title{dr} : $title{dy_dz}; 
+	$pi->{title} = $pi->{plot_dr} ? $title{dr} : $title{dy_dz};
+        $pi->{y0} = $pi->{plot_dr} ? 0 : -3;
+        $pi->{y0_lim} = $pi->{plot_dr} ? 0 : -3;
     } elsif ($ch eq 'h') {
 	print <<COMMANDS;
 Commands:
@@ -412,6 +431,7 @@ Commands:
   h            : List this help
   q            : Quit
 COMMANDS
+;
     }
 	
     $pi->{xref} = $pi->{x};
@@ -808,7 +828,7 @@ sub make_source_image {
     $win->close();
 
     # Convert to jpeg by using the eps2png perl script
-    run_tool("$ENV{SKA}/bin/ps2any $img_ps -size 400",
+    run_tool("ps2any $img_ps -size 400",
 	     { loud=>1 });
     unlink $img_ps if (-e $img_ps);
 

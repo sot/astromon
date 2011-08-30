@@ -1,16 +1,23 @@
-#!/usr/bin/env /proj/sot/ska/bin/perl
+#!/usr/bin/env perl
 
 use warnings;
 use strict;
 use IO::All;
 use Ska::Run;
+use File::Basename qw(dirname);
+use Cwd qw(abs_path);
+use Getopt::Long;
+
+our %opt = (select_name => 'standard_xcorr');
+GetOptions(\%opt,
+           'select_name=s');
 
 $Ska::Run::LOUD = 1;
 
-our $ASTROMON_DATA  = "$ENV{SKA}/data/astromon";
-our $ASTROMON_WWW   = "$ENV{SKA}/www/ASPECT_PUBLIC/celmon";
+our $ASTROMON_DATA  = abs_path(dirname(__FILE__)) . "/data";
+our $ASTROMON_WWW   = abs_path(dirname(__FILE__)) . "/$opt{select_name}/www" ;
 
-chdir $ASTROMON_DATA;
+chdir "$ASTROMON_DATA/$opt{select_name}";
 io($ASTROMON_WWW)->mkpath;
 
 foreach my $det (qw(ACIS-S ACIS-I HRC-S HRC-I)) {

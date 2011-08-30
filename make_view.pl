@@ -1,4 +1,4 @@
-#!/usr/bin/env /proj/sot/ska/bin/perl
+#!/usr/bin/env perl
 
 use warnings;
 use strict;

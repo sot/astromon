@@ -1,0 +1,13 @@
+./sybase2sqlite.py --table astromon_obs --sqlite-file astromon.db3 \
+                   --constraint "pk_obs PRIMARY KEY (obsid)" 
+
+./sybase2sqlite.py --table astromon_xray_src --sqlite-file astromon.db3 \
+                   --constraint "pk_xray_src PRIMARY KEY (obsid,id)"
+
+./sybase2sqlite.py --table astromon_cat_src --sqlite-file astromon.db3 \
+                   --constraint "pk_cat_src PRIMARY KEY (obsid,id)"
+
+./sybase2sqlite.py --table astromon_xcorr --sqlite-file astromon.db3 \
+                   --constraint "pk_xcorr PRIMARY KEY (select_name,obsid,c_id,x_id)"
+
+./sybase2sqlite.py --table astromon_status --sqlite-file astromon.db3
