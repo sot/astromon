@@ -6,7 +6,7 @@ database,s,a,"DATA.rdb",,,"Offsets database file"
 #
 # Detect and file filtering parameters
 #
-snr,r,a,5.0,,,"Minimum SNR for detection"
+snr,r,a,3.0,,,"Minimum SNR for detection"
 det_rad,r,a,3.0,,,"Detection radius (arcsec)"
 extr_rad_grating,r,a,0.4,,,"Extr. rad. around grating source (arcmin)"
 extr_rad_image,r,a,4.0,,,"Extr. rad. around imaging source (arcmin)"
