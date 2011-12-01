@@ -173,6 +173,8 @@ OBSID: foreach my $obsid (@obsid) {
 }
 
 $dbh->disconnect();
+undef $Ska::Process::arc5gl;
+exit(0);
 
 ##****************************************************************************
 sub overwrite_table_rows {
@@ -980,8 +982,8 @@ sub preclean {
     if (my $file_list = shift) {
 	foreach my $file (glob($file_list)) {
 	    if (-e $file) {	# remember glob('doesntexist') returns 'doesntexist'
-		$log->message("Removing $_");
-		unlink $_ ;
+		$log->message("Removing $file");
+		unlink $file ;
 	    }
 	}
     }
