@@ -231,7 +231,7 @@ sub get_options {
     }
 
     $par{dirs} = "$ASTROMON_DATA/$par{dirs}" unless io($par{dirs})->is_absolute;
-    print "Par{dirs} is $par{dirs}\n";
+    print "Par{dirs} is $par{dirs}";
 
     return %par;
 }
@@ -781,11 +781,24 @@ sub get_catalog_source_list {
     my $d2r = 3.14159265358979 / 180.;
     my $d2a = 3600.;
 
+    # Get USNO-B1.0 catalog
+    push @cat, $self->get_vizier('USNO-B1.0', 'USNO-B1.0', ['USNO-B1.0'],
+                                 'RAJ2000', 'DEJ2000', 'R1mag');
+
+    # Get Tycho2 catalog
+    push @cat, $self->get_vizier('Tycho2', 'I/259/TYC2', ['TYC1', 'TYC2', 'TYC3'],
+                                 'RA(ICRS)', 'DE(ICRS)', 'VTmag');
+
+    # Get Tycho2 catalog
+    push @cat, $self->get_vizier('SDSS', 'II/294', ['SDSS'],
+                                 'RAJ2000', 'DEJ2000', 'rmag');
+
     # Read astromon_sources catalog
-
     $log->message("Reading ASTROMON catalog");
-    my $rdb = new RDB "$ASTROMON_DATA/ASTROMON_table.rdb" or warn "Couldn't open $ASTROMON_DATA/ASTROMON_table.rdb\n";
+    my $rdb = new RDB "$ASTROMON_DATA/ASTROMON_table.rdb"
+              or warn "Couldn't open $ASTROMON_DATA/ASTROMON_table.rdb\n";
 
+    my $n_cat = 0;
     while($rdb && $rdb->read( \%data )) {
 	my ($ra_hms, $dec_hms) = dec2hms($data{RA}, $data{Dec});
 	next unless (radec_dist($data{RA},$data{Dec},$obspar{ra_targ},$obspar{dec_targ}) < $extr_rad/60.0);
@@ -796,12 +809,15 @@ sub get_catalog_source_list {
 		    dec     => $data{Dec},
 		    mag     => undef,
 		    catalog => 'ASTROMON' };
+        $n_cat++;
     }
-    
+    $log->message("Found $n_cat sources in ASTROMON catalog");
+
     # Read ICRS catalog
 
     $log->message("Reading ICRS catalog");
     my @cat_lines = `cat $ASTROMON_DATA/ICRS_tables`;
+    $n_cat = 0;
     foreach (@cat_lines) {
 	next unless (/^J\d\d\d\d\d\d/);
 	my @a = split;
@@ -814,13 +830,12 @@ sub get_catalog_source_list {
 		    dec     => $dec,
 		    mag     => undef,
 		    catalog => 'ICRS' };
+        $n_cat++;
     }
+    $log->message("Found $n_cat sources in ICRS catalog");
 
-    my %cat_short_name = ('Tycho2'    => 'ty2',
-			  'USNO-B1.0' => 'ub1');
-    
     # Get 2MASS catalog sources
-
+    $n_cat = 0;
     if ($par{twomass}) {
 	$log->message("Getting 2MASS catalog");
 	my @cat_2mass = get_2mass($obspar{ra_targ}, $obspar{dec_targ}, $extr_rad*60);
@@ -834,35 +849,13 @@ sub get_catalog_source_list {
 			dec     => $data->{dec},
 			mag     => $data->{k_m}, # V mag
 			catalog => '2MASS' };
+            $n_cat++;
 	}
     }
-    
-    # Get Tycho and USNO catalogs
-
-    $log->message("Reading Tycho2 and USNO B1 catalogs");
-    for my $cat_name (keys %cat_short_name) {
-	my $radius   = $extr_rad*60;
-	my $scat_cmd = sprintf(qq{scat -n 1000 -y $year -c $cat_short_name{$cat_name} -r %.2f %s %s J2000},
-			       $extr_rad*60, $self->ra_hms, $self->dec_hms);
-	$log->message("$scat_cmd");
-	my @cat_lines = `$scat_cmd`;
-
-	foreach (@cat_lines) {
-	    my @a = split;
-	    my ($ra, $dec) = hms2dec($a[1], $a[2]);
-	    next if ($a[4] > $par{ub1_mag_lim} and $cat_name eq 'USNO-B1.0');
-	    push @cat, {name    => $a[0],
-			ra_hms  => $a[1],
-			dec_hms => $a[2],
-			ra      => $ra,
-			dec     => $dec,
-			mag     => $a[4], # V mag
-			catalog => $cat_name };
-	}
-    }
+    $log->message("Found $n_cat sources in 2MASS catalog");
 
     # Get a coordinate from SIMBAD
-
+    $n_cat = 0;
     $log->message("Getting SIMBAD coordinate");
     my ($ra, $dec, $mag, $pm_ra, $pm_dec, $precision) = get_simbad($obspar{object});
 
@@ -880,13 +873,17 @@ sub get_catalog_source_list {
 		    dec     => $dec,
 		    mag     => $mag || undef,
 		    catalog => "SIMBAD_$precision" };
+        $n_cat++;
     }
+    $log->message("Found $n_cat sources in SIMBAD catalog");
 
-    push @cat, $self->get_sdss();
+    # push @cat, $self->get_sdss();
 
     # Add Y,Z angle for database
     my $cat_id = 1;
     foreach $cat (@cat) {
+        print "HEJ\n";
+        print Dumper($cat);
 	$cat->{id} = $cat_id++;
 	$cat->{obsid} = $self->obsid;
 	($cat->{y_angle}, $cat->{z_angle}) = main::calc_y_z_r($self->ra, $self->dec, $self->roll,
@@ -894,6 +891,66 @@ sub get_catalog_source_list {
     }
 
     return \@cat;
+}
+
+##************************************************************************---
+sub get_vizier {
+#
+#
+##************************************************************************---
+    my $self = shift;
+    my $catalog = shift;  # Astromon catalog name
+    my $source = shift;  # Vizier catalog identifier
+    my $name_cols = shift;  # Columns that specify object name
+    my $ra_col = shift;
+    my $dec_col = shift;
+    my $mag_col = shift;
+
+    my @cat;
+    my %url_opt = ('-source' => $source,
+                    '-sort' => '_r',  # sort by increasing distance to target
+		    '-c' => sprintf("%.5f+%.4f", $self->ra, $self->dec),
+		    '-c.rs' => $self->extr_rad * 60,
+		   );
+    my $url = 'http://vizier.cfa.harvard.edu/viz-bin/asu-tsv?'
+      . join('&', map { "$_=$url_opt{$_}" } keys %url_opt);
+
+    $log->message("Getting Vizier $catalog objects using '$url'");
+    my ($tsv, $error) = get_url($url, timeout => 120);
+
+    die "Error accessing '$url': $error\n" if defined $error;
+
+    # strip out comment lines and blank lines
+    my @lines = grep(!/^#/ && !/^\s*$/, split('\n', $tsv));
+
+    if (@lines < 2) {
+        $log->message("No Vizier ${catalog} objects found in this field\n");
+        return @cat;
+    }
+
+    # Remove 2nd and 3rd lines (units and dashes rows)
+    print Dumper(\@lines);
+    splice(@lines, 1, 1);
+    print Dumper(\@lines);
+    my $rows = Data::ParseTable::parse_table(\@lines);
+    print Dumper($rows);
+
+    foreach my $object (@{$rows}) {
+	my $ra = $object->{$ra_col};
+	my $dec = $object->{$dec_col};
+	my ($rah, $decd) = dec2hms($ra, $dec);
+	push @cat, {name    => join('-', map { $object->{$_} } @{$name_cols}),
+		    ra_hms  => $rah,
+		    dec_hms => $decd,
+		    ra      => $ra,
+		    dec     => $dec,
+		    mag     => $object->{$mag_col} ,
+		    catalog => $catalog };
+    }
+
+    print Dumper(\@cat);
+    $log->message("Found " . @cat . " sources in Vizer ${catalog} catalog");
+    return @cat;
 }
 
 ##************************************************************************---
@@ -908,7 +965,7 @@ sub get_sdss {
 ##************************************************************************---
     my $self = shift;
     my @cat;
-    my %sdss_opt = (format => 'xml',
+    my %sdss_opt = (format => 'csv',
 		    topnum => 300,
 		    ra     => sprintf("%.5f",$self->ra),
 		    dec    => sprintf("%.4f",$self->dec),
@@ -918,13 +975,19 @@ sub get_sdss {
       . '/x_radial.asp?'
       . join('&', map { "$_=$sdss_opt{$_}" } keys %sdss_opt);
     $log->message("Getting SDSS stellar objects: $url");
-    my ($xml, $error) = get_url($url, timeout => 120);
+    my ($csv, $error) = get_url($url, timeout => 120);
     die "Error accessing '$url': $error\n" if defined $error;
 
-    my $vals = XMLin($xml);
-    return () unless ref($vals->{Answer}{Row}) eq 'ARRAY';
+    if ($csv =~ /^\s*No objects/) {
+        $log->message("No SDSS objects found in this field\n");
+        return ();
+    }
 
-    foreach my $object (@{$vals->{Answer}{Row}}) {
+    my @lines = split("\n", $csv);
+    my $rows = Data::ParseTable::parse_table(\@lines,
+                                             {field_separator => ','});
+
+    foreach my $object (@{$rows}) {
 	next unless $object->{type} == 6; # Accept only stellar objects
 	my $ra = $object->{ra};
 	my $dec = $object->{dec};
@@ -938,6 +1001,7 @@ sub get_sdss {
 		    catalog => "SDSS" };
     }
 
+    $log->message("Found " . @cat . " sources in SDSS catalog");
     return @cat;
 }
 
