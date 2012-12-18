@@ -133,7 +133,14 @@ OBSID: foreach my $obsid (@obsid) {
 
 	# Get the X-ray source list for this obsid
 	%td = grep {not ref} @{$astromon_table_def{astromon_xray_src}}; 
-	my $src2_data = Data::ParseTable::parse_table($obs->src2); 
+        my $src2_data = [];
+        eval {
+            $src2_data = Data::ParseTable::parse_table($obs->src2);
+        };
+        if ($@) {
+            # Parse_table fails for an empty FITS table
+            $log->message("X-ray source list did not read, probably empty: $@");
+        }
 
 	my @xray_sources = map { XraySource->new(obs  => $obs, src2 => $_) } @$src2_data;
 	foreach my $xray_source (@xray_sources) {
@@ -148,6 +155,7 @@ OBSID: foreach my $obsid (@obsid) {
         $log->message("Total of " . @cat_sources . " catalog sources");
 	$table{astromon_cat_src} = xcorr_cat_xray(\@xray_sources, \@cat_sources, $XCORR_MAX_DIST);
         $log->message("After cross correlation " . @{$table{astromon_cat_src}} . " catalog sources remaining");
+        $log->message(Dumper @{$table{astromon_cat_src}});
 	$table{astromon_obs}->{process_status} = 'OK';
     };
 
@@ -193,11 +201,12 @@ sub xcorr_cat_xray {
     $max_dist /= 3600.0;  # convert input (arcsec) to degrees
 
     my @xcorr_sources = ();
-    for my $xs (@{$xray_sources}) {
-        for my $os (@{$cat_sources}) {
-            my $dist = radec_dist($xs->{ra}, $xs->{dec}, $os->{ra}, $os->{dec});
+    for my $cs (@{$cat_sources}) {
+        for my $xs (@{$xray_sources}) {
+            my $dist = radec_dist($xs->{ra}, $xs->{dec}, $cs->{ra}, $cs->{dec});
             if ($dist < $max_dist) {
-                push @xcorr_sources, $os;
+                push @xcorr_sources, $cs;
+                last;
             }
         }
     }
@@ -677,7 +686,7 @@ sub src2 {
 
     # If src2 file not already defined, look in current directory
     if (not defined $self->{src2}) {
-	$log->message("Getting src2 file");
+	$log->message("Getting src2 file in " . $self->work_dir);
 	my ($src2) = get_archive_files(obsid     => $self->obsid,
 				       prod      => $self->instrument . '2{src2}',
 				       file_glob => "*src2.fits*",
