@@ -19,7 +19,7 @@ use strict;
 #   Remove piled sources or SNR < SNR_MIN
 #   for each (@sources)
 #     cross correlate with catalogs and find best match
-#     if (matched) 
+#     if (matched)
 #       Update cel_loc table
 #       Make jpg of source (log scale) (dmimg2jpg)
 #   Update cel_loc table
@@ -30,7 +30,7 @@ use strict;
 use Getopt::Long;
 use App::Env;
 
-use Ska::Convert qw(time2date);
+use Ska::Convert qw(time2date radec_dist);
 use Ska::Process qw(get_params get_archive_files);
 use Ska::CatQuery qw(get_seqnum_info);
 use Ska::Message;
@@ -44,6 +44,8 @@ use File::Basename qw(dirname);
 use Cwd qw(abs_path);
 
 our $ASTROMON_DATA  = abs_path(dirname(__FILE__)) . "/data";
+our $XCORR_MAX_DIST = 5.0;
+
 # Set up some constants
 
 App::Env::import('CIAO');
@@ -139,10 +141,13 @@ OBSID: foreach my $obsid (@obsid) {
 	    $xray_source->xray_sources([ grep { $xray_source != $_ } @xray_sources ]); 
 	    push @{$table{astromon_xray_src}}, { map { $_ => $xray_source->$_ } sort keys %td };
 	}
-	    
-	# Get counterpart information from various catalogs
-	$table{astromon_cat_src} = $obs->get_catalog_source_list();
 
+	# Get counterpart information from various catalogs
+        my @cat_sources = $obs->get_catalog_source_list();
+
+        $log->message("Total of " . @cat_sources . " catalog sources");
+	$table{astromon_cat_src} = xcorr_cat_xray(\@xray_sources, \@cat_sources, $XCORR_MAX_DIST);
+        $log->message("After cross correlation " . @{$table{astromon_cat_src}} . " catalog sources remaining");
 	$table{astromon_obs}->{process_status} = 'OK';
     };
 
@@ -157,7 +162,7 @@ OBSID: foreach my $obsid (@obsid) {
 	$table{astromon_obs}->{obsid} = $obsid;
 	$table{astromon_obs}->{process_status} = $@;
     }
-	
+
     # Finally store the available data, writing over any existing entries.
     for my $table_name (qw(astromon_obs astromon_xray_src astromon_cat_src)) {
 	overwrite_table_rows($dbh,         # database handle
@@ -175,6 +180,30 @@ OBSID: foreach my $obsid (@obsid) {
 $dbh->disconnect();
 undef $Ska::Process::arc5gl;
 exit(0);
+
+##****************************************************************************
+sub xcorr_cat_xray {
+# Return the catalog (mostly optical) sources that are within max_dist
+# of an X-ray source.  This is just a rough pre-filter for the real
+# cross-correlation that happens in SQL.
+##****************************************************************************
+    my $xray_sources = shift;
+    my $cat_sources = shift;
+    my $max_dist = shift;
+    $max_dist /= 3600.0;  # convert input (arcsec) to degrees
+
+    my @xcorr_sources = ();
+    for my $xs (@{$xray_sources}) {
+        for my $os (@{$cat_sources}) {
+            my $dist = radec_dist($xs->{ra}, $xs->{dec}, $os->{ra}, $os->{dec});
+            if ($dist < $max_dist) {
+                push @xcorr_sources, $os;
+            }
+        }
+    }
+
+    return \@xcorr_sources;
+}
 
 ##****************************************************************************
 sub overwrite_table_rows {
@@ -400,7 +429,7 @@ package Obs;
 
 use Ska::IO qw(read_param_file);
 use Ska::Convert qw(dec2hms radec_dist hms2dec);
-use Ska::CatQuery qw(get_simbad get_2mass);
+use Ska::CatQuery qw(get_simbad);
 use Ska::Process qw(get_archive_files);
 use Data::ParseTable;
 use RDB;
@@ -763,6 +792,8 @@ sub make_src2_file {
 
 ##*************************************************************************---
 sub get_catalog_source_list {
+# http://idlastro.gsfc.nasa.gov/ftp/pro/sockets/queryvizier.pro
+# http://vizier.cfa.harvard.edu/doc/asu-summary.htx
 ##****************************************************************************
     my $self = shift;
 
@@ -777,21 +808,24 @@ sub get_catalog_source_list {
 
     my $t2000 = 63072000.0;	# Chandra time at 2000-01-01T00:00:00
     my $n_years_2000 = ($obspar{tstart} - $t2000) / (86400*365.25);
-    my $year = sprintf "%.2f", 2000.0 + $n_years_2000;
+    $self->{year} = sprintf "%.2f", 2000.0 + $n_years_2000;
     my $d2r = 3.14159265358979 / 180.;
     my $d2a = 3600.;
 
     # Get USNO-B1.0 catalog
-    push @cat, $self->get_vizier('USNO-B1.0', 'USNO-B1.0', ['USNO-B1.0'],
-                                 'RAJ2000', 'DEJ2000', 'R1mag');
+    push @cat, $self->get_vizier('USNO-B1.0', 'USNO-B1.0', ['USNO-B1.0'], 'R1mag');
 
     # Get Tycho2 catalog
-    push @cat, $self->get_vizier('Tycho2', 'I/259/TYC2', ['TYC1', 'TYC2', 'TYC3'],
-                                 'RA(ICRS)', 'DE(ICRS)', 'VTmag');
+    push @cat, $self->get_vizier('Tycho2', 'I/259/TYC2', ['TYC1', 'TYC2', 'TYC3'], 'VTmag');
 
-    # Get Tycho2 catalog
-    push @cat, $self->get_vizier('SDSS', 'II/294', ['SDSS'],
-                                 'RAJ2000', 'DEJ2000', 'rmag');
+    # Get SDSS catalog
+    push @cat, $self->get_vizier('SDSS', 'II/294', ['SDSS'], 'rmag');
+
+    # Get ICRS catalog
+    push @cat, $self->get_vizier('ICRS', 'I/251', ['ICRF'], undef);
+
+    # Get 2MASS catalog
+    push @cat, $self->get_vizier('2MASS', 'II/246/out', ['2MASS'], 'Kmag');
 
     # Read astromon_sources catalog
     $log->message("Reading ASTROMON catalog");
@@ -812,47 +846,6 @@ sub get_catalog_source_list {
         $n_cat++;
     }
     $log->message("Found $n_cat sources in ASTROMON catalog");
-
-    # Read ICRS catalog
-
-    $log->message("Reading ICRS catalog");
-    my @cat_lines = `cat $ASTROMON_DATA/ICRS_tables`;
-    $n_cat = 0;
-    foreach (@cat_lines) {
-	next unless (/^J\d\d\d\d\d\d/);
-	my @a = split;
-	my ($ra, $dec) = hms2dec(@a[(2..7)]);
-	next unless (radec_dist($ra, $dec, $obspar{ra_targ}, $obspar{dec_targ}) < $extr_rad/60.0);
-	push @cat, {name    => $a[1],
-		    ra_hms  => join(':',@a[(2..4)]),
-		    dec_hms => join(':',@a[(5..7)]),
-		    ra      => $ra,
-		    dec     => $dec,
-		    mag     => undef,
-		    catalog => 'ICRS' };
-        $n_cat++;
-    }
-    $log->message("Found $n_cat sources in ICRS catalog");
-
-    # Get 2MASS catalog sources
-    $n_cat = 0;
-    if ($par{twomass}) {
-	$log->message("Getting 2MASS catalog");
-	my @cat_2mass = get_2mass($obspar{ra_targ}, $obspar{dec_targ}, $extr_rad*60);
-
-	foreach my $data (@cat_2mass) {
-	    my ($ra_hms, $dec_hms) = dec2hms($data->{ra}, $data->{dec});
-	    push @cat, {name    => $data->{designation},
-			ra_hms  => $ra_hms,
-			dec_hms => $dec_hms,
-			ra      => $data->{ra},
-			dec     => $data->{dec},
-			mag     => $data->{k_m}, # V mag
-			catalog => '2MASS' };
-            $n_cat++;
-	}
-    }
-    $log->message("Found $n_cat sources in 2MASS catalog");
 
     # Get a coordinate from SIMBAD
     $n_cat = 0;
@@ -877,20 +870,16 @@ sub get_catalog_source_list {
     }
     $log->message("Found $n_cat sources in SIMBAD catalog");
 
-    # push @cat, $self->get_sdss();
-
     # Add Y,Z angle for database
     my $cat_id = 1;
     foreach $cat (@cat) {
-        print "HEJ\n";
-        print Dumper($cat);
 	$cat->{id} = $cat_id++;
 	$cat->{obsid} = $self->obsid;
 	($cat->{y_angle}, $cat->{z_angle}) = main::calc_y_z_r($self->ra, $self->dec, $self->roll,
 							      $cat->{ra}, $cat->{dec});
     }
 
-    return \@cat;
+    return @cat;
 }
 
 ##************************************************************************---
@@ -902,14 +891,13 @@ sub get_vizier {
     my $catalog = shift;  # Astromon catalog name
     my $source = shift;  # Vizier catalog identifier
     my $name_cols = shift;  # Columns that specify object name
-    my $ra_col = shift;
-    my $dec_col = shift;
     my $mag_col = shift;
 
     my @cat;
     my %url_opt = ('-source' => $source,
-                    '-sort' => '_r',  # sort by increasing distance to target
-		    '-c' => sprintf("%.5f+%.4f", $self->ra, $self->dec),
+                   '-sort' => '_r',  # sort by increasing distance to target
+                   '-c' => sprintf("%.5f+%.4f", $self->ra, $self->dec),
+                   '-out.add' => '_RA(J2000,J' . $self->{year} . ')',
 		    '-c.rs' => $self->extr_rad * 60,
 		   );
     my $url = 'http://vizier.cfa.harvard.edu/viz-bin/asu-tsv?'
@@ -929,13 +917,22 @@ sub get_vizier {
     }
 
     # Remove 2nd and 3rd lines (units and dashes rows)
-    print Dumper(\@lines);
     splice(@lines, 1, 1);
-    print Dumper(\@lines);
+    foreach (@lines) {
+        # Text parser fails if line ends with tab.  Related to idiotic split behavior??
+        s/\t$/\t /;
+    }
     my $rows = Data::ParseTable::parse_table(\@lines);
-    print Dumper($rows);
 
+    my $ra_col;
+    my $dec_col;
     foreach my $object (@{$rows}) {
+        unless (defined $ra_col) {
+            foreach (keys %{$object}) {
+                $ra_col = $_ if /^_RAJ2000/;
+                $dec_col = $_ if (/^_DEJ2000/);
+            }
+        }
 	my $ra = $object->{$ra_col};
 	my $dec = $object->{$dec_col};
 	my ($rah, $decd) = dec2hms($ra, $dec);
@@ -944,64 +941,11 @@ sub get_vizier {
 		    dec_hms => $decd,
 		    ra      => $ra,
 		    dec     => $dec,
-		    mag     => $object->{$mag_col} ,
+		    mag     => $mag_col ? $object->{$mag_col} : undef,
 		    catalog => $catalog };
     }
 
-    print Dumper(\@cat);
     $log->message("Found " . @cat . " sources in Vizer ${catalog} catalog");
-    return @cat;
-}
-
-##************************************************************************---
-sub get_sdss {
-#
-#
-# SELECT top 20 p.objid, p.run, p.rerun, p.camcol, p.field, p.obj, p.type, 
-#        p.ra, p.dec, p.u,p.g,p.r,p.i,
-#        p.z, p.Err_u, p.Err_g, p.Err_r,p.Err_i,p.Err_z 
-#  FROM fGetNearbyObjEq(180,-0.2,3) n, PhotoPrimary p 
-#  WHERE n.objID=p.objID
-##************************************************************************---
-    my $self = shift;
-    my @cat;
-    my %sdss_opt = (format => 'csv',
-		    topnum => 300,
-		    ra     => sprintf("%.5f",$self->ra),
-		    dec    => sprintf("%.4f",$self->dec),
-		    radius => $self->extr_rad,
-		   );
-    my $url = $par{sdss_url}
-      . '/x_radial.asp?'
-      . join('&', map { "$_=$sdss_opt{$_}" } keys %sdss_opt);
-    $log->message("Getting SDSS stellar objects: $url");
-    my ($csv, $error) = get_url($url, timeout => 120);
-    die "Error accessing '$url': $error\n" if defined $error;
-
-    if ($csv =~ /^\s*No objects/) {
-        $log->message("No SDSS objects found in this field\n");
-        return ();
-    }
-
-    my @lines = split("\n", $csv);
-    my $rows = Data::ParseTable::parse_table(\@lines,
-                                             {field_separator => ','});
-
-    foreach my $object (@{$rows}) {
-	next unless $object->{type} == 6; # Accept only stellar objects
-	my $ra = $object->{ra};
-	my $dec = $object->{dec};
-	my ($rah, $decd) = dec2hms($ra, $dec);
-	push @cat, {name    => $object->{objid},
-		    ra_hms  => $rah,
-		    dec_hms => $decd,
-		    ra      => $ra,
-		    dec     => $dec,
-		    mag     => $object->{r} ,
-		    catalog => "SDSS" };
-    }
-
-    $log->message("Found " . @cat . " sources in SDSS catalog");
     return @cat;
 }
 
@@ -1018,7 +962,7 @@ sub clean_up {
 		     most  => "source_evt2.fits* hrc*evt2.fits* acis*evt2.fits* $asp_glob",
 		    );
     my $glob = $glob_list{$clean} || '';
-	
+
     foreach (glob($glob)) {
 	$log->message("Cleaning up $_");
 	my $io = io($_);
