@@ -22,7 +22,7 @@ io($ASTROMON_WWW)->mkpath;
 
 foreach my $det (qw(ACIS-S ACIS-I HRC-S HRC-I)) {
     run("ps2any -size 475 -rotate 90 " .
-	"offsets-${det}.ps $ASTROMON_WWW/offsets-${det}.gif");
+        "offsets-${det}.ps $ASTROMON_WWW/offsets-${det}.gif");
     run("ps2any -size 400 -rotate 90 " .
-	"offsets-${det}-hist.ps $ASTROMON_WWW/offsets-${det}-hist.gif");
+        "offsets-${det}-hist.ps $ASTROMON_WWW/offsets-${det}-hist.gif");
 }
