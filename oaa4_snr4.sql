@@ -6,7 +6,8 @@
 --
 --  X-ray - Catalog position match within 3 arcsec
 -- 
---  Catalog is high precision 'Tycho2', 'SIMBAD_high', 'CELMON', 'ICRS', 'ASTROMON'
+--  Catalog is relatively high precision:
+--   'Tycho2', 'SIMBAD_high', 'CELMON', 'ICRS', 'ASTROMON', SDSS, 2MASS, USNO-B1.0
 --
 SELECT *, x.id  AS x_id,
           x.ra  AS x_ra,
@@ -28,6 +29,6 @@ SELECT *, x.id  AS x_id,
 ---     AND (x.status_id = NULL or x.status_id = 0) [KEEP so they can be seen if desired]
         AND x.near_neighbor_dist > 6.0
         AND (x.r_angle < 24 OR (o.grating = 'NONE' AND x.r_angle < 240))
-        AND c.catalog IN ('Tycho2', 'SIMBAD_high', 'CELMON', 'ICRS', 'ASTROMON', 'SDSS', '2MASS')
+        AND c.catalog IN ('Tycho2', 'SIMBAD_high', 'CELMON', 'ICRS', 'ASTROMON', 'SDSS', '2MASS', 'USNO-B1.0')
         AND (c.y_angle-x.y_angle)*(c.y_angle-x.y_angle) + (c.z_angle-x.z_angle)*(c.z_angle-x.z_angle) < 9.0
 
