@@ -49,6 +49,9 @@ our $XCORR_MAX_DIST = 5.0;
 # Set up some constants
 
 App::Env::import('CIAO');
+$ENV{CIAO_LD_LIBRARY_PATH} = sprintf("%s/lib:%s/ots/lib",
+                                     ($ENV{ASCDS_INSTALL},
+                                      $ENV{ASCDS_INSTALL}));
 
 $ENV{UPARM} = $ASTROMON_DATA;
 $| = 1;

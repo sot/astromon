@@ -18,6 +18,9 @@ use PDL::NiceSlice;
 use Data::Dumper;
 use List::MoreUtils;
 use App::Env qw(CIAO);
+$ENV{CIAO_LD_LIBRARY_PATH} = sprintf("%s/lib:%s/ots/lib",
+                                     ($ENV{ASCDS_INSTALL},
+                                      $ENV{ASCDS_INSTALL}));
 use Carp;
 use Chandra::Tools::dmcoords;
 use File::Basename qw(dirname);
