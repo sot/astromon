@@ -17,11 +17,15 @@ use PDL::Graphics::LUT;
 use PDL::NiceSlice;
 use Data::Dumper;
 use List::MoreUtils;
-use App::Env qw(CIAO);
 use Carp;
 use Chandra::Tools::dmcoords;
 use File::Basename qw(dirname);
 use Cwd qw(abs_path);
+
+use Shell::GetEnv;
+my $env = Shell::GetEnv->new('tcsh', 'source /soft/ciao-4.5/bin/ciao.csh');
+$env->import_envs();
+
 
 our $ASTROMON_DATA  = abs_path(dirname(__FILE__)) . "/data";
 our %SIM_z_nom = ('acis-s' => -190.14,

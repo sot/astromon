@@ -28,7 +28,6 @@ use strict;
 ##########################################################################################
 
 use Getopt::Long;
-use App::Env;
 
 use Ska::Convert qw(time2date radec_dist);
 use Ska::Process qw(get_params get_archive_files);
@@ -48,7 +47,9 @@ our $XCORR_MAX_DIST = 5.0;
 
 # Set up some constants
 
-App::Env::import('CIAO');
+use Shell::GetEnv;
+my $env = Shell::GetEnv->new('tcsh', 'source /soft/ciao-4.5/bin/ciao.csh');
+$env->import_envs();
 
 $ENV{UPARM} = $ASTROMON_DATA;
 $| = 1;
