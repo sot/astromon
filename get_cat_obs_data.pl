@@ -341,7 +341,7 @@ sub get_obsids {
         undef $Ska::Process::arc5gl;
         $obspar_dir->rmtree if $obspar_dir->exists;
 
-        push @ARGV, grep {$_ = $1+0 if (/axaff(\d+)/ && $1 < 50000)} @obsfiles;
+        push @ARGV, grep {$_ = $1+0 if (/axaff(\d+)/ && $1 < 38000)} @obsfiles;
     }
 
     $log->message("Processing following obsids: @ARGV");
