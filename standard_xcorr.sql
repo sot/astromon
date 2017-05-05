@@ -24,6 +24,8 @@ SELECT *, x.id  AS x_id,
     JOIN astromon_cat_src AS c ON x.obsid = c.obsid
     JOIN astromon_obs     AS o ON x.obsid = o.obsid
       WHERE o.process_status = 'OK'
+-- Get the ones in the last 5 years
+        AND julianday('now') - julianday(o.date_obs) < (5 * 365)
 	AND x.snr > 5.0
 ---     AND (x.status_id = NULL or x.status_id = 0) [KEEP so they can be seen if desired]
         AND x.near_neighbor_dist > 6.0
