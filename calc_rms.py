@@ -5,6 +5,7 @@ of 1.0 arcsec.
 
 import numpy as np
 import asciitable
+from Chandra.Time import DateTime
 
 # Read using Tab instead of Rdb because the RDB 2nd-line header is wrong.
 dat = asciitable.read('/proj/sot/ska/data/astromon/standard_xcorr/plot.rdb',
@@ -13,11 +14,25 @@ dat = asciitable.read('/proj/sot/ska/data/astromon/standard_xcorr/plot.rdb',
 ok = dat['status_id'] == ''
 dat = dat[ok]
 
-# For all data
-print 'All', np.sqrt(np.mean(dat['dr'] ** 2))
-# 0.410
+start = DateTime() - (5 * 365)
+stop = DateTime()
+ok = ((DateTime(dat['date_obs']).date > start.date)
+      & (DateTime(dat['date_obs']).date < stop.date))
+print("{} to {}".format(start.date, stop.date))
 
-# For data since 2010
-ok = dat['date_obs'] > '2009'
-print 'Since 2010:001', np.sqrt(np.mean(dat['dr'][ok] ** 2))
-# 0.517
+print("N srcs: {}".format(len(dat[ok])))
+print('RMS radius {}'.format(np.sqrt(np.mean(dat[ok]['dr'] ** 2))))
+print("90 percentile radius = {} arcsec".format(np.percentile(dat[ok]['dr'], 90)))
+print("99 percentile radius = {} arcsec".format(np.percentile(dat[ok]['dr'], 99)))
+
+for detector in ['ACIS-S', 'ACIS-I', 'HRC-S', 'HRC-I']:
+    det = dat[ok]['detector'] == detector
+    print("90 percentile radius for {} is {} arcsec".format(
+            detector,
+            np.percentile(dat[ok]['dr'][det], 90)))
+
+print("{:.1f} percent outside a 1 arcsec radius".format(
+        100.0 * np.count_nonzero(dat[ok]['dr'] > 1.0) / len(dat[ok]['dr'])))
+
+
+print("Worst case is {:.1f}".format(np.max(dat[ok]['dr'])))
