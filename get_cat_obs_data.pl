@@ -912,7 +912,7 @@ sub get_vizier {
                    '-out.add' => '_RA(J2000,J' . $self->{year} . ')',
                     '-c.rs' => $self->extr_rad * 60,
                    );
-    my $url = 'http://vizier.cfa.harvard.edu/viz-bin/asu-tsv?'
+    my $url = 'http://slimbad.cfa.harvard.edu/viz-bin/asu-tsv?'
       . join('&', map { "$_=$url_opt{$_}" } keys %url_opt);
 
     $log->message("Getting Vizier $catalog objects using '$url'");
