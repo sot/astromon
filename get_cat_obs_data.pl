@@ -793,7 +793,7 @@ sub make_src2_file {
 
 # Find sources in the small field
 
-    my $celldet = "celldetect $src_img $src_src2 thresh=$par{snr} clobber=yes";
+    my $celldet = "celldetect $src_img $src_src2 thresh=$par{snr} maxlogicalwindow=2048 clobber=yes";
     $log->message("$celldet");
     system($celldet);
 
