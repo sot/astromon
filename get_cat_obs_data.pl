@@ -792,7 +792,9 @@ sub make_src2_file {
     system($dmcopy);
 
 # Find sources in the small field
-
+    $log->message("PFILES are $ENV{PFILES}");
+    $log->message("punlearn celldetect\n");
+    system("punlearn celldetect");
     my $celldet = "celldetect $src_img $src_src2 thresh=$par{snr} maxlogicalwindow=2048 clobber=yes";
     $log->message("$celldet");
     system($celldet);
