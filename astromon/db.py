@@ -1,0 +1,493 @@
+import contextlib
+import os
+import sqlite3
+import functools
+import re
+import logging
+from astropy.table.table import Table
+import numpy as np
+from pathlib import Path
+from contextlib import contextmanager
+import warnings
+from filelock import FileLock
+
+from cxotime import CxoTime
+from astropy.coordinates import SkyCoord
+from astropy import table, units as u
+
+import tables
+from ska_helpers.retry import tables_open_file
+
+from astromon import observation
+
+if 'ASTROMON_FILE' in os.environ:
+    FILE = Path(os.environ['ASTROMON_FILE'])
+elif 'NO_DEFAULT_ASTROMON' in os.environ:
+    FILE = None
+else:
+    FILE = Path(os.environ['SKA']) / 'data' / 'astromon' / 'astromon.h5'
+
+ASTROMON_XCORR_DTYPE = np.dtype([
+    ('select_name', 'S14'),
+    ('obsid', np.int32),
+    ('c_id', np.int32),
+    ('x_id', np.int32),
+    ('dy', np.float32),
+    ('dz', np.float32),
+    ('dr', np.float32)
+])
+
+
+ASTROMON_XRAY_SRC_DTYPE = np.dtype([
+    ('obsid', np.int32),
+    ('id', np.int32),
+    ('name', 'S22'),
+    ('ra', np.float64),
+    ('dec', np.float64),
+    ('net_counts', np.float32),
+    ('y_angle', np.float32),
+    ('z_angle', np.float32),
+    ('r_angle', np.float32),
+    ('snr', np.float32),
+    ('near_neighbor_dist', np.float32),
+    ('double_id', np.int32),
+    ('status_id', np.int32),
+    ('pileup', np.float32),
+    ('acis_streak', np.int32),
+])
+
+
+ASTROMON_CAT_SRC_DTYPE = np.dtype([
+    ('obsid', np.int32),
+    ('id', np.int32),
+    ('x_id', np.int32),
+    ('catalog', 'S16'),
+    ('name', 'S24'),
+    ('ra', np.float64),
+    ('dec', np.float64),
+    ('separation', np.float32),
+    ('mag', np.float32),
+    ('y_angle', np.float32),
+    ('z_angle', np.float32)
+])
+
+
+ASTROMON_OBS_DTYPE = np.dtype([
+    ('obsid', np.int32),
+    ('version', np.float32),
+    ('detector', 'S6'),
+    ('target', 'S28'),
+    ('grating', 'S4'),
+    ('sim_z', np.float32),
+    ('date_obs', 'S20'),
+    ('tstart', np.float32),
+    ('fids', 'S20'),
+    ('ascdsver', 'S32'),
+    ('ra', np.float64),
+    ('dec', np.float64),
+    ('roll', np.float64),
+    ('process_status', 'S128'),
+    ('category_id', np.int32)
+])
+
+
+ASTROMON_REGION_DTYPE = np.dtype([
+    ('region_id', np.int32),
+    ('ra', np.float64),
+    ('dec', np.float64),
+    ('radius', np.float32),
+    ('obsid', np.int32),
+    ('user', 'S50'),
+    ('comments', 'S200'),
+])
+
+
+ASTROMON_META_DTYPE = np.dtype([
+    ('last_region_id', np.int32),
+])
+
+
+DTYPES = {
+    'astromon_xcorr': ASTROMON_XCORR_DTYPE,
+    'astromon_xray_src': ASTROMON_XRAY_SRC_DTYPE,
+    'astromon_cat_src': ASTROMON_CAT_SRC_DTYPE,
+    'astromon_obs': ASTROMON_OBS_DTYPE,
+    'astromon_regions': ASTROMON_REGION_DTYPE,
+    'astromon_meta': ASTROMON_META_DTYPE,
+}
+
+
+def _sqltype_to_dtype(t):
+    import re
+    t = t.lower()
+    types = {
+        'integer': np.int32,
+        'int': np.int32,
+        'float': np.float32,
+        'double precision': np.float64,
+    }
+    if t in types:
+        return types[t]
+    if m := re.match(r'varchar\((?P<n>[0-9]+)\)', t):
+        return np.dtype(f'S{m.groupdict()["n"]}')
+
+
+def get_dtype(table_name, dbfile=None):
+    with connect(dbfile) as con:
+        if type(con) is sqlite3.Connection:
+            cur = con.cursor()
+            columns = cur.execute(f"PRAGMA table_info('{table_name}')").fetchall()
+            dtype = [(c[1], _sqltype_to_dtype(c[2])) for c in columns]
+            return np.dtype(dtype)
+        elif type(con) is tables.file.File:
+            return None
+
+
+def get(table_name, dbfile=None):
+    """
+    Get an ENTIRE table.
+    """
+    # logger = logging.getLogger('astromon')
+    # if not Path(dbfile).exists():
+    #     raise RuntimeError(f'Astromon DB file does not exist {dbfile}')
+
+    with connect(dbfile) as con:
+        if type(con) is sqlite3.Connection:
+            try:
+                cur = con.cursor()
+                columns = cur.execute(f"PRAGMA table_info('{table_name}')").fetchall()
+                table_dtype = np.dtype([(c[1], _sqltype_to_dtype(c[2])) for c in columns])
+                table_column_names = [row[1] for row in columns]
+                cur.execute(f'select * from {table_name}')
+                data = cur.fetchall()
+                data = [[d[i] for d in data] for i in range(len(table_column_names))]
+                return table.Table(
+                    data if data else None,
+                    names=table_column_names,
+                    dtype=table_dtype
+                )
+            except sqlite3.OperationalError as e:
+                if not re.match('no such table', str(e)) or table_name not in DTYPES:
+                    raise
+                # logger.warning(f'{table_name} is not in file. Returning empty table.')
+                warnings.warn(f'{table_name} is not in file. Returning empty table.')
+                return table.Table(names=DTYPES[table_name].names, dtype=DTYPES[table_name])
+
+        elif type(con) is tables.file.File:
+            try:
+                res = con.get_node(f'/{table_name}')[:]
+                if table_name in DTYPES:
+                    res = res.astype(DTYPES[table_name])
+                res = table.Table((res))
+                res.convert_bytestring_to_unicode()
+                return res
+            except tables.NoSuchNodeError:
+                if table_name in DTYPES:
+                    # logger.warning(f'{table_name} is not in file. Returning empty table.')
+                    warnings.warn(f'{table_name} is not in file. Returning empty table.')
+                    return table.Table(names=DTYPES[table_name].names, dtype=DTYPES[table_name])
+                names = sorted(set([n.name for n in con.root] + list(DTYPES.keys())))
+                raise Exception(
+                    f'Unknown table "{table_name}". Available tables: {names}') from None
+        else:
+            raise Exception(f'Unknown DB type: {dbfile}')
+
+
+def _save_sql(con, table_name, data):
+    cur = con.cursor()
+
+    if type(table_name) is list:
+        all_table_names = table_name
+        all_data = data
+    else:
+        all_table_names = [table_name]
+        all_data = [data]
+
+    for table_name, data in zip(all_table_names, all_data):
+        tables = [
+            row[0] for row in
+            cur.execute("SELECT name FROM sqlite_master WHERE type='table';")
+        ]
+        if table_name not in tables:
+            with open(Path(__file__).parent / 'sql' / 'tables' / f'{table_name}.sql') as fh:
+                cur.execute(fh.read())
+        columns = cur.execute(f"PRAGMA table_info('{table_name}')").fetchall()
+        table_column_names = [row[1] for row in columns]
+        data_column_names = [name for name in data.colnames if name in table_column_names]
+        if not data_column_names:
+            raise Exception('Input data has no columns in common with table in DB')
+
+        values = [str(tuple(row)) for row in data[data_column_names]]
+        insert_query = f"insert into {table_name} ({', '.join(data_column_names)}) values"
+        insert_query += ", ".join(values)
+        insert_query += ";"
+        insert_query = insert_query.replace('inf', '1e30')  # HORRIBLE HACK
+        insert_query = insert_query.replace('masked', 'NULL')  # HORRIBLE HACK
+        insert_query = insert_query.replace('nan', 'NULL')  # HORRIBLE HACK
+
+        if 'obsid' in data.colnames:
+            obsids = ', '.join(np.unique(data['obsid']).astype(str))
+            cur.execute(f"DELETE FROM {table_name} WHERE OBSID IN ({obsids})")
+        cur.execute(insert_query)
+        con.commit()
+
+
+def _save_hdf5(h5, table_name, data):
+
+    # sanity checks: assert that file is open for writing
+    assert h5.isopen, f'{h5.filename} is not open'
+    assert h5.mode in ['r+', 'w'], f'{h5.filename} is not open for writing'
+    assert isinstance(data, table.Table), 'input to _save_hdf5 must be a table'
+
+    if table_name in DTYPES:
+        dtype = DTYPES[table_name]
+        names = [n for n in dtype.names if n in data.dtype.names]
+        if len(names) == 0:
+            raise Exception('Input data has no columns in common with table in DB')
+        b = np.zeros(len(data), dtype=dtype)
+        b[names] = data[names].as_array().astype(dtype[names])
+        data = b
+    else:
+        data = data.as_array()
+
+    if table_name in h5.root:
+        node = h5.get_node(f'/{table_name}')
+        if 'obsid' in data.dtype.names:
+            # remove rows for these obsids
+            obsids = np.unique(data['obsid'])
+            data_out = node[:].astype(dtype)
+            data_out = data_out[~np.in1d(data_out['obsid'], obsids)]
+            # append current data
+            data = np.concatenate((data_out, data))
+        h5.remove_node(node)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        h5.create_table('/', table_name, data)
+
+
+@contextmanager
+def connect(dbfile=None):
+    """
+    Context manager that returns a DB connection (or an HDF5 file).
+    """
+    if dbfile is None:
+        dbfile = FILE
+
+    if isinstance(dbfile, tables.file.File) or isinstance(dbfile, sqlite3.Connection):
+        yield dbfile
+    else:
+        logger = logging.getLogger('astromon')
+        if dbfile is None:
+            dbfile = FILE
+        dbfile = Path(str(dbfile)).absolute()
+        if str(dbfile)[-3:] == '.h5':
+            lock = FileLock(dbfile.parent / f'.{dbfile.name}.lock')
+            try:
+                with lock:
+                    pass
+            except PermissionError:
+                lock = contextlib.nullcontext()
+            with lock:
+                mode = 'r+' if dbfile.exists() else 'w'
+                logger.debug(f'{dbfile} open')
+                h5 = tables_open_file(dbfile, mode)
+                if not h5.is_undo_enabled():
+                    h5.enable_undo()
+                h5.mark()
+                try:
+                    yield h5
+                except Exception as e:
+                    logger.warning(f'Exception: {e}')
+                    if h5.isopen:
+                        h5.undo()
+                        logger.debug(f'{dbfile} undo')
+                        h5.close()
+                        logger.debug(f'{dbfile} closed (1)')
+                    raise
+                finally:
+                    if h5.isopen:
+                        h5.close()
+                        logger.debug(f'{dbfile} closed (2)')
+        else:
+            yield sqlite3.connect(str(dbfile))
+
+
+def retry_operational_error(retries=3):
+    def retry_operational_error_decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            for retry in range(retries):
+                try:
+                    return func(*args, **kwargs)
+                except sqlite3.OperationalError as e:
+                    # only OperationalError with msg='database is locked' are ignored and retried
+                    if str(e) != 'database is locked':
+                        raise
+                    if retry == retries - 1:
+                        raise Exception(f'Failed to save to DB after {retries} retries')
+        return wrapper
+    return retry_operational_error_decorator
+
+
+@retry_operational_error()
+def save(db, table_name, data):
+    """
+    Insert data into a table, deleting previous entries for the same OBSID.
+
+    If the table does not exist, it is created using pre-existing table definitions.
+    """
+    with connect(db) as con:
+        if type(con) is tables.file.File:
+            return _save_hdf5(con, table_name, data)
+        elif type(con) is sqlite3.Connection:
+            return _save_sql(con, table_name, data)
+        else:
+            raise Exception(f'Unknown DB type: {db}/{con}')
+
+
+def remove_regions(regions, db_file=None):
+    """
+    Remove exclusion regions (by ID) from the astromon_regions table.
+    """
+    with connect(db_file) as con:
+        if type(con) is tables.file.File:
+            _remove_regions_h5(con, regions)
+        elif type(con) is sqlite3.Connection:
+            _remove_regions_sql(con, regions)
+        else:
+            raise Exception(f'Unknown DB type: {db_file}/{con}')
+
+
+def _remove_regions_sql(con, regions):
+    cur = con.cursor()
+    regions = ', '.join([str(r) for r in regions])
+    cur.execute(f"delete from astromon_regions where region_id in ({regions})")
+    con.commit()
+
+
+def _remove_regions_h5(h5, regions):
+    all_regions = get('astromon_regions', h5)
+    all_regions = all_regions[~np.in1d(all_regions['region_id'], regions)]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        if 'astromon_regions' in h5.root:
+            h5.remove_node('/astromon_regions')
+        h5.create_table('/', 'astromon_regions', all_regions.as_array())
+
+
+def add_regions(regions, db_file=None):
+    """
+    Add exclusion regions to the astromon_regions table.
+
+    A unique region ID is automatically generated.
+    """
+    with connect(db_file) as con:
+        if type(con) is tables.file.File:
+            return _add_regions_h5(con, regions)
+        elif type(con) is sqlite3.Connection:
+            return _add_regions_sql(con, regions)
+        else:
+            raise Exception(f'Unknown DB type: {db_file}/{con}')
+
+
+def _add_regions_sql(con, regions):
+    cur = con.cursor()
+    tables = [
+        row[0] for row in
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table';")
+    ]
+    if 'astromon_regions' not in tables:
+        with open(Path(__file__).parent / 'sql' / 'tables' / 'astromon_regions.sql') as fh:
+            cur.execute(fh.read())
+    columns = cur.execute(f"PRAGMA table_info('astromon_regions')").fetchall()
+    table_column_names = [row[1] for row in columns]
+    names = [n for n in regions.dtype.names if n in table_column_names]
+    values = ", ".join([str(tuple(row)) for row in regions[names]])
+    names = ", ".join(names)
+    insert_query = f"insert into astromon_regions ({names}) values {values};"
+    cur.execute(insert_query)
+    con.commit()
+
+
+def _add_regions_h5(h5, regions):
+    import logging
+    logger = logging.getLogger('astromon')
+    logger.info(f'Adding regions: {regions}')
+    all_regions = get('astromon_regions', h5)
+    if 'astromon_meta' in h5.root:
+        meta = Table(h5.root.astromon_meta[:], dtype=DTYPES['astromon_meta'])
+    else:
+        meta = Table(np.zeros(1, dtype=DTYPES['astromon_meta']))
+    rid = meta['last_region_id'][0] + 1
+    regions = Table(regions)
+    names = [n for n in all_regions.dtype.names if n in regions.dtype.names]
+    b = np.zeros(len(regions), dtype=all_regions.dtype)
+    b[names] = regions[names].as_array().astype(all_regions.dtype[names])
+    b['region_id'] = np.arange(rid, rid + len(b))
+    b = Table(b)
+    all_regions = table.vstack([all_regions, b])
+    meta['last_region_id'][0] = b['region_id'][-1]
+    save(h5, 'astromon_regions', all_regions)
+    save(h5, 'astromon_meta', meta)
+    return b
+
+
+def set_formats(dat):
+    """
+    Sets format of columns with float dtype to show 2 decimals, except ra/dec/pileup (4 decimals).
+    """
+    fmts = {'ra': '.4f',
+            'x_ra': '.4f',
+            'c_ra': '.4f',
+            'dec': '.4f',
+            'x_dec': '.4f',
+            'c_dec': '.4f',
+            'pileup': '.4f'}
+    for col in dat.itercols():
+        if (hasattr(col, 'name') and col.name in dat.colnames
+                and hasattr(dat[col.name], 'dtype') and col.dtype.kind == 'f'):
+            dat[col.name].info.format = fmts.get(col.name, '.2f')
+
+
+def get_cross_matches(dbfile=None):
+    """
+    Make a standard join of observations, x-ray sources and catalog counterparts.
+
+    This function returns an astropy.table.Table indexed by OBSID and adds a few columns on the fly:
+    - time
+    - c_loc
+    - x_loc
+    """
+    matches = get('astromon_xcorr', dbfile)
+    astromon_cat_src = get('astromon_cat_src', dbfile)
+    astromon_xray_src = get('astromon_xray_src', dbfile)
+    astromon_obs = get('astromon_obs', dbfile)
+
+    categories = {cat_id: cat_name for cat_name, cat_id in observation.CATEGORY_ID_MAP.items()}
+    categories[200] = 'Unknown'
+    astromon_obs['category'] = [
+        categories[cat] for cat in astromon_obs['category_id']
+    ]
+
+    astromon_cat_src.remove_column('x_id')
+    astromon_xray_src.remove_column('name')
+    astromon_cat_src.rename_columns(
+        ['id', 'ra', 'dec', 'y_angle', 'z_angle'],
+        ['c_id', 'c_ra', 'c_dec', 'c_y_angle', 'c_z_angle']
+    )
+    astromon_xray_src.rename_columns(
+        ['id', 'ra', 'dec', 'y_angle', 'z_angle'],
+        ['x_id', 'x_ra', 'x_dec', 'x_y_angle', 'x_z_angle']
+    )
+    matches = table.join(matches, astromon_obs, keys=['obsid'])
+    matches = table.join(matches, astromon_cat_src, keys=['obsid', 'c_id'])
+    matches = table.join(matches, astromon_xray_src, keys=['obsid', 'x_id'])
+
+    matches['time'] = CxoTime(matches['date_obs'])
+    matches['c_loc'] = SkyCoord(matches['c_ra'] * u.deg, matches['c_dec'] * u.deg)
+    matches['x_loc'] = SkyCoord(matches['x_ra'] * u.deg, matches['x_dec'] * u.deg)
+
+    set_formats(matches)
+    matches.add_index('obsid')
+    return matches

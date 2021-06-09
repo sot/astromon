@@ -1,0 +1,17 @@
+			<p> The absolute positional accuracy of source coordinates in Chandra observations is estimated
+				measuring the distances between Chandra X-ray source
+				positions and corresponding optical/radio counterpart positions
+				from <a href="#catalogs"> accurate catalogs </a>.
+			</p>
+
+			<p>
+				The overall 90% uncertainty circle of Chandra
+				X-ray absolute position has a radius of {{ "%.2f" | format(data.cal.q90) }} arcsec.
+				The 99% limit on positional accuracy is {{ "%.2f" | format(data.cal.q99) }} arcsec.
+				The worst case offset is {{ "%.1f" | format(data.cal.max_offset) }} arcsec. Performance varies slightly between
+				detectors.
+			</p>
+
+			<p> <em>These values apply to sources within 3 arcmin of the aimpoint
+					and with the SIM-Z at the nominal detector value.</em>
+			</p>
