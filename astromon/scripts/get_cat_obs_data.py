@@ -4,30 +4,46 @@ Script to find x-ray sources in observations, and a tentative set of optical/rad
 """
 
 import os
-# import sys
+import re
 import logging
 import argparse
 import tempfile
 from pathlib import Path
 import sqlite3
 
-from cxotime import CxoTime
+from cxotime import CxoTime, units as u
 
 from astropy.table import Table
 
 import stk
 
+from Ska.arc5gl import Arc5gl
 from astromon.observation import Observation
 from astromon.cross_match import rough_match
-from astromon import db
+from astromon import db, utils
 
 logger = logging.getLogger('astromon')
+
+
+def get_obsids(tstart, tstop):
+    tstart = CxoTime(tstart)
+    tstop = CxoTime(tstop)
+    with tempfile.TemporaryDirectory() as td, utils.chdir(td):
+        path = Path(td)
+        arc5gl = Arc5gl()
+        arc5gl.sendline(f'tstart={tstart.date}')
+        arc5gl.sendline(f'tstop={tstop.date}')
+        arc5gl.sendline('get obspar')
+        names = [str(p) for p in path.glob('*')]
+        return [re.search('axaff([0-9]+)_', name).group(1) for name in names]
 
 
 def process(obsid, workdir, db_file):
     """
     This is where the actual work is done.
     """
+    logger.info(f'Processing OBSID {obsid}')
+    logger.info('-----------------------')
     observation = Observation(obsid, workdir)
     observation.process()
     obspar = Table([observation.get_obspar()])
@@ -60,26 +76,35 @@ def get_parser():
         default=None
     )
     parser.add_argument(
+        '--start',
+        help='Start of the time range to process',
+    )
+    parser.add_argument(
+        '--stop',
+        help='End of the time range to process',
+    )
+    parser.add_argument(
         '--obsid',
         help='An OBSID to process or a file with a list of OBSIDs',
-        required=True
     )
     parser.add_argument(
         '--log-level',
         help='Logging severity level',
-        choices=['debug', 'info', 'error', 'fatal']
+        choices=['debug', 'info', 'error', 'fatal'],
+        default='debug'
     )
     return parser
 
 
 def main():
     """
-    Main routine that deals wit processing arguments, output and such.
+    Main routine that deals with processing arguments, output and such.
     """
 
     from ciao_contrib._tools.taskrunner import TaskRunner
 
-    args = get_parser().parse_args()
+    parser = get_parser()
+    args = parser.parse_args()
 
     # not using pyyaks because CIAO overrides the default logger class using logging.setLoggerClass
     logger = logging.getLogger('astromon')
@@ -98,15 +123,23 @@ def main():
         args.workdir = tmp.name
     Path(args.workdir).mkdir(exist_ok=True, parents=True)
 
-    if os.path.exists(args.obsid) and os.path.isfile(args.obsid):
-        # '@-' builds stack but does not include path name
-        obsids = stk.build("@-" + args.obsid)
-    else:
-        obsids = stk.build(args.obsid)
+    args.stop = CxoTime(args.stop) if args.stop is not None else CxoTime()
+    args.start = CxoTime(args.start) if args.start is not None else args.stop - 30 * u.day
+    obsids = get_obsids(args.start, args.stop)
+
+    if args.obsid is not None:
+        if os.path.exists(args.obsid) and os.path.isfile(args.obsid):
+            # '@-' builds stack but does not include path name
+            obsids_2 = stk.build("@-" + args.obsid)
+        else:
+            obsids_2 = stk.build(args.obsid)
+        obsids = [obsid for obsid in obsids_2 if obsid in obsids]
 
     taskrunner = TaskRunner()
     for obsid in obsids:
         taskrunner.add_task(f"OBS_ID={obsid}", "", process, obsid, args.workdir, args.db_file)
+
+    logger.info(f'will process the following obsids: {", ".join(obsids)}')
 
     # '9' because the archive limits number of concurrent connections
     # from same IP address (well, it did when it was 'ftp').
