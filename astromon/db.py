@@ -47,6 +47,8 @@ def _save(con, table_name, data):
         insert_query = f"insert into {table_name} ({', '.join(data_column_names)}) values"
         insert_query += ", ".join(values)
         insert_query += ";"
+        insert_query = insert_query.replace('inf', '1e30')  # HORRIBLE HACK
+        insert_query = insert_query.replace('masked', 'NULL')  # HORRIBLE HACK
 
         if 'obsid' in data.colnames:
             obsids = ', '.join(np.unique(data['obsid']).astype(str))
