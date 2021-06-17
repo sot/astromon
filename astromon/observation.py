@@ -220,7 +220,7 @@ class Observation:
         detdir = self.workdir / self.obsid / 'wavdetect'
         detdir.mkdir(parents=True, exist_ok=True)
 
-        band = "wide" if is_hrc is True else "broad"
+        band = "wide" if is_hrc else "broad"
 
         # inputs
         img = self.obsid + "_" + band + "_thresh.img"
@@ -257,6 +257,21 @@ class Observation:
         # ~ subprocess.run("gzip -f {}".format(wavdetect.scellfile).split(" "))
         # ~ subprocess.run("gzip -f {}".format(wavdetect.imagefile).split(" "))
         # ~ subprocess.run("gzip -f {}".format(wavdetect.defnbkgfile).split(" "))
+
+    def run_celldetect(self, snr=3):
+        # Find sources in the small field
+        imgdir = self.workdir / self.obsid / 'images'
+        is_hrc = self.get_obsid_info()['instrument'].lower() == 'hrc'
+        band = "wide" if is_hrc else "broad"
+        celldetect = make_tool("celldetect")
+        celldetect(
+            imgdir / f"{self.obsid}_{band}_thresh.img",
+            self.workdir / self.obsid / 'wavdetect' / f"{self.obsid}_celldetect.src",
+            psffile=imgdir / f"{self.obsid}_{band}_thresh.psfmap",  # either this or set fixedcell=
+            thresh=snr,
+            maxlogicalwindow=2048,
+            clobber=True
+        )
 
     @logging_call_decorator
     @ciao_context_function
@@ -378,6 +393,7 @@ class Observation:
         self.filter_events()
         self.make_images()
         self.run_wavdetect("baseline", skip_exist=True)
+        self.run_celldetect()
 
     @logging_call_decorator
     def get_sources(self):
@@ -389,13 +405,17 @@ class Observation:
         obspar = self.get_obspar()
         q = Quat(equatorial=(obspar['ra_pnt'], obspar['dec_pnt'], obspar['roll_pnt']))
 
-        hdu_list = fits.open(self.workdir / self.obsid / 'wavdetect' / f'{self.obsid}_baseline.src')
+        hdu_list = fits.open(
+            self.workdir / self.obsid / 'wavdetect' / f'{self.obsid}_celldetect.src')
         sources = table.Table(hdu_list[1].data)
 
-        sources.rename_columns(
-            ['RA', 'DEC', 'COMPONENT', 'NET_COUNTS'],
-            ['ra', 'dec', 'id', 'net_counts']
-        )
+        columns = [
+            c for c in zip(
+                ['RA', 'DEC', 'COMPONENT', 'NET_COUNTS', 'SNR'],
+                ['ra', 'dec', 'id', 'net_counts', 'snr']
+            ) if c[0] in sources.colnames
+        ]
+        sources.rename_columns(*list(zip(*columns)))
 
         sources['obsid'] = self.obsid
         sources['y_angle'], sources['z_angle'] = radec_to_yagzag(sources['ra'], sources['dec'], q)
