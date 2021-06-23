@@ -11,6 +11,8 @@ import tempfile
 from pathlib import Path
 import sqlite3
 
+from multiprocessing import Pool
+
 from cxotime import CxoTime, units as u
 
 from astropy.table import Table
@@ -42,21 +44,24 @@ def process(obsid, workdir, db_file):
     """
     This is where the actual work is done.
     """
-    logger.info(f'Processing OBSID {obsid}')
-    logger.info('-----------------------')
-    observation = Observation(obsid, workdir)
-    observation.process()
-    obspar = Table([observation.get_obspar()])
-    sources = observation.get_sources()
-    matches = rough_match(sources, CxoTime(observation.get_obsid_info()['date']))
+    try:
+        logger.info(f'Processing OBSID {obsid}')
+        logger.info('-----------------------')
+        observation = Observation(obsid, workdir)
+        observation.process()
+        obspar = Table([observation.get_obspar()])
+        sources = observation.get_sources()
+        matches = rough_match(sources, CxoTime(observation.get_obsid_info()['date']))
 
-    logger.debug(f'About to update {db_file}')
-    with sqlite3.connect(db_file) as con:
-        db.save(con, 'astromon_obs', obspar)
-        if len(sources):
-            db.save(con, 'astromon_xray_src', sources)
-        if len(matches):
-            db.save(con, 'astromon_cat_src', matches)
+        logger.debug(f'About to update {db_file}')
+        with sqlite3.connect(db_file) as con:
+            db.save(con, 'astromon_obs', obspar)
+            if len(sources):
+                db.save(con, 'astromon_xray_src', sources)
+            if len(matches):
+                db.save(con, 'astromon_cat_src', matches)
+    except Exception as e:
+        logger.error(f'OBSID {obsid} failed: {e}')
 
 
 def get_parser():
@@ -101,8 +106,6 @@ def main():
     Main routine that deals with processing arguments, output and such.
     """
 
-    from ciao_contrib._tools.taskrunner import TaskRunner
-
     parser = get_parser()
     args = parser.parse_args()
 
@@ -135,15 +138,13 @@ def main():
             obsids_2 = stk.build(args.obsid)
         obsids = [obsid for obsid in obsids_2 if obsid in obsids]
 
-    taskrunner = TaskRunner()
-    for obsid in obsids:
-        taskrunner.add_task(f"OBS_ID={obsid}", "", process, obsid, args.workdir, args.db_file)
-
     logger.info(f'will process the following obsids: {", ".join(obsids)}')
+    task_args = [(obsid, args.workdir, args.db_file) for obsid in obsids]
 
     # '9' because the archive limits number of concurrent connections
     # from same IP address (well, it did when it was 'ftp').
-    taskrunner.run_tasks(processes=9)
+    with Pool(processes=9) as pool:
+        pool.starmap(process, task_args)
 
 
 if __name__ == '__main__':
