@@ -188,7 +188,6 @@ class Observation:
 
         outdir = self.workdir / self.obsid / 'images'
         if outdir.exists():
-            # Skip if already past onto wavdetect
             logger.info(f'  directory {outdir} exists, skipping')
             return
 
@@ -217,7 +216,7 @@ class Observation:
         is_hrc = self.get_obsid_info()['instrument'].lower() == 'hrc'
 
         imgdir = self.workdir / self.obsid / 'images'
-        detdir = self.workdir / self.obsid / 'wavdetect'
+        detdir = self.workdir / self.obsid / 'sources'
         detdir.mkdir(parents=True, exist_ok=True)
 
         band = "wide" if is_hrc else "broad"
@@ -266,7 +265,7 @@ class Observation:
         celldetect = make_tool("celldetect")
         celldetect(
             imgdir / f"{self.obsid}_{band}_thresh.img",
-            self.workdir / self.obsid / 'wavdetect' / f"{self.obsid}_celldetect.src",
+            self.workdir / self.obsid / 'sources' / f"{self.obsid}_celldetect.src",
             psffile=imgdir / f"{self.obsid}_{band}_thresh.psfmap",  # either this or set fixedcell=
             thresh=snr,
             maxlogicalwindow=2048,
@@ -318,7 +317,7 @@ class Observation:
         except Exception:
             raise Exception(f'evt2 file not found   ') from None
 
-        src = self.workdir / self.obsid / 'wavdetect' / f'{self.obsid}_baseline.src'
+        src = self.workdir / self.obsid / 'sources' / f'{self.obsid}_baseline.src'
         if not src.exists():
             raise Exception(f'src file not found   ')
         src2 = str(src).replace('baseline', 'filtered')
@@ -339,7 +338,7 @@ class Observation:
     @logging_call_decorator
     @ciao_context_function
     def calculate_centroids(self):
-        src_hdus = fits.open(self.workdir / self.obsid / 'wavdetect' / f'{self.obsid}_baseline.src')
+        src_hdus = fits.open(self.workdir / self.obsid / 'sources' / f'{self.obsid}_baseline.src')
         img = self.workdir / self.obsid / 'images' / f'{self.obsid}_wide_flux.img'
 
         assert img.exists()
@@ -396,7 +395,7 @@ class Observation:
         self.run_celldetect()
 
     @logging_call_decorator
-    def get_sources(self):
+    def get_sources(self, version='celldetect'):
         """
         Returns a table of sources formatted for the astromon_xray_source SQL table
         """
@@ -406,13 +405,26 @@ class Observation:
         q = Quat(equatorial=(obspar['ra_pnt'], obspar['dec_pnt'], obspar['roll_pnt']))
 
         hdu_list = fits.open(
-            self.workdir / self.obsid / 'wavdetect' / f'{self.obsid}_celldetect.src')
+            self.workdir / self.obsid / 'sources' / f'{self.obsid}_{version}.src')
         sources = table.Table(hdu_list[1].data)
+
+        if len(sources) == 0:
+            raise Exception('No x-ray sources found')
+
+        # SNR is there only in the celldetect case, and this is how it should be calculated
+        # (https://cxc.harvard.edu/ciao/download/doc/detect_manual/cell_theory.html)
+        # but this gives a slightly different result from what celldetect actually gives
+        # wavdetect does not calculate this.
+        C = sources['NET_COUNTS']
+        B = sources['BKG_COUNTS']
+        sigma_c = sources['NET_COUNTS_ERR']
+        sigma_b = sources['BKG_COUNTS_ERR']
+        sources['SNR'] = (C - B) / np.sqrt(sigma_c**2 + sigma_b**2)
 
         columns = [
             c for c in zip(
-                ['RA', 'DEC', 'COMPONENT', 'NET_COUNTS', 'SNR'],
-                ['ra', 'dec', 'id', 'net_counts', 'snr']
+                ['RA', 'DEC', 'COMPONENT', 'NET_COUNTS', 'SNR', 'PSFRATIO'],
+                ['ra', 'dec', 'id', 'net_counts', 'snr', 'psfratio']
             ) if c[0] in sources.colnames
         ]
         sources.rename_columns(*list(zip(*columns)))
@@ -439,10 +451,11 @@ class Observation:
             'y_angle',
             'z_angle',
             'r_angle',
-            # 'snr',
+            'snr',
             'near_neighbor_dist',
             # 'double_id',  # does not seem to be set in current astromon
             # 'status_id',  # does not seem to be set in current astromon
+            'psfratio',
         ]
         return sources[cols]
 
