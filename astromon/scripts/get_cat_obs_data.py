@@ -12,6 +12,7 @@ from pathlib import Path
 import sqlite3
 
 from multiprocessing import Pool
+import numpy as np
 
 from cxotime import CxoTime, units as u
 
@@ -19,6 +20,8 @@ from astropy.table import Table
 
 import stk
 
+from chandra_aca.transform import radec_to_yagzag
+from Quaternion import Quat
 from Ska.arc5gl import Arc5gl
 from astromon.observation import Observation
 from astromon.cross_match import rough_match
@@ -49,13 +52,17 @@ def process(obsid, workdir, db_file):
         logger.info('-----------------------')
         observation = Observation(obsid, workdir)
         observation.process()
-        obspar = Table([observation.get_obspar()])
+        obspar = observation.get_obspar()
+        q = Quat(equatorial=(obspar['ra_pnt'], obspar['dec_pnt'], obspar['roll_pnt']))
         sources = observation.get_sources()
         matches = rough_match(sources, CxoTime(observation.get_obsid_info()['date']))
+        matches['obsid'] = obsid
+        matches['id'] = np.arange(len(matches))
+        matches['y_angle'], matches['z_angle'] = radec_to_yagzag(matches['ra'], matches['dec'], q)
 
         logger.debug(f'About to update {db_file}')
         with sqlite3.connect(db_file) as con:
-            db.save(con, 'astromon_obs', obspar)
+            db.save(con, 'astromon_obs', Table([obspar]))
             if len(sources):
                 db.save(con, 'astromon_xray_src', sources)
             if len(matches):
