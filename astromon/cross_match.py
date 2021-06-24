@@ -16,7 +16,7 @@ from astroquery.vizier import Vizier
 from Ska.DBI import DBI
 from cxotime import CxoTime
 import astromon
-from astromon import db
+from astromon import db, utils
 
 logger = logging.getLogger('astromon')
 
@@ -54,7 +54,7 @@ def get_vizier(pos, catalog, cat_identifier, name_cols, columns):
     vizier_result = Vizier.query_region(pos, radius=3 * u.arcsec, catalog=cat_identifier)
     vizier_result = [r for r in vizier_result]
     if len(vizier_result) == 0:
-        logger.debug(f'{catalog} at {pos} has no results')
+        logger.debug(f'{catalog:>24s} has no results')
         return table.Table(dtype=CROSS_MATCH_DTYPE)
     vizier_result = table.vstack(vizier_result, metadata_conflicts='silent')
     vizier_result['catalog'] = catalog
@@ -71,11 +71,12 @@ def get_vizier(pos, catalog, cat_identifier, name_cols, columns):
                 length=len(vizier_result),
                 mask=np.ones(len(vizier_result))
             )
-    logger.debug(f'{catalog} at {pos} has {len(vizier_result)} results')
+    logger.debug(f'{catalog:>24s} has {len(vizier_result)} results')
     return result
 
 
 def rough_match(sources, time):
+    logger.debug('rough_match started')
     pos = coords.SkyCoord(
         ra=sources['ra'], dec=sources['dec'],
         unit='deg',
@@ -124,6 +125,7 @@ def rough_match(sources, time):
     return table.vstack([r for r in res], metadata_conflicts='silent')
 
 
+@utils.logging_call_decorator
 def do_sql_cross_match(selection_name):
     sql_script = Path(astromon.__file__).parent / 'sql' / 'x-corr' / f'{selection_name}.sql'
     if not sql_script.exists():
