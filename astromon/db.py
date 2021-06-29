@@ -4,6 +4,7 @@ import numpy as np
 from pathlib import Path
 from Ska.DBI import DBI
 
+from astropy import table
 
 if 'ASTROMON_FILE' in os.environ:
     FILE = Path(os.environ['ASTROMON_FILE'])
@@ -18,7 +19,7 @@ def get(table_name, dbfile=None):
     if dbfile is None:
         dbfile = FILE
     dbi = DBI('sqlite', dbfile)
-    return dbi.fetchall(f'select * from {table_name}')
+    return table.Table(dbi.fetchall(f'select * from {table_name}'))
 
 
 def _save(con, table_name, data):

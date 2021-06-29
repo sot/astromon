@@ -141,3 +141,93 @@ def do_sql_cross_match(selection_name):
         sql_query = fh.read()
         dbi = DBI('sqlite', db.FILE, numpy=False)
         return table.Table(dbi.fetchall(sql_query))
+
+
+@utils.logging_call_decorator
+def cross_match(name):
+    if name == 'standard_xcorr':
+        return _standard_cross_match(
+            name=name,
+            catalogs=['Tycho2', 'SIMBAD_high', 'CELMON', 'ICRS', 'ASTROMON'],
+            snr=5.0,
+            r_angle=120,
+            start=CxoTime() - 5 * 365 * u.day,
+        )
+    elif name == 'oaa4_snr4':
+        return _standard_cross_match(
+            name=name,
+            catalogs=['Tycho2', 'SIMBAD_high', 'CELMON', 'ICRS', 'ASTROMON',
+                      'SDSS', '2MASS', 'USNO-B1.0'],
+            snr=4.0,
+            r_angle=240,
+        )
+    else:
+        raise Exception(f'Unknown x-matching name: "{name}"')
+
+
+def _standard_cross_match(name, catalogs, snr, r_angle, start=None, update=False):
+    """
+    Standard cross X-ray -- Catalog cross correlation query
+
+    - X-ray sources within 3 arcmin off-axis (NONE) or 0.4 arcmin (grating)
+    - X-ray snr >  5.0
+    - X-ray extr_rad_grating,r,a,0.4,,,"Extr. rad. around grating source (arcmin)"
+    - X-ray - Catalog position match within 3 arcsec
+    - Catalog is high precision 'Tycho2', 'SIMBAD_high', 'CELMON', 'ICRS', 'ASTROMON'
+    """
+    astromon_xcorr = db.get('astromon_xcorr')
+    astromon_xray_src = db.get('astromon_xray_src')
+    astromon_cat_src = db.get('astromon_cat_src')
+    astromon_obs = db.get('astromon_obs')
+
+    astromon_obs = astromon_obs[(astromon_obs['process_status'] == 'OK')]
+    if update:
+        astromon_obs = astromon_obs[~np.in1d(astromon_obs['obsid'], astromon_xcorr['obsid'])]
+
+    date_obs = CxoTime(astromon_obs['date_obs'].astype(str))
+    if start is not None:
+        astromon_obs = astromon_obs[date_obs > start]
+
+    # only X-ray sources with SNR > 5 and no near-neighbors
+    astromon_xray_src = astromon_xray_src[
+        (astromon_xray_src['snr'] > snr)
+        & (astromon_xray_src['near_neighbor_dist'] > 6.0)
+        # & (astromon_xray_src['status_id'] = None or astromon_xray_src['status_id'] = 0)
+    ]
+
+    # only some catalogs
+    astromon_cat_src = astromon_cat_src[np.in1d(astromon_cat_src['catalog'], catalogs)]
+
+    # renaming columns before join to not have to deal with name collisions
+    astromon_cat_src.rename_columns(
+        ['name', 'id', 'ra', 'dec', 'y_angle', 'z_angle'],
+        ['c_name', 'c_id', 'c_ra', 'c_dec', 'c_y_angle', 'c_z_angle']
+    )
+    astromon_xray_src.rename_columns(
+        ['name', 'id', 'ra', 'dec', 'y_angle', 'z_angle'],
+        ['x_name', 'x_id', 'x_ra', 'x_dec', 'x_y_angle', 'x_z_angle']
+    )
+
+    result = table.join(
+        astromon_obs,
+        astromon_xray_src,
+        keys=['obsid'],
+    )
+    result = table.join(
+        result,
+        astromon_cat_src,
+        keys=['obsid'],
+    )
+
+    result['dy'] = result['c_y_angle'] - result['x_y_angle']
+    result['dz'] = result['c_z_angle'] - result['x_z_angle']
+    result['dr2'] = result['dy']**2 + result['dz']**2
+    result['dr'] = np.sqrt(result['dr2'])
+    result['select_name'] = name
+
+    result = result[
+        ((result['r_angle'] < 24) | ((result['grating'] == 'NONE') & (result['r_angle'] < r_angle)))
+        & (result['dr2'] < 9.0)
+    ]
+
+    return result[['select_name', 'obsid', 'c_id', 'x_id', 'dy', 'dz', 'dr']]

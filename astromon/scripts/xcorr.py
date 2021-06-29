@@ -5,10 +5,9 @@
 import logging
 import argparse
 import pyyaks
-import sqlite3
 from pathlib import Path
 
-from astromon.cross_match import do_sql_cross_match
+from astromon.cross_match import cross_match
 from astromon import db
 
 
@@ -53,14 +52,9 @@ def main():
 
     assert args.db_file.exists(), f'File does not exist: {args.db_file}'
 
-    x_match = do_sql_cross_match(args.selection)
+    x_match = cross_match(args.selection)
 
-    with sqlite3.connect(args.db_file) as con:
-        con.execute(
-            f"DELETE FROM astromon_xcorr WHERE select_name=:selection",
-            {'selection': args.selection}
-        )
-        db.save(con, 'astromon_xcorr', x_match)
+    db.save('astromon_xcorr', x_match)
 
 
 if __name__ == '__main__':
