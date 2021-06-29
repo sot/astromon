@@ -11,10 +11,12 @@ else:
     FILE = Path(os.environ['SKA']) / 'data' / 'astromon' / 'astromon.db3'
 
 
-def get(table_name, dbfile=FILE):
+def get(table_name, dbfile=None):
     """
     Get an ENTIRE table.
     """
+    if dbfile is None:
+        dbfile = FILE
     dbi = DBI('sqlite', dbfile)
     return dbi.fetchall(f'select * from {table_name}')
 
