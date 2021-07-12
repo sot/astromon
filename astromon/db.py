@@ -12,6 +12,66 @@ else:
     FILE = Path(os.environ['SKA']) / 'data' / 'astromon' / 'astromon.db3'
 
 
+ASTROMON_XCORR_DTYPE = np.dtype([
+    ('select_name', '<U14'),
+    ('obsid', '<i8'),
+    ('c_id', '<i8'),
+    ('x_id', '<i8'),
+    ('dy', '<f8'),
+    ('dz', '<f8'),
+    ('dr', '<f8')
+])
+
+
+ASTROMON_XRAY_SRC_DTYPE = np.dtype([
+    ('obsid', '<i8'),
+    ('id', '<i8'),
+    ('name', '<U20'),
+    ('ra', '<f8'),
+    ('dec', '<f8'),
+    ('net_counts', '<f8'),
+    ('y_angle', '<f8'),
+    ('z_angle', '<f8'),
+    ('r_angle', '<f8'),
+    ('snr', '<f8'),
+    ('near_neighbor_dist', '<f8'),
+    ('double_id', 'O'),
+    ('status_id', 'O')
+])
+
+
+ASTROMONCAT_SRC_DTYPE = np.dtype([
+    ('obsid', '<i8'),
+    ('id', '<i8'),
+    ('catalog', '<U11'),
+    ('name', '<U24'),
+    ('ra', '<U32'),
+    ('dec', '<U32'),
+    ('mag', 'O'),
+    ('y_angle', '<f8'),
+    ('z_angle', '<f8')
+])
+
+
+ASTROMON_OBS_DTYPE = np.dtype([
+    ('obsid', '<i8'),
+    ('version', 'O'),
+    ('detector', 'O'),
+    ('target', 'O'),
+    ('grating', 'O'),
+    ('sim_z', 'O'),
+    ('date_obs', 'O'),
+    ('tstart', 'O'),
+    ('fids', 'O'),
+    ('ascdsver', 'O'),
+    ('ra', 'O'),
+    ('dec', 'O'),
+    ('roll', 'O'),
+    ('process_status', '<U229'),
+    ('category_id', 'O')
+])
+
+
 def get(table_name, dbfile=None):
     """
     Get an ENTIRE table.
