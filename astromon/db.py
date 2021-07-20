@@ -14,61 +14,61 @@ else:
 
 ASTROMON_XCORR_DTYPE = np.dtype([
     ('select_name', '<U14'),
-    ('obsid', '<i8'),
-    ('c_id', '<i8'),
-    ('x_id', '<i8'),
-    ('dy', '<f8'),
-    ('dz', '<f8'),
-    ('dr', '<f8')
+    ('obsid', np.int8),
+    ('c_id', np.int8),
+    ('x_id', np.int8),
+    ('dy', np.float),
+    ('dz', np.float),
+    ('dr', np.float)
 ])
 
 
 ASTROMON_XRAY_SRC_DTYPE = np.dtype([
-    ('obsid', '<i8'),
-    ('id', '<i8'),
+    ('obsid', np.int8),
+    ('id', np.int8),
     ('name', '<U20'),
-    ('ra', '<f8'),
-    ('dec', '<f8'),
-    ('net_counts', '<f8'),
-    ('y_angle', '<f8'),
-    ('z_angle', '<f8'),
-    ('r_angle', '<f8'),
-    ('snr', '<f8'),
-    ('near_neighbor_dist', '<f8'),
-    ('double_id', 'O'),
-    ('status_id', 'O')
+    ('ra', np.float64),
+    ('dec', np.float64),
+    ('net_counts', np.float),
+    ('y_angle', np.float),
+    ('z_angle', np.float),
+    ('r_angle', np.float),
+    ('snr', np.float),
+    ('near_neighbor_dist', np.float),
+    ('double_id', np.int8),
+    ('status_id', np.int8)
 ])
 
 
 ASTROMONCAT_SRC_DTYPE = np.dtype([
-    ('obsid', '<i8'),
-    ('id', '<i8'),
+    ('obsid', np.int8),
+    ('id', np.int8),
     ('catalog', '<U11'),
     ('name', '<U24'),
-    ('ra', '<U32'),
-    ('dec', '<U32'),
-    ('mag', 'O'),
-    ('y_angle', '<f8'),
-    ('z_angle', '<f8')
+    ('ra', np.float64),
+    ('dec', np.float64),
+    ('mag', np.float),
+    ('y_angle', np.float),
+    ('z_angle', np.float)
 ])
 
 
 ASTROMON_OBS_DTYPE = np.dtype([
-    ('obsid', '<i8'),
-    ('version', 'O'),
-    ('detector', 'O'),
-    ('target', 'O'),
-    ('grating', 'O'),
-    ('sim_z', 'O'),
-    ('date_obs', 'O'),
-    ('tstart', 'O'),
-    ('fids', 'O'),
-    ('ascdsver', 'O'),
-    ('ra', 'O'),
-    ('dec', 'O'),
-    ('roll', 'O'),
+    ('obsid', np.int8),
+    ('version', np.float),
+    ('detector', '<U6'),
+    ('target', '<U28'),
+    ('grating', '<U4'),
+    ('sim_z', np.float),
+    ('date_obs', '<U20'),
+    ('tstart', ),
+    ('fids', '<U20'),
+    ('ascdsver', '<U32'),
+    ('ra', np.float64),
+    ('dec', np.float64),
+    ('roll', np.float64),
     ('process_status', '<U229'),
-    ('category_id', 'O')
+    ('category_id', np.int)
 ])
 
 
