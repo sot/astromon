@@ -240,39 +240,26 @@ class Observation:
         detdir.mkdir(parents=True, exist_ok=True)
 
         band = "wide" if is_hrc else "broad"
-
-        # inputs
-        img = self.obsid + "_" + band + "_thresh.img"
-        exp = self.obsid + "_" + band + "_thresh.expmap"
-        psf = self.obsid + "_" + band + "_thresh.psfmap"
-
-        # outputs
         root = f"{self.obsid}_{edition}"
-        src = root + ".src"
-        cel = root + ".cell"
-        nbk = root + ".nbkg"
-        rec = root + ".recon"
 
-        if (detdir / src).exists() and skip_exist:
+        outfile = detdir / root + ".src"
+        if outfile.exists() and skip_exist:
             return
 
         run_cmd(
             "wavdetect",
-            infile=imgdir / img,
-            psffile=imgdir / psf,  # PSF
-            expfile=imgdir / exp,  # exposure map
-            outfile=detdir / src,
-            scellfile=detdir / cel,
-            imagefile=detdir / nbk,
-            defnbkgfile=detdir / rec,
+            infile=imgdir / self.obsid + "_" + band + "_thresh.img",
+            psffile=imgdir / self.obsid + "_" + band + "_thresh.expmap",  # PSF
+            expfile=imgdir / self.obsid + "_" + band + "_thresh.psfmap",  # exposure map
+            outfile=outfile,
+            scellfile=detdir / root + ".cell",
+            imagefile=detdir / root + ".nbkg",
+            defnbkgfile=detdir / root + ".recon",
             scales=scales
         )
 
-        # ~ import subprocess as subprocess
-        # ~ subprocess.run("gzip -f {}".format(wavdetect.scellfile).split(" "))
-        # ~ subprocess.run("gzip -f {}".format(wavdetect.imagefile).split(" "))
-        # ~ subprocess.run("gzip -f {}".format(wavdetect.defnbkgfile).split(" "))
-
+    @logging_call_decorator
+    @ciao_context_function
     def run_celldetect(self, snr=3):
         # Find sources in the small field
         imgdir = self.workdir / self.obsid / 'images'
