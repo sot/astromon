@@ -13,7 +13,6 @@ try:
     import stk
     from ciao_contrib import runtool
     from ciao_contrib.runtool import make_tool, dmstat
-    from pycrates import read_file
     import paramio
     with_ciao = True
 except ModuleNotFoundError:
@@ -76,23 +75,27 @@ class Observation:
             return obsid_info
 
         try:
-            tab = read_file(str(msk[0]))
+            def get_key_value(hdul, k):
+                for hdu in hdul:
+                    if k in hdu.header.keys():
+                        return hdu.header[k]
+            hdul = fits.open(str(msk[0]))
             obsid_info.update({
-                'obs_mode': tab.get_key_value("OBS_MODE"),
-                'grating': tab.get_key_value("GRATING"),
-                'instrument': tab.get_key_value("INSTRUME"),
-                'date': tab.get_key_value("DATE-OBS"),
-                'tstart': tab.get_key_value("TSTART"),
-                'tstop': tab.get_key_value("TSTOP"),
-                'sim_x': tab.get_key_value("SIM_X"),
-                'sim_y': tab.get_key_value("SIM_Y"),
-                'sim_Z': tab.get_key_value("SIM_Z"),
+                'obs_mode': get_key_value(hdul, "OBS_MODE"),
+                'grating': get_key_value(hdul, "GRATING"),
+                'instrument': get_key_value(hdul, "INSTRUME"),
+                'date': get_key_value(hdul, "DATE-OBS"),
+                'tstart': get_key_value(hdul, "TSTART"),
+                'tstop': get_key_value(hdul, "TSTOP"),
+                'sim_x': get_key_value(hdul, "SIM_X"),
+                'sim_y': get_key_value(hdul, "SIM_Y"),
+                'sim_Z': get_key_value(hdul, "SIM_Z"),
             })
 
             if obsid_info['instrument'] == 'ACIS':
                 obsid_info.update({
-                    'read_mode': tab.get_key_value("READMODE"),
-                    'dtycycle': tab.get_key_value("DTYCYCLE"),
+                    'read_mode': get_key_value(hdul, "READMODE"),
+                    'dtycycle': get_key_value(hdul, "DTYCYCLE"),
                 })
         except Exception as e:
             obsid_info['error'] = f"error reading mask file: {e}"
