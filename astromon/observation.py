@@ -12,7 +12,6 @@ try:
     import stk
     from ciao_contrib import runtool
     from ciao_contrib.runtool import make_tool, dmstat
-    from ciao_contrib._tools.utils import is_multi_obi_obsid
     from ciao_contrib.cda.data import download_chandra_obsids
     from pycrates import read_file
     import paramio
@@ -30,6 +29,13 @@ import numpy as np
 import Ska.arc5gl
 
 logger = logging.getLogger('astromon')
+
+
+_multi_obi_obsids = [
+    82, 108, 279, 380, 400, 433, 800, 861, 897, 906, 943, 1411, 1431,
+    1456, 1561, 1578, 2010, 2042, 2077, 2365, 2783, 3057, 3182, 3764,
+    4175, 60879, 60880, 62249, 62264, 62796
+]
 
 
 class Observation:
@@ -52,7 +58,7 @@ class Observation:
             ['multi-obi', 'obs_mode', 'grating', 'instrument', 'read_mode', 'dtycycle', 'error']
         })
 
-        obsid_info['multi-obi'] = is_multi_obi_obsid(self.obsid)
+        obsid_info['multi-obi'] = self.obsid in _multi_obi_obsids
 
         msk = list((self.workdir / self.obsid / 'secondary').glob("*msk1.fits*"))
         if len(msk) != 1:
