@@ -6,13 +6,13 @@ import os
 import logging
 import argparse
 import tempfile
+import subprocess
 from pathlib import Path
 
 try:
     import stk
     from ciao_contrib import runtool
     from ciao_contrib.runtool import make_tool, dmstat
-    from ciao_contrib.cda.data import download_chandra_obsids
     from pycrates import read_file
     import paramio
     with_ciao = True
@@ -37,6 +37,15 @@ _multi_obi_obsids = [
     4175, 60879, 60880, 62249, 62264, 62796
 ]
 
+
+def download_chandra_obsids(obsids, filetypes):
+    r = subprocess.run(['download_chandra_obsid', '-t', '-q'], stdout=subprocess.PIPE)
+    available_types = r.stdout.decode().strip().split(':')[-1].split()
+    exclude = [t for t in available_types if t not in filetypes]
+    r = subprocess.run(
+        ['download_chandra_obsid', ','.join(obsids), '--exclude', ','.join(exclude)],
+        stdout=subprocess.PIPE
+    )
 
 class Observation:
     def __init__(self, obsid, workdir=None, source='arc5gl'):
