@@ -30,25 +30,43 @@ _multi_obi_obsids = [
 
 
 def download_chandra_obsids(obsids, filetypes):
+    """
+    Download an observation from the archive.
+    """
     r = subprocess.run(['download_chandra_obsid', '-t', '-q'], stdout=subprocess.PIPE)
     available_types = r.stdout.decode().strip().split(':')[-1].split()
     exclude = [t for t in available_types if t not in filetypes]
-    r = subprocess.run(
+    process = subprocess.Popen(
         ['download_chandra_obsid', ','.join(obsids), '--exclude', ','.join(exclude)],
-        stdout=subprocess.PIPE
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT
     )
+    output, _ = process.communicate()
+    logger.info(output)
+    if process.returncode:
+        raise Exception(f'{obsids} failed to download')
 
 
 def run_cmd(name, *args, **kwargs):
+    """
+    Run a CIAO command.
+    """
     args = [str(a) for a in args]
     kwargs = {k: str(v) for k, v in kwargs.items()}
     cmd = [name] + args
     for k in kwargs:
         cmd.append(f'{k}={kwargs[k]}')
-    subprocess.run(cmd)
+    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    output, _ = process.communicate()
+    logger.info(output)
+    if process.returncode:
+        raise Exception(f'{name} failed')
 
 
 def pget(command, param='value'):
+    """
+    Call CIAO's pget and return the standard output.
+    """
     return subprocess.check_output(['pget', command, param]).decode().strip()
 
 
