@@ -10,7 +10,6 @@ import subprocess
 from pathlib import Path
 
 try:
-    import stk
     from ciao_contrib import runtool
     from ciao_contrib.runtool import make_tool, dmstat
     import paramio
@@ -544,10 +543,10 @@ def main():
     obsids = []
     for obsid in args.obsid:
         if os.path.exists(obsid) and os.path.isfile(obsid):
-            # '@-' builds stack but does not include path name
-            obsids += stk.build("@-" + obsid)
+            with open(obsid) as fh:
+                obsids += [l.strip() for l in fh.readlines()]
         else:
-            obsids += stk.build(obsid)
+            obsids += obsid.split(',')
 
     taskrunner = TaskRunner()
     for obsid in obsids:
