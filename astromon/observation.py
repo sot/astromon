@@ -47,6 +47,7 @@ def download_chandra_obsids(obsids, filetypes):
         stdout=subprocess.PIPE
     )
 
+
 class Observation:
     def __init__(self, obsid, workdir=None, source='arc5gl'):
         self.tmp = tempfile.TemporaryDirectory() if workdir is None else None
