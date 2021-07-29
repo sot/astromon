@@ -8,23 +8,16 @@ import argparse
 import tempfile
 import subprocess
 from pathlib import Path
-
-try:
-    from ciao_contrib import runtool
-    from ciao_contrib.runtool import make_tool, dmstat
-    import paramio
-    with_ciao = True
-except ModuleNotFoundError:
-    with_ciao = False
-
-from astromon.utils import ciao_context_function, logging_call_decorator, chdir
-
+import numpy as np
 from astropy import table
 from astropy.io import fits, ascii
 
-import numpy as np
+from astromon.utils import ciao_context_function, logging_call_decorator, chdir
 
-import Ska.arc5gl
+if 'ASCDS_INSTALL' in os.environ:
+    with_ciao = True
+else:
+    with_ciao = False
 
 logger = logging.getLogger('astromon')
 
@@ -46,11 +39,24 @@ def download_chandra_obsids(obsids, filetypes):
     )
 
 
+def run_cmd(name, *args, **kwargs):
+    args = [str(a) for a in args]
+    kwargs = {k: str(v) for k, v in kwargs.items()}
+    cmd = [name] + args
+    for k in kwargs:
+        cmd.append(f'{k}={kwargs[k]}')
+    subprocess.run(cmd)
+
+
+def pget(command, param='value'):
+    return subprocess.check_output(['pget', command, param]).decode().strip()
+
+
 class Observation:
     def __init__(self, obsid, workdir=None, source='arc5gl'):
         self.tmp = tempfile.TemporaryDirectory() if workdir is None else None
         self.workdir = Path(self.tmp.name if workdir is None else workdir).expanduser()
-        self.obsid = obsid
+        self.obsid = str(obsid)
         self._source = source
         logger.info(f'Starting {self}. Context will be {self.workdir / self.obsid}')
         self._rebin = False
@@ -137,15 +143,13 @@ class Observation:
             return
 
         with chdir(self.workdir):
-            good = download_chandra_obsids([self.obsid], filetypes=ftypes)
-
-        if good[0] is not True:
-            raise RuntimeError(f"Can't download {self.obsid}")
+            download_chandra_obsids([self.obsid], filetypes=ftypes)
 
     def _download_arc5gl(self, ftypes):
         """
         Download data from chandra public archive
         """
+        import Ska.arc5gl
         for ftype in ftypes:
             if ftype == 'obspar':
                 src, dest = 'obspar', '.'
@@ -187,10 +191,13 @@ class Observation:
             # Skip repro, already done
             return
 
-        chandra_repro = make_tool("chandra_repro")
-        verb = chandra_repro(str(self.workdir / self.obsid), outdir="", cleanup=True, clobber=True)
-        if verb:
-            logger.info(f'repro {verb}')
+        run_cmd(
+            'chandra_repro',
+            self.workdir / self.obsid,
+            # outdir="",
+            cleanup='yes',
+            clobber='yes'
+        )
 
     @logging_call_decorator
     @ciao_context_function
@@ -211,20 +218,15 @@ class Observation:
 
         outdir.mkdir(exist_ok=True)
 
-        fimg = make_tool("fluximage")
-        fimg.infile = str(evt)
-        fimg.outroot = str(outdir / self.obsid)
-        if is_hrc is True:
-            fimg.bands = "wide"
-            fimg.binsize = 4 if self._rebin else 1
-        else:
-            fimg.bands = "broad"
-            fimg.binsize = 1
-        fimg.psfecf = 0.9
-        fimg.background = "none"
-        verb = fimg(clobber=True, parallel=False)
-        if verb:
-            logger.info(f'images {verb}')
+        run_cmd(
+            'fluximage',
+            infile=evt,
+            outroot=outdir / self.obsid,
+            bands='wide' if is_hrc is True else 'broad',
+            binsize=(4 if self._rebin else 1) if is_hrc is True else 1,
+            psfecf=0.9,
+            background="none",
+        )
 
     @logging_call_decorator
     @ciao_context_function
@@ -254,21 +256,17 @@ class Observation:
         if (detdir / src).exists() and skip_exist:
             return
 
-        wavdetect = make_tool("wavdetect")
-        wavdetect.infile = str(imgdir / img)
-        wavdetect.psffile = str(imgdir / psf)  # PSF
-        wavdetect.expfile = str(imgdir / exp)  # exposure map
-
-        wavdetect.outfile = str(detdir / src)
-        wavdetect.scellfile = str(detdir / cel)
-        wavdetect.imagefile = str(detdir / nbk)
-        wavdetect.defnbkgfile = str(detdir / rec)
-
-        wavdetect.scales = scales
-
-        verb = wavdetect(clobber=True)
-        if verb:
-            logger.info(f'wavdetect {verb}')
+        run_cmd(
+            "wavdetect",
+            infile=imgdir / img,
+            psffile=imgdir / psf,  # PSF
+            expfile=imgdir / exp,  # exposure map
+            outfile=detdir / src,
+            scellfile=detdir / cel,
+            imagefile=detdir / nbk,
+            defnbkgfile=detdir / rec,
+            scales=scales
+        )
 
         # ~ import subprocess as subprocess
         # ~ subprocess.run("gzip -f {}".format(wavdetect.scellfile).split(" "))
@@ -280,14 +278,14 @@ class Observation:
         imgdir = self.workdir / self.obsid / 'images'
         is_hrc = self.get_obsid_info()['instrument'].lower() == 'hrc'
         band = "wide" if is_hrc else "broad"
-        celldetect = make_tool("celldetect")
-        celldetect(
+        run_cmd(
+            "celldetect",
             imgdir / f"{self.obsid}_{band}_thresh.img",
             self.workdir / self.obsid / 'sources' / f"{self.obsid}_celldetect.src",
             psffile=imgdir / f"{self.obsid}_{band}_thresh.psfmap",  # either this or set fixedcell=
             thresh=snr,
             maxlogicalwindow=2048,
-            clobber=True
+            clobber='yes'
         )
 
     @logging_call_decorator
@@ -309,16 +307,20 @@ class Observation:
             logger.info(f'  file {evt2} exists, skipping')
             return
 
-        runtool.dmkeypar(evt, 'RA_PNT')
-        ra = runtool.dmkeypar.value
-        runtool.dmkeypar(evt, 'DEC_PNT')
-        dec = runtool.dmkeypar.value
-        runtool.dmcoords(evt, op='cel', celfmt='deg', ra=ra, dec=dec)
-        filters = [
-            f'(x,y)=circle({runtool.dmcoords.x},{runtool.dmcoords.y},{radius/pixel})'
-        ]
-        filters = ','.join(filters)
-        runtool.dmcopy(f'{evt}[{filters}]', evt2)
+        run_cmd('dmkeypar', evt, 'RA_PNT')
+        ra = pget('dmkeypar')
+        run_cmd('dmkeypar', evt, 'DEC_PNT')
+        dec = pget('dmkeypar')
+
+        run_cmd('dmcoords', evt, op='cel', celfmt='deg', ra=ra, dec=dec)
+        x = pget('dmcoords', 'x')
+        y = pget('dmcoords', 'y')
+        run_cmd(
+            'dmcopy',
+            f'{evt}[(x,y)=circle({x},{y},{radius/pixel})]',
+            evt2
+        )
+
         return evt2
 
     @logging_call_decorator
@@ -340,24 +342,34 @@ class Observation:
             raise Exception(f'src file not found   ')
         src2 = str(src).replace('baseline', 'filtered')
 
-        runtool.dmkeypar(evt, 'RA_PNT')
-        ra = runtool.dmkeypar.value
-        runtool.dmkeypar(evt, 'DEC_PNT')
-        dec = runtool.dmkeypar.value
-        runtool.dmcoords(evt, op='cel', celfmt='deg', ra=ra, dec=dec)
+        run_cmd('dmkeypar', evt, 'RA_PNT')
+        ra = pget('dmkeypar')
+        run_cmd('dmkeypar', evt, 'DEC_PNT')
+        dec = pget('dmkeypar')
+
+        run_cmd('dmcoords', evt, op='cel', celfmt='deg', ra=ra, dec=dec)
+        x = pget('dmcoords', 'x')
+        y = pget('dmcoords', 'y')
         filters = [
             f'psfratio=:{psfratio}',
-            f'(x,y)=circle({runtool.dmcoords.x},{runtool.dmcoords.y},{radius/pixel})'
+            f'(x,y)=circle({x},{y},{radius/pixel})'
         ]
         filters = ','.join(filters)
-        runtool.dmcopy(f'{src}[{filters}]', src2)
+        run_cmd(
+            'dmcopy',
+            f'{src}[{filters}]',
+            src2
+        )
+
         return src2
 
     @logging_call_decorator
     @ciao_context_function
     def calculate_centroids(self):
         src_hdus = fits.open(self.workdir / self.obsid / 'sources' / f'{self.obsid}_baseline.src')
-        img = self.workdir / self.obsid / 'images' / f'{self.obsid}_wide_flux.img'
+        is_hrc = self.get_obsid_info()['instrument'].lower() == 'hrc'
+        band = "wide" if is_hrc else "broad"
+        img = self.workdir / self.obsid / 'images' / f'{self.obsid}_{band}_flux.img'
 
         assert img.exists()
         src = table.Table(src_hdus[1].data)
@@ -365,15 +377,13 @@ class Observation:
         for row in src:
             x, y = row[['X', 'Y']]
             r = row['R'].max()
-            dmstat.punlearn()
-            stdout = dmstat(
+            run_cmd(
+                'dmstat',
                 f'{img}[sky=circle({x},{y},{r})]',
                 centroid='yes',
                 # clip='yes'
             )
-            logger.info(stdout)
-            dmstat.write_params()
-            x, y = np.array(paramio.pget('dmstat', 'out_cntrd_phys').split(',')).astype(float)
+            x, y = np.array(pget('dmstat', 'out_cntrd_phys').split(',')).astype(float)
             result.append([x, y])
         return np.array(result, dtype=[('x', float), ('y', float)])
 
@@ -544,7 +554,7 @@ def main():
     for obsid in args.obsid:
         if os.path.exists(obsid) and os.path.isfile(obsid):
             with open(obsid) as fh:
-                obsids += [l.strip() for l in fh.readlines()]
+                obsids += [line.strip() for line in fh.readlines()]
         else:
             obsids += obsid.split(',')
 
