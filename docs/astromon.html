@@ -1,0 +1,207 @@
+
+<!DOCTYPE html>
+
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Astromon Components &#8212; Astromon 0.2.dev109+g3648fc9 documentation</title>
+    <link rel="stylesheet" href="_static/bootstrap-astropy.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+    <script src="_static/jquery.js"></script>
+    <script src="_static/underscore.js"></script>
+    <script src="_static/doctools.js"></script>
+    <script src="_static/language_data.js"></script>
+    <script type="text/javascript" src="_static/sidebar.js"></script>
+    <script type="text/javascript" src="_static/copybutton.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Astromon API" href="api.html" />
+    <link rel="prev" title="Quaternion" href="index.html" />
+    <link href='https://fonts.googleapis.com/css?family=Source+Sans+Pro:200,600' rel='stylesheet' type='text/css'/>
+
+  </head><body>
+<div class="topbar">
+  <a class="brand" title="Documentation Home" href="index.html"><span id="logotext1">Ska! </span><span id="logotext2">Astromon</span><span id="logotext3"></span></a>
+  <ul>
+    
+    <li><a class="home" title="Homepage" href="https://sot.github.io/">
+        <span id="logotext1">ska</span><span id="logotext2">tools</span>
+    </a></li>
+    <li><a title="General Index" href="genindex.html">Index</a></li>
+    <li><a title="Module Index" href="py-modindex.html">Modules</a></li>
+    <li>
+      
+      
+<form action="search.html" method="get">
+  <input type="text" name="q" placeholder="Search" />
+  <input type="hidden" name="check_keywords" value="yes" />
+  <input type="hidden" name="area" value="default" />
+</form>
+      
+    </li>
+  </ul>
+</div>
+
+<div class="related">
+    <h3>Navigation</h3>
+    <ul>
+      <li class="right">
+	<a href="api.html" title="Astromon API">
+	  next &raquo;
+	</a>
+      </li>
+      <li class="right">
+	<a href="index.html" title="Quaternion">
+	  &laquo; previous
+	</a>
+	 |
+      </li>
+      <li>
+	<a href="index.html">Astromon 0.2.dev109+g3648fc9 documentation</a>
+	 &#187;
+      </li>
+      
+      <li>Astromon Components</li> 
+    </ul>
+</div>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <div class="section" id="astromon-components">
+<h1>Astromon Components<a class="headerlink" href="#astromon-components" title="Permalink to this headline">¶</a></h1>
+<p>Astromon is a package to monitor the astrometric accuracy of the Chandra X-ray observatory.</p>
+<div class="section" id="database">
+<h2>Database<a class="headerlink" href="#database" title="Permalink to this headline">¶</a></h2>
+<p>The main data product of Astromon is a database that contains the following tables:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="o">-</span> <span class="n">Observations</span> <span class="p">(</span><span class="n">astromon_obs</span><span class="p">)</span><span class="o">.</span> <span class="n">Observation</span> <span class="n">info</span> <span class="kn">from</span> <span class="nn">OBSPARS.</span>
+<span class="o">-</span> <span class="n">X</span><span class="o">-</span><span class="n">ray</span> <span class="n">sources</span> <span class="p">(</span><span class="n">astromon_xray_src</span><span class="p">)</span><span class="o">.</span> <span class="n">Point</span><span class="o">-</span><span class="n">sources</span> <span class="n">detected</span> <span class="ow">in</span> <span class="n">Chandra</span> <span class="n">observations</span><span class="o">.</span>
+<span class="o">-</span> <span class="n">Catalog</span> <span class="n">sources</span> <span class="p">(</span><span class="n">astromon_cat_src</span><span class="p">)</span><span class="o">.</span> <span class="n">Optical</span><span class="o">/</span><span class="n">Radio</span> <span class="n">catalog</span> <span class="n">entries</span> <span class="ow">in</span> <span class="n">the</span> <span class="n">vicinity</span> <span class="n">of</span> <span class="n">the</span> <span class="n">X</span><span class="o">-</span><span class="n">ray</span>
+  <span class="n">sources</span>
+<span class="o">-</span> <span class="n">Cross</span><span class="o">-</span><span class="n">matches</span> <span class="p">(</span><span class="n">astromon_xcorr</span><span class="p">)</span><span class="o">.</span> <span class="n">Pairs</span> <span class="n">of</span> <span class="n">X</span><span class="o">-</span><span class="n">ray</span> <span class="ow">and</span> <span class="n">catalog</span> <span class="n">sources</span><span class="p">,</span> <span class="n">where</span> <span class="n">there</span> <span class="ow">is</span> <span class="n">at</span> <span class="n">most</span> <span class="n">one</span>
+  <span class="n">catalog</span> <span class="n">source</span> <span class="n">associated</span> <span class="k">with</span> <span class="n">a</span> <span class="n">given</span> <span class="n">detected</span> <span class="n">X</span><span class="o">-</span><span class="n">ray</span> <span class="n">source</span><span class="o">.</span>
+</pre></div>
+</div>
+<p>Astromon data can be accessed through the astromon.db module using convenience functions that
+return the tables as an astropy.table.Table:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">astromon</span> <span class="kn">import</span> <span class="n">db</span>
+<span class="n">matches</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get_cross_matches</span><span class="p">()</span>
+<span class="n">observations</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;astromon_obs&#39;</span><span class="p">)</span>
+<span class="n">xray_src</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;astromon_xray_src&#39;</span><span class="p">)</span>
+<span class="n">cat_src</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;astromon_cat_src&#39;</span><span class="p">)</span>
+<span class="n">xcorr</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;astromon_xcorr&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>NOTE: One can modify the behavior of astromon.db and specify a different database file by defining
+the ASTROMON_FILE environmental variable.</p>
+</div>
+<div class="section" id="observations">
+<h2>Observations<a class="headerlink" href="#observations" title="Permalink to this headline">¶</a></h2>
+<p>The access to proprietary information related to observations is encapsulated in the
+astromon.observation module. The main component is the Observation class, which encapsulates all
+calls to arc5gl, CIAO scripts, etc</p>
+<p>The following statement instanciates an observation:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">astromon.observation</span> <span class="kn">import</span> <span class="n">Observation</span>
+<span class="n">obs</span> <span class="o">=</span> <span class="n">Observation</span><span class="p">(</span><span class="mi">8008</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Upon creation, if the files corresponding to the observation are not available locally, it will use
+arc5gl to download them. The files are stored locally in a temporary directory unless a working
+directory is given to the constructor:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">astromon.observation</span> <span class="kn">import</span> <span class="n">Observation</span>
+<span class="n">obs</span> <span class="o">=</span> <span class="n">Observation</span><span class="p">(</span><span class="mi">8008</span><span class="p">,</span> <span class="n">workdir</span><span class="o">=</span><span class="s1">&#39;/Users/javierg/SAO/ska/data/astromon&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>in which case the files will persist after the observation instance is deleted.</p>
+<p>The Observation class encapsulates several common operations with CIAO. The following runs a
+prescribed sequence of commands that should result in the creation of files with detected sources:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">obs</span><span class="o">.</span><span class="n">process</span><span class="p">()</span>
+</pre></div>
+</div>
+</div>
+<div class="section" id="cross-matching-algorithms">
+<h2>Cross-Matching Algorithms<a class="headerlink" href="#cross-matching-algorithms" title="Permalink to this headline">¶</a></h2>
+<p>The very first step in the matching process is to find all counterparts within a radius around the
+x-ray source. This is what we call a “rough match” and is done by astromon.cross_match.rough_match,
+which encapsulates all queries to various standard catalogs.</p>
+<p>The actual cross-match, which yields at most one catalog source per x-ray source is performed by
+astromon.cross_match.rough_match.cross_match. This in turn delegates to specific implementation
+functions.</p>
+<div class="section" id="simple">
+<h3>Simple<a class="headerlink" href="#simple" title="Permalink to this headline">¶</a></h3>
+<p>The algorithm currently used is a simple algorithm where:</p>
+<blockquote>
+<div><ul class="simple">
+<li><p>x-ray sources with SNR below a given value are discarded</p></li>
+<li><p>observations are filtered based on date</p></li>
+<li><p>x-ray sources with other x-ray sources within a given radius are discarded</p></li>
+<li><p>observations, x-ray sources and catalog sources are joined on OBSID and x-ray source ID.</p></li>
+<li><p>matches with source-counterpart separation larger than a given value are discarded</p></li>
+<li><p>catalog sources are selected from specific catalogs in a prescribed precedence. The first
+counterpart found is taken to be the match.</p></li>
+</ul>
+</div></blockquote>
+</div>
+</div>
+</div>
+
+
+            <div class="clearer"></div>
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper"><h3>Page Contents</h3>
+<ul>
+<li><a class="reference internal" href="#">Astromon Components</a><ul>
+<li><a class="reference internal" href="#database">Database</a></li>
+<li><a class="reference internal" href="#observations">Observations</a></li>
+<li><a class="reference internal" href="#cross-matching-algorithms">Cross-Matching Algorithms</a><ul>
+<li><a class="reference internal" href="#simple">Simple</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="index.html"
+                        title="previous chapter">Quaternion</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="api.html"
+                        title="next chapter">Astromon API</a></p>
+  <div role="note" aria-label="source link">
+    <h3>This Page</h3>
+    <ul class="this-page-menu">
+      <li><a href="_sources/astromon.rst.txt"
+            rel="nofollow">Show Source</a></li>
+    </ul>
+   </div>
+<form action="search.html" method="get">
+  <input type="text" name="q" placeholder="Search" />
+  <input type="hidden" name="check_keywords" value="yes" />
+  <input type="hidden" name="area" value="default" />
+</form>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+<footer class="footer">
+  <p class="pull-right">
+    <a href="_sources/astromon.rst.txt"
+       rel="nofollow">Page Source</a> &nbsp;
+    <a href="#">Back to Top</a></p>
+  <p>
+    &copy; Copyright 2022, Jean Connelly, Tom Aldcroft, Javier Gonzalez.<br/>
+    Created using <a href="http://www.sphinx-doc.org/en/stable/">Sphinx</a> 3.1.2. &nbsp;
+  </p>
+</footer>
+  </body>
+</html>

@@ -1,0 +1,10 @@
+.. astromon documentation master file
+
+Quaternion
+===========
+
+.. toctree::
+   :maxdepth: 2
+
+   astromon
+   api

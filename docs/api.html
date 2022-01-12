@@ -1,0 +1,355 @@
+
+<!DOCTYPE html>
+
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Astromon API &#8212; Astromon 0.2.dev109+g3648fc9 documentation</title>
+    <link rel="stylesheet" href="_static/bootstrap-astropy.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+    <script src="_static/jquery.js"></script>
+    <script src="_static/underscore.js"></script>
+    <script src="_static/doctools.js"></script>
+    <script src="_static/language_data.js"></script>
+    <script type="text/javascript" src="_static/sidebar.js"></script>
+    <script type="text/javascript" src="_static/copybutton.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="prev" title="Astromon Components" href="astromon.html" />
+    <link href='https://fonts.googleapis.com/css?family=Source+Sans+Pro:200,600' rel='stylesheet' type='text/css'/>
+
+  </head><body>
+<div class="topbar">
+  <a class="brand" title="Documentation Home" href="index.html"><span id="logotext1">Ska! </span><span id="logotext2">Astromon</span><span id="logotext3"></span></a>
+  <ul>
+    
+    <li><a class="home" title="Homepage" href="https://sot.github.io/">
+        <span id="logotext1">ska</span><span id="logotext2">tools</span>
+    </a></li>
+    <li><a title="General Index" href="genindex.html">Index</a></li>
+    <li><a title="Module Index" href="py-modindex.html">Modules</a></li>
+    <li>
+      
+      
+<form action="search.html" method="get">
+  <input type="text" name="q" placeholder="Search" />
+  <input type="hidden" name="check_keywords" value="yes" />
+  <input type="hidden" name="area" value="default" />
+</form>
+      
+    </li>
+  </ul>
+</div>
+
+<div class="related">
+    <h3>Navigation</h3>
+    <ul>
+      <li class="right">
+	<a href="astromon.html" title="Astromon Components">
+	  &laquo; previous
+	</a>
+	
+      </li>
+      <li>
+	<a href="index.html">Astromon 0.2.dev109+g3648fc9 documentation</a>
+	 &#187;
+      </li>
+      
+      <li>Astromon API</li> 
+    </ul>
+</div>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <div class="section" id="astromon-api">
+<h1>Astromon API<a class="headerlink" href="#astromon-api" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="module-astromon.db">
+<span id="db"></span><h2>db<a class="headerlink" href="#module-astromon.db" title="Permalink to this headline">¶</a></h2>
+<dl class="py function">
+<dt id="astromon.db.add_regions">
+<code class="sig-prename descclassname">astromon.db.</code><code class="sig-name descname">add_regions</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">regions</span></em>, <em class="sig-param"><span class="n">db_file</span><span class="o">=</span><span class="default_value">None</span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/astromon/db.html#add_regions"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#astromon.db.add_regions" title="Permalink to this definition">¶</a></dt>
+<dd><p>Add exclusion regions to the astromon_regions table.</p>
+<p>A unique region ID is automatically generated.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt id="astromon.db.connect">
+<code class="sig-prename descclassname">astromon.db.</code><code class="sig-name descname">connect</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">dbfile</span><span class="o">=</span><span class="default_value">None</span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/astromon/db.html#connect"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#astromon.db.connect" title="Permalink to this definition">¶</a></dt>
+<dd><p>Context manager that returns a DB connection (or an HDF5 file).</p>
+</dd></dl>
+
+<dl class="py function">
+<dt id="astromon.db.get">
+<code class="sig-prename descclassname">astromon.db.</code><code class="sig-name descname">get</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">table_name</span></em>, <em class="sig-param"><span class="n">dbfile</span><span class="o">=</span><span class="default_value">None</span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/astromon/db.html#get"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#astromon.db.get" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get an ENTIRE table.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt id="astromon.db.get_cross_matches">
+<code class="sig-prename descclassname">astromon.db.</code><code class="sig-name descname">get_cross_matches</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">dbfile</span><span class="o">=</span><span class="default_value">None</span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/astromon/db.html#get_cross_matches"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#astromon.db.get_cross_matches" title="Permalink to this definition">¶</a></dt>
+<dd><p>Make a standard join of observations, x-ray sources and catalog counterparts.</p>
+<p>This function returns an astropy.table.Table indexed by OBSID and adds a few columns on the fly:
+- time
+- c_loc
+- x_loc</p>
+</dd></dl>
+
+<dl class="py function">
+<dt id="astromon.db.remove_regions">
+<code class="sig-prename descclassname">astromon.db.</code><code class="sig-name descname">remove_regions</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">regions</span></em>, <em class="sig-param"><span class="n">db_file</span><span class="o">=</span><span class="default_value">None</span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/astromon/db.html#remove_regions"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#astromon.db.remove_regions" title="Permalink to this definition">¶</a></dt>
+<dd><p>Remove exclusion regions (by ID) from the astromon_regions table.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt id="astromon.db.save">
+<code class="sig-prename descclassname">astromon.db.</code><code class="sig-name descname">save</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">db</span></em>, <em class="sig-param"><span class="n">table_name</span></em>, <em class="sig-param"><span class="n">data</span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/astromon/db.html#save"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#astromon.db.save" title="Permalink to this definition">¶</a></dt>
+<dd><p>Insert data into a table, deleting previous entries for the same OBSID.</p>
+<p>If the table does not exist, it is created using pre-existing table definitions.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt id="astromon.db.set_formats">
+<code class="sig-prename descclassname">astromon.db.</code><code class="sig-name descname">set_formats</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">dat</span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/astromon/db.html#set_formats"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#astromon.db.set_formats" title="Permalink to this definition">¶</a></dt>
+<dd><p>Sets format of columns with float dtype to show 2 decimals, except ra/dec/pileup (4 decimals).</p>
+</dd></dl>
+
+</div>
+<div class="section" id="module-astromon.cross_match">
+<span id="cross-match"></span><h2>cross_match<a class="headerlink" href="#module-astromon.cross_match" title="Permalink to this headline">¶</a></h2>
+<dl class="py function">
+<dt id="astromon.cross_match.cross_match">
+<code class="sig-prename descclassname">astromon.cross_match.</code><code class="sig-name descname">cross_match</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">name</span></em>, <em class="sig-param"><span class="n">astromon_obs</span><span class="o">=</span><span class="default_value">None</span></em>, <em class="sig-param"><span class="n">astromon_xray_src</span><span class="o">=</span><span class="default_value">None</span></em>, <em class="sig-param"><span class="n">astromon_cat_src</span><span class="o">=</span><span class="default_value">None</span></em>, <em class="sig-param"><span class="n">dbfile</span><span class="o">=</span><span class="default_value">None</span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/astromon/cross_match.html#cross_match"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#astromon.cross_match.cross_match" title="Permalink to this definition">¶</a></dt>
+<dd><p>Cross-match x-ray sources with catalog counterparts.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt id="astromon.cross_match.rough_match">
+<code class="sig-prename descclassname">astromon.cross_match.</code><code class="sig-name descname">rough_match</code><span class="sig-paren">(</span><em class="sig-param">sources</em>, <em class="sig-param">time</em>, <em class="sig-param">radius=&lt;Quantity 3. arcsec&gt;</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/astromon/cross_match.html#rough_match"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#astromon.cross_match.rough_match" title="Permalink to this definition">¶</a></dt>
+<dd><p>Find sources in a set of standard catalogs around the x-ray sources given in <cite>sources</cite>,
+within an angular separation of at most <cite>radius</cite> (an astropy quantity).</p>
+<p>This function uses the ‘ra’, ‘dec’, ‘id’ and ‘obsid’ columns of the <cite>sources</cite> table.
+The obsid column is optional and is used only to check that the query corresponds to a single
+OBSID. Trying to query more than one OBSID at a time causes unexpected results after the
+astropy table join
+(see warning on Custom Join Functions: <a class="reference external" href="https://docs.astropy.org/en/stable/table/operations.html">https://docs.astropy.org/en/stable/table/operations.html</a>)</p>
+<p>WARNING: the current implementation of this function does create a temporary table with the
+cartesian product of the x-ray sources and the catalog sources tables
+(length ~ n_x_ray_sources^2). This is intended to be used with few x-ray sources at a time.</p>
+</dd></dl>
+
+</div>
+<div class="section" id="module-astromon.observation">
+<span id="observation"></span><h2>observation<a class="headerlink" href="#module-astromon.observation" title="Permalink to this headline">¶</a></h2>
+<dl class="py data">
+<dt id="astromon.observation.CATEGORY_ID_MAP">
+<code class="sig-prename descclassname">astromon.observation.</code><code class="sig-name descname">CATEGORY_ID_MAP</code><em class="property"> = {'active galaxies and quasars': 50, 'bh and ns binaries': 30, 'clusters of galaxies': 120, 'extragalactic diffuse emission &amp; surveys': 60, 'galactic diffuse emission &amp; surveys': 70, 'normal galaxies': 40, 'normal stars and wd': 10, 'sn, snr, and isolated ns': 110, 'solar system and misc': 100, 'wd binaries and cvs': 20}</em><a class="headerlink" href="#astromon.observation.CATEGORY_ID_MAP" title="Permalink to this definition">¶</a></dt>
+<dd><p>Inverse mapping between observation category names and numerical values.</p>
+</dd></dl>
+
+<dl class="py class">
+<dt id="astromon.observation.Observation">
+<em class="property">class </em><code class="sig-prename descclassname">astromon.observation.</code><code class="sig-name descname">Observation</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">obsid</span></em>, <em class="sig-param"><span class="n">workdir</span><span class="o">=</span><span class="default_value">None</span></em>, <em class="sig-param"><span class="n">source</span><span class="o">=</span><span class="default_value">'arc5gl'</span></em>, <em class="sig-param"><span class="n">ciao_prefix</span><span class="o">=</span><span class="default_value">None</span></em>, <em class="sig-param"><span class="n">archive_dir</span><span class="o">=</span><span class="default_value">None</span></em>, <em class="sig-param"><span class="n">archive_regex</span><span class="o">=</span><span class="default_value">None</span></em>, <em class="sig-param"><span class="n">use_ciao</span><span class="o">=</span><span class="default_value">True</span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/astromon/observation.html#Observation"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#astromon.observation.Observation" title="Permalink to this definition">¶</a></dt>
+<dd><p>Class to encapsulate calls to CIAO and arc5gl.</p>
+<dl class="py method">
+<dt id="astromon.observation.Observation.archive">
+<code class="sig-name descname">archive</code><span class="sig-paren">(</span><em class="sig-param"><span class="o">*</span><span class="n">regex</span></em>, <em class="sig-param"><span class="n">destination</span><span class="o">=</span><span class="default_value">None</span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/astromon/observation.html#Observation.archive"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#astromon.observation.Observation.archive" title="Permalink to this definition">¶</a></dt>
+<dd><p>Move observation files to an archive location</p>
+</dd></dl>
+
+<dl class="py method">
+<dt id="astromon.observation.Observation.calculate_centroids">
+<code class="sig-name descname">calculate_centroids</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/astromon/observation.html#Observation.calculate_centroids"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#astromon.observation.Observation.calculate_centroids" title="Permalink to this definition">¶</a></dt>
+<dd><p>Re-compute centroids.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt id="astromon.observation.Observation.download">
+<code class="sig-name descname">download</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">ftypes</span><span class="o">=</span><span class="default_value">None</span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/astromon/observation.html#Observation.download"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#astromon.observation.Observation.download" title="Permalink to this definition">¶</a></dt>
+<dd><p>Download observation files using the Chandra archive or arc5gl.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt id="astromon.observation.Observation.filter_events">
+<code class="sig-name descname">filter_events</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">radius</span><span class="o">=</span><span class="default_value">180</span></em>, <em class="sig-param"><span class="n">psfratio</span><span class="o">=</span><span class="default_value">1</span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/astromon/observation.html#Observation.filter_events"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#astromon.observation.Observation.filter_events" title="Permalink to this definition">¶</a></dt>
+<dd><p>Filter x-ray events outside a radius around the optical axis.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt id="astromon.observation.Observation.filter_sources">
+<code class="sig-name descname">filter_sources</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">radius</span><span class="o">=</span><span class="default_value">180</span></em>, <em class="sig-param"><span class="n">psfratio</span><span class="o">=</span><span class="default_value">1</span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/astromon/observation.html#Observation.filter_sources"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#astromon.observation.Observation.filter_sources" title="Permalink to this definition">¶</a></dt>
+<dd><p>Filter detected sources outside a radius around the optical axis.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt id="astromon.observation.Observation.get_info">
+<code class="sig-name descname">get_info</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/astromon/observation.html#Observation.get_info"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#astromon.observation.Observation.get_info" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get observation info.</p>
+<p>Observation info is a combination of OBSPAR (from the obs0 file) and the sequence summary
+from <a class="reference external" href="https://icxc.harvard.edu/cgi-bin/mp/target.cgi">https://icxc.harvard.edu/cgi-bin/mp/target.cgi</a>.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt id="astromon.observation.Observation.get_obspar">
+<code class="sig-name descname">get_obspar</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/astromon/observation.html#Observation.get_obspar"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#astromon.observation.Observation.get_obspar" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get the contents of the obs0 file as a dictionary.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt id="astromon.observation.Observation.get_sources">
+<code class="sig-name descname">get_sources</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">version</span><span class="o">=</span><span class="default_value">'celldetect'</span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/astromon/observation.html#Observation.get_sources"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#astromon.observation.Observation.get_sources" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns a table of sources formatted for the astromon_xray_source SQL table</p>
+</dd></dl>
+
+<dl class="py method">
+<dt id="astromon.observation.Observation.make_images">
+<code class="sig-name descname">make_images</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">evt</span><span class="o">=</span><span class="default_value">None</span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/astromon/observation.html#Observation.make_images"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#astromon.observation.Observation.make_images" title="Permalink to this definition">¶</a></dt>
+<dd><p>Create image. Also creates the exposure map and psfmap.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt id="astromon.observation.Observation.process">
+<code class="sig-name descname">process</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/astromon/observation.html#Observation.process"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#astromon.observation.Observation.process" title="Permalink to this definition">¶</a></dt>
+<dd><p>Main routine to process a single obsid with “standard” steps.</p>
+<dl class="simple">
+<dt>This function skips:</dt><dd><ul class="simple">
+<li><p>observations with obs_mode other than “POINTING”.</p></li>
+<li><p>ACIS observations with readmode other than “TIMED” and dtycycle different than 0.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt id="astromon.observation.Observation.repro">
+<code class="sig-name descname">repro</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/astromon/observation.html#Observation.repro"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#astromon.observation.Observation.repro" title="Permalink to this definition">¶</a></dt>
+<dd><p>Reprocess data</p>
+</dd></dl>
+
+<dl class="py method">
+<dt id="astromon.observation.Observation.run_celldetect">
+<code class="sig-name descname">run_celldetect</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">snr</span><span class="o">=</span><span class="default_value">3</span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/astromon/observation.html#Observation.run_celldetect"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#astromon.observation.Observation.run_celldetect" title="Permalink to this definition">¶</a></dt>
+<dd><p>Run celldetect.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt id="astromon.observation.Observation.run_wavdetect">
+<code class="sig-name descname">run_wavdetect</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">edition</span></em>, <em class="sig-param"><span class="n">skip_exist</span><span class="o">=</span><span class="default_value">False</span></em>, <em class="sig-param"><span class="n">scales</span><span class="o">=</span><span class="default_value">'1.4 2 4 8 16 32'</span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/astromon/observation.html#Observation.run_wavdetect"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#astromon.observation.Observation.run_wavdetect" title="Permalink to this definition">¶</a></dt>
+<dd><p>Run wavdetect.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py exception">
+<dt id="astromon.observation.SkippedObservation">
+<em class="property">exception </em><code class="sig-prename descclassname">astromon.observation.</code><code class="sig-name descname">SkippedObservation</code><a class="reference internal" href="_modules/astromon/observation.html#SkippedObservation"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#astromon.observation.SkippedObservation" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt id="astromon.observation.get_parser">
+<code class="sig-prename descclassname">astromon.observation.</code><code class="sig-name descname">get_parser</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/astromon/observation.html#get_parser"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#astromon.observation.get_parser" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get the argument parser to process a set of observations.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt id="astromon.observation.main">
+<code class="sig-prename descclassname">astromon.observation.</code><code class="sig-name descname">main</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/astromon/observation.html#main"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#astromon.observation.main" title="Permalink to this definition">¶</a></dt>
+<dd><p>Main routine to process a set of observations.</p>
+</dd></dl>
+
+</div>
+<div class="section" id="telemetry">
+<h2>telemetry<a class="headerlink" href="#telemetry" title="Permalink to this headline">¶</a></h2>
+</div>
+<div class="section" id="module-astromon.utils">
+<span id="utils"></span><h2>utils<a class="headerlink" href="#module-astromon.utils" title="Permalink to this headline">¶</a></h2>
+<dl class="py class">
+<dt id="astromon.utils.CIAOContext">
+<em class="property">class </em><code class="sig-prename descclassname">astromon.utils.</code><code class="sig-name descname">CIAOContext</code><span class="sig-paren">(</span><em class="sig-param">directory</em>, <em class="sig-param">logger=&lt;module 'logging' from '/Users/javierg/SAO/miniconda3/envs/ska3-flight/lib/python3.8/logging/__init__.py'&gt;</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/astromon/utils.html#CIAOContext"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#astromon.utils.CIAOContext" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py exception">
+<dt id="astromon.utils.FlowException">
+<em class="property">exception </em><code class="sig-prename descclassname">astromon.utils.</code><code class="sig-name descname">FlowException</code><a class="reference internal" href="_modules/astromon/utils.html#FlowException"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#astromon.utils.FlowException" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py class">
+<dt id="astromon.utils.chdir">
+<em class="property">class </em><code class="sig-prename descclassname">astromon.utils.</code><code class="sig-name descname">chdir</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">directory</span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/astromon/utils.html#chdir"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#astromon.utils.chdir" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt id="astromon.utils.ciao_context">
+<code class="sig-prename descclassname">astromon.utils.</code><code class="sig-name descname">ciao_context</code><a class="headerlink" href="#astromon.utils.ciao_context" title="Permalink to this definition">¶</a></dt>
+<dd><p>alias of <a class="reference internal" href="#astromon.utils.CIAOContext" title="astromon.utils.CIAOContext"><code class="xref py py-class docutils literal notranslate"><span class="pre">astromon.utils.CIAOContext</span></code></a></p>
+</dd></dl>
+
+<dl class="py function">
+<dt id="astromon.utils.ciao_context_function">
+<code class="sig-prename descclassname">astromon.utils.</code><code class="sig-name descname">ciao_context_function</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">func</span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/astromon/utils.html#ciao_context_function"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#astromon.utils.ciao_context_function" title="Permalink to this definition">¶</a></dt>
+<dd><p>Decorator to set the CIAO parameters directory within the context of a member function.</p>
+<p>By default, CIAO stores function parameters in $HOME/cxcds_param4. Within a function decorated
+with this decorator, this changed to ${self.workdir}/${self.obsid}/params by setting the PFILES
+variable. This also sets ASCDS_WORK_PATH.</p>
+<p>The requirement is that the decorated class must have a ‘workdir’ and am ‘obsid’ data members.</p>
+</dd></dl>
+
+</div>
+</div>
+
+
+            <div class="clearer"></div>
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper"><h3>Page Contents</h3>
+<ul>
+<li><a class="reference internal" href="#">Astromon API</a><ul>
+<li><a class="reference internal" href="#module-astromon.db">db</a></li>
+<li><a class="reference internal" href="#module-astromon.cross_match">cross_match</a></li>
+<li><a class="reference internal" href="#module-astromon.observation">observation</a></li>
+<li><a class="reference internal" href="#telemetry">telemetry</a></li>
+<li><a class="reference internal" href="#module-astromon.utils">utils</a></li>
+</ul>
+</li>
+</ul>
+
+
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="astromon.html"
+                        title="previous chapter">Astromon Components</a></p>
+  <div role="note" aria-label="source link">
+    <h3>This Page</h3>
+    <ul class="this-page-menu">
+      <li><a href="_sources/api.rst.txt"
+            rel="nofollow">Show Source</a></li>
+    </ul>
+   </div>
+<form action="search.html" method="get">
+  <input type="text" name="q" placeholder="Search" />
+  <input type="hidden" name="check_keywords" value="yes" />
+  <input type="hidden" name="area" value="default" />
+</form>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+<footer class="footer">
+  <p class="pull-right">
+    <a href="_sources/api.rst.txt"
+       rel="nofollow">Page Source</a> &nbsp;
+    <a href="#">Back to Top</a></p>
+  <p>
+    &copy; Copyright 2022, Jean Connelly, Tom Aldcroft, Javier Gonzalez.<br/>
+    Created using <a href="http://www.sphinx-doc.org/en/stable/">Sphinx</a> 3.1.2. &nbsp;
+  </p>
+</footer>
+  </body>
+</html>
