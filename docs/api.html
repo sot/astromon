@@ -5,7 +5,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Astromon API &#8212; Astromon 0.2.dev109+g3648fc9 documentation</title>
+    <title>Astromon API &#8212; Astromon 0.2.dev109+g3648fc9.d20220112 documentation</title>
     <link rel="stylesheet" href="_static/bootstrap-astropy.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     
@@ -54,7 +54,7 @@
 	
       </li>
       <li>
-	<a href="index.html">Astromon 0.2.dev109+g3648fc9 documentation</a>
+	<a href="index.html">Astromon 0.2.dev109+g3648fc9.d20220112 documentation</a>
 	 &#187;
       </li>
       
@@ -264,8 +264,21 @@ from <a class="reference external" href="https://icxc.harvard.edu/cgi-bin/mp/tar
 </dd></dl>
 
 </div>
-<div class="section" id="telemetry">
-<h2>telemetry<a class="headerlink" href="#telemetry" title="Permalink to this headline">¶</a></h2>
+<div class="section" id="module-astromon.telemetry">
+<span id="telemetry"></span><h2>telemetry<a class="headerlink" href="#module-astromon.telemetry" title="Permalink to this headline">¶</a></h2>
+<dl class="py function">
+<dt id="astromon.telemetry.binned_median">
+<code class="sig-prename descclassname">astromon.telemetry.</code><code class="sig-name descname">binned_median</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">years</span></em>, <em class="sig-param"><span class="n">vals</span></em>, <em class="sig-param"><span class="n">bins_per_year</span><span class="o">=</span><span class="default_value">2</span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/astromon/telemetry.html#binned_median"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#astromon.telemetry.binned_median" title="Permalink to this definition">¶</a></dt>
+<dd><p>Compute the median value in each bin of the input data.</p>
+<p>TODO: return bin edges and centers.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt id="astromon.telemetry.get">
+<code class="sig-prename descclassname">astromon.telemetry.</code><code class="sig-name descname">get</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">obsids</span></em>, <em class="sig-param"><span class="n">start</span></em>, <em class="sig-param"><span class="n">stop</span></em>, <em class="sig-param"><span class="n">msids</span><span class="o">=</span><span class="default_value">['4RT569T', 'OHRTHR27', 'OHRTHR42', 'OHRTHR43', 'OOBAGRD3', 'OOBAGRD6', 'OHRTHR27_WIDE', 'OHRTHR42_WIDE', 'OHRTHR43_WIDE']</span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/astromon/telemetry.html#get"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#astromon.telemetry.get" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get a collection of MSIDs for each OBSID.</p>
+</dd></dl>
+
 </div>
 <div class="section" id="module-astromon.utils">
 <span id="utils"></span><h2>utils<a class="headerlink" href="#module-astromon.utils" title="Permalink to this headline">¶</a></h2>
@@ -315,7 +328,7 @@ variable. This also sets ASCDS_WORK_PATH.</p>
 <li><a class="reference internal" href="#module-astromon.db">db</a></li>
 <li><a class="reference internal" href="#module-astromon.cross_match">cross_match</a></li>
 <li><a class="reference internal" href="#module-astromon.observation">observation</a></li>
-<li><a class="reference internal" href="#telemetry">telemetry</a></li>
+<li><a class="reference internal" href="#module-astromon.telemetry">telemetry</a></li>
 <li><a class="reference internal" href="#module-astromon.utils">utils</a></li>
 </ul>
 </li>
