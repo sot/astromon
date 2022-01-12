@@ -28,6 +28,30 @@ return the tables as an astropy.table.Table::
 NOTE: One can modify the behavior of astromon.db and specify a different database file by defining
 the ASTROMON_FILE environmental variable.
 
+A more elaborate example to do some analysis, correlating several MSIDs with astromon data, and
+excluding observations of some specific targets::
+
+    import os
+    os.environ['ASTROMON_FILE'] = '/Users/javierg/SAO/ska/data/astromon/ASTROMON_table.h5'
+
+    from astropy.table import join
+    from astromon import db, telemetry
+
+    matches = db.get_cross_matches()
+    matches = join(matches, telemetry.get(matches['obsid'], '2013:001', '2022:001'), keys=['obsid'])
+    matches.add_index('obsid')
+
+    ok = np.ones(len(matches), dtype=bool)
+    bad_targets = ['RW Aur', 'Tau Boo', '70 OPH', '16 Cyg', 'M87', 'Orion', 'HD 97950' 'HD4915']
+    bad_targets = [x.replace(' ', '').lower() for x in bad_targets]
+    for ii, target in enumerate(matches['target']):
+        target = target.replace(' ', '').lower()
+        for bad_target in bad_targets:
+            if target.startswith(bad_target):
+                ok[ii] = False
+    matches['ok'] = ok
+
+
 Observations
 ------------
 

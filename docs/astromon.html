@@ -100,6 +100,29 @@ return the tables as an astropy.table.Table:</p>
 </div>
 <p>NOTE: One can modify the behavior of astromon.db and specify a different database file by defining
 the ASTROMON_FILE environmental variable.</p>
+<p>A more elaborate example to do some analysis, correlating several MSIDs with astromon data, and
+excluding observations of some specific targets:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">os</span>
+<span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s1">&#39;ASTROMON_FILE&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s1">&#39;/Users/javierg/SAO/ska/data/astromon/ASTROMON_table.h5&#39;</span>
+
+<span class="kn">from</span> <span class="nn">astropy.table</span> <span class="kn">import</span> <span class="n">join</span>
+<span class="kn">from</span> <span class="nn">astromon</span> <span class="kn">import</span> <span class="n">db</span><span class="p">,</span> <span class="n">telemetry</span>
+
+<span class="n">matches</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get_cross_matches</span><span class="p">()</span>
+<span class="n">matches</span> <span class="o">=</span> <span class="n">join</span><span class="p">(</span><span class="n">matches</span><span class="p">,</span> <span class="n">telemetry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">matches</span><span class="p">[</span><span class="s1">&#39;obsid&#39;</span><span class="p">],</span> <span class="s1">&#39;2013:001&#39;</span><span class="p">,</span> <span class="s1">&#39;2022:001&#39;</span><span class="p">),</span> <span class="n">keys</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;obsid&#39;</span><span class="p">])</span>
+<span class="n">matches</span><span class="o">.</span><span class="n">add_index</span><span class="p">(</span><span class="s1">&#39;obsid&#39;</span><span class="p">)</span>
+
+<span class="n">ok</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">matches</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">bool</span><span class="p">)</span>
+<span class="n">bad_targets</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;RW Aur&#39;</span><span class="p">,</span> <span class="s1">&#39;Tau Boo&#39;</span><span class="p">,</span> <span class="s1">&#39;70 OPH&#39;</span><span class="p">,</span> <span class="s1">&#39;16 Cyg&#39;</span><span class="p">,</span> <span class="s1">&#39;M87&#39;</span><span class="p">,</span> <span class="s1">&#39;Orion&#39;</span><span class="p">,</span> <span class="s1">&#39;HD 97950&#39;</span> <span class="s1">&#39;HD4915&#39;</span><span class="p">]</span>
+<span class="n">bad_targets</span> <span class="o">=</span> <span class="p">[</span><span class="n">x</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s1">&#39; &#39;</span><span class="p">,</span> <span class="s1">&#39;&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">bad_targets</span><span class="p">]</span>
+<span class="k">for</span> <span class="n">ii</span><span class="p">,</span> <span class="n">target</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">matches</span><span class="p">[</span><span class="s1">&#39;target&#39;</span><span class="p">]):</span>
+    <span class="n">target</span> <span class="o">=</span> <span class="n">target</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s1">&#39; &#39;</span><span class="p">,</span> <span class="s1">&#39;&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">bad_target</span> <span class="ow">in</span> <span class="n">bad_targets</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">target</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="n">bad_target</span><span class="p">):</span>
+            <span class="n">ok</span><span class="p">[</span><span class="n">ii</span><span class="p">]</span> <span class="o">=</span> <span class="kc">False</span>
+<span class="n">matches</span><span class="p">[</span><span class="s1">&#39;ok&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">ok</span>
+</pre></div>
+</div>
 </div>
 <div class="section" id="observations">
 <h2>Observations<a class="headerlink" href="#observations" title="Permalink to this headline">¶</a></h2>
