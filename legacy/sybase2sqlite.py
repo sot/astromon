@@ -36,8 +36,8 @@ cols = cursy.fetchall()
 # Drop an existing table
 try:
     dbs3.execute('drop table {}'.format(args.table))
-except Exception, err:
-    print "Got an error dropping table: {}".format(err)
+except Exception as err:
+    print("Got an error dropping table: {}".format(err))
 
 if args.schema_file:
     create = open(args.schema_file, 'r').read()
@@ -51,23 +51,22 @@ else:
     create = "CREATE TABLE {} (\n{})".format(args.table,
                                              ",\n".join(fields + constraints))
 
-print "Executing {}".format(create)
+print("Executing {}".format(create))
 dbs3.execute(create)
-                  
-print "Reading rows from sybase"
+
+print("Reading rows from sybase")
 cursy.execute("SELECT * FROM {}".format(args.table))
 rows = cursy.fetchall()
 cursy.close()
 
-print "Inserting {} rows".format(len(rows))
+print("Inserting {} rows".format(len(rows)))
 curs3 = dbs3.conn.cursor()
 insert = "insert into {} values ({})".format(args.table,
                                              ",".join(['?'] * len(cols)))
 for i, row in enumerate(rows):
     curs3.execute(insert, row)
-    print i, "\r",
+    print(i, "\r")
 
-print
+print('\n')
 dbs3.commit()
 curs3.close()
-
