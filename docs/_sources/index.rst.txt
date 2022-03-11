@@ -8,5 +8,6 @@ Astromon is a package to monitor the astrometric accuracy of the Chandra X-ray o
 .. toctree::
    :maxdepth: 2
 
+   quick
    astromon
    api

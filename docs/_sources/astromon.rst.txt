@@ -6,14 +6,14 @@ Astromon is a package to monitor the astrometric accuracy of the Chandra X-ray o
 Database
 --------
 
-The main data product of Astromon is a database that contains the following tables::
+The main data product of Astromon is a database that contains the following tables:
 
-    - Observations (astromon_obs). Observation info from OBSPARS.
-    - X-ray sources (astromon_xray_src). Point-sources detected in Chandra observations.
-    - Catalog sources (astromon_cat_src). Optical/Radio catalog entries in the vicinity of the X-ray
-      sources
-    - Cross-matches (astromon_xcorr). Pairs of X-ray and catalog sources, where there is at most one
-      catalog source associated with a given detected X-ray source. 
+* Observations (astromon_obs). Observation info from OBSPARS.
+* X-ray sources (astromon_xray_src). Point-sources detected in Chandra observations.
+* Catalog sources (astromon_cat_src). Optical/Radio catalog entries in the vicinity of the X-ray
+  sources
+* Cross-matches (astromon_xcorr). Pairs of X-ray and catalog sources, where there is at most one
+  catalog source associated with a given detected X-ray source. 
 
 Astromon data can be accessed through the astromon.db module using convenience functions that
 return the tables as an astropy.table.Table::
@@ -42,11 +42,11 @@ excluding observations of some specific targets::
     matches.add_index('obsid')
 
     ok = np.ones(len(matches), dtype=bool)
-    bad_targets = ['RW Aur', 'Tau Boo', '70 OPH', '16 Cyg', 'M87', 'Orion', 'HD 97950' 'HD4915']
-    bad_targets = [x.replace(' ', '').lower() for x in bad_targets]
+    excl_targets = ['RW Aur', 'Tau Boo', '70 OPH', '16 Cyg', 'M87', 'Orion', 'HD 97950' 'HD4915']
+    excl_targets = [x.replace(' ', '').lower() for x in excl_targets]
     for ii, target in enumerate(matches['target']):
         target = target.replace(' ', '').lower()
-        for bad_target in bad_targets:
+        for bad_target in excl_targets:
             if target.startswith(bad_target):
                 ok[ii] = False
     matches['ok'] = ok

@@ -4,16 +4,15 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>astromon.observation &#8212; Astromon 0.2.dev109+g3648fc9.d20220112 documentation</title>
-    <link rel="stylesheet" href="../../_static/bootstrap-astropy.css" type="text/css" />
-    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>astromon.observation &#8212; Astromon 0.2.dev29+ge077a63 documentation</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css" />
+    <link rel="stylesheet" type="text/css" href="../../_static/bootstrap-astropy.css" />
     
-    <script id="documentation_options" data-url_root="../../" src="../../_static/documentation_options.js"></script>
+    <script data-url_root="../../" id="documentation_options" src="../../_static/documentation_options.js"></script>
     <script src="../../_static/jquery.js"></script>
     <script src="../../_static/underscore.js"></script>
     <script src="../../_static/doctools.js"></script>
-    <script src="../../_static/language_data.js"></script>
     <script type="text/javascript" src="../../_static/sidebar.js"></script>
     <script type="text/javascript" src="../../_static/copybutton.js"></script>
     <link rel="index" title="Index" href="../../genindex.html" />
@@ -47,7 +46,7 @@
     <h3>Navigation</h3>
     <ul>
       <li>
-	<a href="../../index.html">Astromon 0.2.dev109+g3648fc9.d20220112 documentation</a>
+	<a href="../../index.html">Astromon 0.2.dev29+ge077a63 documentation</a>
 	 &#187;
       </li>
       <li><a href="../index.html" accesskey="U">Module code</a> &#187;</li>
@@ -102,7 +101,7 @@
 <span class="p">]</span>
 
 
-<span class="n">CATEGORY_ID_MAP</span> <span class="o">=</span> <span class="p">{</span>
+<span class="n">ID_CATEGORY_MAP</span> <span class="o">=</span> <span class="p">{</span>
     <span class="s1">&#39;Normal Stars and WD&#39;</span><span class="p">:</span> <span class="mi">10</span><span class="p">,</span>
     <span class="s1">&#39;WD Binaries and CVs&#39;</span><span class="p">:</span> <span class="mi">20</span><span class="p">,</span>
     <span class="s1">&#39;BH and NS Binaries&#39;</span><span class="p">:</span> <span class="mi">30</span><span class="p">,</span>
@@ -121,11 +120,12 @@
 
 <span class="n">CATEGORY_ID_MAP</span> <span class="o">=</span> <span class="n">collections</span><span class="o">.</span><span class="n">defaultdict</span><span class="p">(</span>
     <span class="k">lambda</span><span class="p">:</span> <span class="mi">200</span><span class="p">,</span>
-    <span class="p">{</span><span class="n">k</span><span class="o">.</span><span class="n">lower</span><span class="p">():</span> <span class="n">v</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">CATEGORY_ID_MAP</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
+    <span class="p">{</span><span class="n">k</span><span class="o">.</span><span class="n">lower</span><span class="p">():</span> <span class="n">v</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">ID_CATEGORY_MAP</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
 <span class="p">)</span>
 <span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">Inverse mapping between observation category names and numerical values.</span>
 <span class="sd">&quot;&quot;&quot;</span>
+
 
 <div class="viewcode-block" id="SkippedObservation"><a class="viewcode-back" href="../../api.html#astromon.observation.SkippedObservation">[docs]</a><span class="k">class</span> <span class="nc">SkippedObservation</span><span class="p">(</span><span class="n">FlowException</span><span class="p">):</span>
     <span class="k">pass</span></div>
@@ -135,7 +135,27 @@
     <span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Class to encapsulate calls to CIAO and arc5gl.</span>
 
-
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    obsid: int</span>
+<span class="sd">    workdir : pathlib.Path or str.</span>
+<span class="sd">        Top-level working directory. Used to set PFILES and ASCDS_WORK_PATH and to download files.</span>
+<span class="sd">        The actual working directory will be {workdir}/obs{int(obsid)//1000:02d}/{obsid}.</span>
+<span class="sd">        If not given, the working directory will be a temporary directory.</span>
+<span class="sd">    source: str</span>
+<span class="sd">        One of &#39;arc5gl&#39; (to get data using arc5gl) or &#39;archive&#39; (to get data from chandra public</span>
+<span class="sd">        archive using CIAO&#39;s download_chandra_obsid).</span>
+<span class="sd">    archive_dir: pathlib.Path or str.</span>
+<span class="sd">        Top-level archive directory. Used to permanently store the result files.</span>
+<span class="sd">        The actual archive directory will be {archive_dir}/obs{int(obsid)//1000:02d}/{obsid}.</span>
+<span class="sd">    ciao_prefix : str</span>
+<span class="sd">        The location of CIAO.</span>
+<span class="sd">    logger: logging.Logger.</span>
+<span class="sd">        If not provided, the root logger is used.</span>
+<span class="sd">    archive_regex: list of str.</span>
+<span class="sd">        Files matching any regex in the list are archived.</span>
+<span class="sd">    use_ciao: bool</span>
+<span class="sd">        If this is False, there will be no calls to CIAO tools (and some methods will just fail).</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
@@ -320,7 +340,7 @@
             <span class="k">if</span> <span class="n">ftype</span> <span class="o">==</span> <span class="s1">&#39;obspar&#39;</span><span class="p">:</span>
                 <span class="n">src</span><span class="p">,</span> <span class="n">dest</span> <span class="o">=</span> <span class="s1">&#39;obspar&#39;</span><span class="p">,</span> <span class="s1">&#39;.&#39;</span>
             <span class="k">else</span><span class="p">:</span>
-                <span class="n">locs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_archive_file_locations</span><span class="p">()</span>
+                <span class="n">locs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">archive_file_locations</span>
                 <span class="k">if</span> <span class="n">ftype</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">locs</span><span class="p">:</span>
                     <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="bp">self</span><span class="si">}</span><span class="s1"> </span><span class="si">{</span><span class="n">ftype</span><span class="si">=}</span><span class="s1"> skipped because it is not in known locations&#39;</span><span class="p">)</span>
                     <span class="k">continue</span>
@@ -342,6 +362,11 @@
     <span class="k">def</span> <span class="nf">download</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ftypes</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
         <span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Download observation files using the Chandra archive or arc5gl.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        ftypes: list of str</span>
+<span class="sd">            Each must be a key in self.archive_file_locations.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="n">ftypes</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">ftypes</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;evt2&quot;</span><span class="p">,</span> <span class="s2">&quot;asol&quot;</span><span class="p">,</span> <span class="s2">&quot;msk&quot;</span><span class="p">,</span> <span class="s2">&quot;fov&quot;</span><span class="p">]</span>
@@ -356,7 +381,16 @@
 <div class="viewcode-block" id="Observation.archive"><a class="viewcode-back" href="../../api.html#astromon.observation.Observation.archive">[docs]</a>    <span class="nd">@logging_call_decorator</span>
     <span class="k">def</span> <span class="nf">archive</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">regex</span><span class="p">,</span> <span class="n">destination</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
         <span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">        Move observation files to an archive location</span>
+<span class="sd">        Move observation files to an archive location.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        regex: list of str</span>
+<span class="sd">            Optional. If not given, self.archive_regex is used.</span>
+<span class="sd">            Files matching any of the strings are arcived in a long-term location.</span>
+<span class="sd">        destination: pathlib.Path or str.</span>
+<span class="sd">            Optional. If not given, self.archive_dir is used.</span>
+<span class="sd">            Long-term location where to store files.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="n">regex</span><span class="p">:</span>
             <span class="n">regex</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">archive_regex</span>
@@ -380,7 +414,7 @@
 <div class="viewcode-block" id="Observation.repro"><a class="viewcode-back" href="../../api.html#astromon.observation.Observation.repro">[docs]</a>    <span class="nd">@logging_call_decorator</span>
     <span class="k">def</span> <span class="nf">repro</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">        Reprocess data</span>
+<span class="sd">        Reprocess data.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">images</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">workdir</span> <span class="o">/</span> <span class="s1">&#39;images&#39;</span>
         <span class="k">if</span> <span class="n">images</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
@@ -737,7 +771,8 @@
                 <span class="n">result</span> <span class="o">+=</span> <span class="n">pol</span><span class="o">.</span><span class="n">contains</span><span class="p">(</span><span class="n">pos</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">result</span>
 
-    <span class="k">def</span> <span class="nf">_archive_file_locations</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">archive_file_locations</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="n">instrument</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_obspar</span><span class="p">()[</span><span class="s1">&#39;instrument&#39;</span><span class="p">]</span>
         <span class="k">return</span> <span class="p">{</span>
             <span class="s1">&#39;obspar&#39;</span><span class="p">:</span> <span class="p">(</span><span class="s1">&#39;obspar&#39;</span><span class="p">,</span> <span class="s1">&#39;.&#39;</span><span class="p">),</span>
@@ -862,7 +897,7 @@
     <a href="#">Back to Top</a></p>
   <p>
     &copy; Copyright 2022, Jean Connelly, Tom Aldcroft, Javier Gonzalez.<br/>
-    Created using <a href="http://www.sphinx-doc.org/en/stable/">Sphinx</a> 3.1.2. &nbsp;
+    Created using <a href="http://www.sphinx-doc.org/en/stable/">Sphinx</a> 4.2.0. &nbsp;
   </p>
 </footer>
   </body>
