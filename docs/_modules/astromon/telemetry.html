@@ -1,0 +1,181 @@
+
+<!DOCTYPE html>
+
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>astromon.telemetry &#8212; Astromon 0.2.dev29+ge077a63 documentation</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css" />
+    <link rel="stylesheet" type="text/css" href="../../_static/bootstrap-astropy.css" />
+    
+    <script data-url_root="../../" id="documentation_options" src="../../_static/documentation_options.js"></script>
+    <script src="../../_static/jquery.js"></script>
+    <script src="../../_static/underscore.js"></script>
+    <script src="../../_static/doctools.js"></script>
+    <script type="text/javascript" src="../../_static/sidebar.js"></script>
+    <script type="text/javascript" src="../../_static/copybutton.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link href='https://fonts.googleapis.com/css?family=Source+Sans+Pro:200,600' rel='stylesheet' type='text/css'/>
+
+  </head><body>
+<div class="topbar">
+  <a class="brand" title="Documentation Home" href="../../index.html"><span id="logotext1">Ska! </span><span id="logotext2">Astromon</span><span id="logotext3"></span></a>
+  <ul>
+    
+    <li><a class="home" title="Homepage" href="https://sot.github.io/">
+        <span id="logotext1">ska</span><span id="logotext2">tools</span>
+    </a></li>
+    <li><a title="General Index" href="../../genindex.html">Index</a></li>
+    <li><a title="Module Index" href="../../py-modindex.html">Modules</a></li>
+    <li>
+      
+      
+<form action="../../search.html" method="get">
+  <input type="text" name="q" placeholder="Search" />
+  <input type="hidden" name="check_keywords" value="yes" />
+  <input type="hidden" name="area" value="default" />
+</form>
+      
+    </li>
+  </ul>
+</div>
+
+<div class="related">
+    <h3>Navigation</h3>
+    <ul>
+      <li>
+	<a href="../../index.html">Astromon 0.2.dev29+ge077a63 documentation</a>
+	 &#187;
+      </li>
+      <li><a href="../index.html" accesskey="U">Module code</a> &#187;</li>
+      
+       
+    </ul>
+</div>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for astromon.telemetry</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+<span class="kn">import</span> <span class="nn">logging</span>
+
+<span class="kn">from</span> <span class="nn">astropy.table</span> <span class="kn">import</span> <span class="n">Table</span>
+
+<span class="kn">from</span> <span class="nn">cxotime</span> <span class="kn">import</span> <span class="n">CxoTime</span>
+<span class="kn">from</span> <span class="nn">cheta</span> <span class="kn">import</span> <span class="n">fetch</span>
+<span class="kn">from</span> <span class="nn">kadi</span> <span class="kn">import</span> <span class="n">events</span>
+<span class="kn">from</span> <span class="nn">kadi.events</span> <span class="kn">import</span> <span class="n">normal_suns</span><span class="p">,</span> <span class="n">safe_suns</span>
+
+
+<span class="c1"># from Ska.tdb import msids as tdb_msids</span>
+<span class="c1"># PERISCOPE_MSIDS = [x.msid for x in tdb_msids.find(&#39;periscope&#39;)]</span>
+
+<span class="n">PERISCOPE_MSIDS</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s1">&#39;4RT569T&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;OHRTHR27&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;OHRTHR42&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;OHRTHR43&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;OOBAGRD3&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;OOBAGRD6&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;OHRTHR27_WIDE&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;OHRTHR42_WIDE&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;OHRTHR43_WIDE&#39;</span>
+<span class="p">]</span>
+
+
+<div class="viewcode-block" id="binned_median"><a class="viewcode-back" href="../../api.html#astromon.telemetry.binned_median">[docs]</a><span class="k">def</span> <span class="nf">binned_median</span><span class="p">(</span><span class="n">years</span><span class="p">,</span> <span class="n">vals</span><span class="p">,</span> <span class="n">bins_per_year</span><span class="o">=</span><span class="mi">2</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Compute the median value in each bin of the input data.</span>
+
+<span class="sd">    TODO: return bin edges and centers.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">years_bin</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">trunc</span><span class="p">(</span><span class="n">years</span> <span class="o">*</span> <span class="n">bins_per_year</span><span class="p">)</span> <span class="o">/</span> <span class="n">bins_per_year</span>
+    <span class="n">t</span> <span class="o">=</span> <span class="n">Table</span><span class="p">([</span><span class="n">years_bin</span><span class="p">,</span> <span class="n">years</span><span class="p">,</span> <span class="n">vals</span><span class="p">],</span> <span class="n">names</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;years_bin&#39;</span><span class="p">,</span> <span class="s1">&#39;years&#39;</span><span class="p">,</span> <span class="s1">&#39;vals&#39;</span><span class="p">])</span>
+    <span class="n">tg</span> <span class="o">=</span> <span class="n">t</span><span class="o">.</span><span class="n">group_by</span><span class="p">(</span><span class="s1">&#39;years_bin&#39;</span><span class="p">)</span>
+    <span class="n">tga</span> <span class="o">=</span> <span class="n">tg</span><span class="o">.</span><span class="n">groups</span><span class="o">.</span><span class="n">aggregate</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">median</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">tga</span><span class="p">[</span><span class="s1">&#39;years&#39;</span><span class="p">],</span> <span class="n">tga</span><span class="p">[</span><span class="s1">&#39;vals&#39;</span><span class="p">]</span></div>
+
+
+<div class="viewcode-block" id="get"><a class="viewcode-back" href="../../api.html#astromon.telemetry.get">[docs]</a><span class="k">def</span> <span class="nf">get</span><span class="p">(</span><span class="n">obsids</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">stop</span><span class="p">,</span> <span class="n">msids</span><span class="o">=</span><span class="n">PERISCOPE_MSIDS</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Get a collection of MSIDs for each OBSID.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">dat</span> <span class="o">=</span> <span class="n">fetch</span><span class="o">.</span><span class="n">MSIDset</span><span class="p">(</span><span class="n">msids</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">stop</span><span class="p">,</span> <span class="n">stat</span><span class="o">=</span><span class="s1">&#39;5min&#39;</span><span class="p">)</span>
+
+    <span class="n">normal_suns</span><span class="o">.</span><span class="n">interval_pad</span> <span class="o">=</span> <span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="mi">100000</span><span class="p">)</span>
+    <span class="n">safe_suns</span><span class="o">.</span><span class="n">interval_pad</span> <span class="o">=</span> <span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="mi">200000</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">msid</span> <span class="ow">in</span> <span class="n">dat</span><span class="p">:</span>
+        <span class="n">dat</span><span class="p">[</span><span class="n">msid</span><span class="p">]</span><span class="o">.</span><span class="n">remove_intervals</span><span class="p">(</span><span class="n">normal_suns</span> <span class="o">|</span> <span class="n">safe_suns</span><span class="p">)</span>
+        <span class="c1"># what are these???</span>
+        <span class="n">dat</span><span class="p">[</span><span class="n">msid</span><span class="p">]</span><span class="o">.</span><span class="n">remove_intervals</span><span class="p">([(</span><span class="s1">&#39;2016:064:00:35:00&#39;</span><span class="p">,</span> <span class="s1">&#39;2016:064:01:20:00&#39;</span><span class="p">),</span>
+                                    <span class="p">(</span><span class="s1">&#39;2021:059:17:20:00&#39;</span><span class="p">,</span> <span class="s1">&#39;2021:059:17:40:00&#39;</span><span class="p">),</span>
+                                    <span class="p">(</span><span class="s1">&#39;2021:104:11:14:00&#39;</span><span class="p">,</span> <span class="s1">&#39;2021:104:11:25:00&#39;</span><span class="p">)])</span>
+    <span class="k">for</span> <span class="n">msid</span> <span class="ow">in</span> <span class="n">msids</span><span class="p">:</span>
+        <span class="n">years</span> <span class="o">=</span> <span class="n">CxoTime</span><span class="p">(</span><span class="n">dat</span><span class="p">[</span><span class="n">msid</span><span class="p">]</span><span class="o">.</span><span class="n">times</span><span class="p">)</span><span class="o">.</span><span class="n">decimalyear</span>
+        <span class="n">yrs_bin</span><span class="p">,</span> <span class="n">vals_bin</span> <span class="o">=</span> <span class="n">binned_median</span><span class="p">(</span><span class="n">years</span><span class="p">,</span> <span class="n">dat</span><span class="p">[</span><span class="n">msid</span><span class="p">]</span><span class="o">.</span><span class="n">vals</span><span class="p">)</span>
+        <span class="nb">setattr</span><span class="p">(</span><span class="n">dat</span><span class="p">[</span><span class="n">msid</span><span class="p">],</span> <span class="s1">&#39;vals_smooth&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">interp</span><span class="p">(</span><span class="n">x</span><span class="o">=</span><span class="n">years</span><span class="p">,</span> <span class="n">xp</span><span class="o">=</span><span class="n">yrs_bin</span><span class="p">,</span> <span class="n">fp</span><span class="o">=</span><span class="n">vals_bin</span><span class="p">))</span>
+
+    <span class="n">manvrs</span> <span class="o">=</span> <span class="n">events</span><span class="o">.</span><span class="n">manvrs</span><span class="o">.</span><span class="n">table</span>
+    <span class="n">manvrs</span><span class="o">.</span><span class="n">add_index</span><span class="p">(</span><span class="s1">&#39;obsid&#39;</span><span class="p">)</span>
+
+    <span class="n">result</span> <span class="o">=</span> <span class="n">Table</span><span class="p">()</span>
+    <span class="n">result</span><span class="p">[</span><span class="s1">&#39;obsid&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">unique</span><span class="p">(</span><span class="n">obsids</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">msid</span> <span class="ow">in</span> <span class="n">msids</span><span class="p">:</span>
+        <span class="n">result</span><span class="p">[</span><span class="n">msid</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
+        <span class="n">result</span><span class="p">[</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">msid</span><span class="si">}</span><span class="s1">_val&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
+        <span class="n">result</span><span class="p">[</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">msid</span><span class="si">}</span><span class="s1">_smooth&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
+
+    <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">result</span><span class="p">:</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">manvr</span> <span class="o">=</span> <span class="n">manvrs</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">row</span><span class="p">[</span><span class="s2">&quot;obsid&quot;</span><span class="p">]]</span>
+        <span class="k">except</span> <span class="ne">KeyError</span><span class="p">:</span>
+            <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;No manvr for </span><span class="si">{</span><span class="n">row</span><span class="p">[</span><span class="s2">&quot;obsid&quot;</span><span class="p">]</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">)</span>
+            <span class="k">continue</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">manvr</span><span class="p">,</span> <span class="n">Table</span><span class="p">):</span>
+            <span class="n">manvr</span> <span class="o">=</span> <span class="n">manvr</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">tstart</span> <span class="o">=</span> <span class="n">CxoTime</span><span class="p">(</span><span class="n">manvr</span><span class="p">[</span><span class="s1">&#39;manvr_stop&#39;</span><span class="p">])</span><span class="o">.</span><span class="n">secs</span>
+        <span class="n">tstop</span> <span class="o">=</span> <span class="n">CxoTime</span><span class="p">(</span><span class="n">manvr</span><span class="p">[</span><span class="s1">&#39;next_manvr_start&#39;</span><span class="p">])</span><span class="o">.</span><span class="n">secs</span>
+        <span class="k">for</span> <span class="n">msid</span> <span class="ow">in</span> <span class="n">msids</span><span class="p">:</span>
+            <span class="n">i0</span><span class="p">,</span> <span class="n">i1</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">searchsorted</span><span class="p">(</span><span class="n">dat</span><span class="p">[</span><span class="n">msid</span><span class="p">]</span><span class="o">.</span><span class="n">times</span><span class="p">,</span> <span class="p">(</span><span class="n">tstart</span><span class="p">,</span> <span class="n">tstop</span><span class="p">))</span>
+            <span class="c1"># perhaps we should check time earlier</span>
+            <span class="k">if</span> <span class="n">i0</span> <span class="o">==</span> <span class="n">i1</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="n">row</span><span class="p">[</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">msid</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">dat</span><span class="p">[</span><span class="n">msid</span><span class="p">]</span><span class="o">.</span><span class="n">vals</span><span class="p">[</span><span class="n">i0</span><span class="p">:</span><span class="n">i1</span><span class="p">]</span> <span class="o">-</span> <span class="n">dat</span><span class="p">[</span><span class="n">msid</span><span class="p">]</span><span class="o">.</span><span class="n">vals_smooth</span><span class="p">[</span><span class="n">i0</span><span class="p">:</span><span class="n">i1</span><span class="p">])</span>
+            <span class="n">row</span><span class="p">[</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">msid</span><span class="si">}</span><span class="s1">_val&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">dat</span><span class="p">[</span><span class="n">msid</span><span class="p">]</span><span class="o">.</span><span class="n">vals</span><span class="p">[</span><span class="n">i0</span><span class="p">:</span><span class="n">i1</span><span class="p">])</span>
+            <span class="n">row</span><span class="p">[</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">msid</span><span class="si">}</span><span class="s1">_smooth&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">dat</span><span class="p">[</span><span class="n">msid</span><span class="p">]</span><span class="o">.</span><span class="n">vals_smooth</span><span class="p">[</span><span class="n">i0</span><span class="p">:</span><span class="n">i1</span><span class="p">])</span>
+    <span class="n">result</span><span class="o">.</span><span class="n">add_index</span><span class="p">(</span><span class="s1">&#39;obsid&#39;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">result</span></div>
+</pre></div>
+
+            <div class="clearer"></div>
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper"><h3>Page Contents</h3>
+
+
+<form action="../../search.html" method="get">
+  <input type="text" name="q" placeholder="Search" />
+  <input type="hidden" name="check_keywords" value="yes" />
+  <input type="hidden" name="area" value="default" />
+</form>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+<footer class="footer">
+  <p class="pull-right"> &nbsp;
+    <a href="#">Back to Top</a></p>
+  <p>
+    &copy; Copyright 2022, Jean Connelly, Tom Aldcroft, Javier Gonzalez.<br/>
+    Created using <a href="http://www.sphinx-doc.org/en/stable/">Sphinx</a> 4.2.0. &nbsp;
+  </p>
+</footer>
+  </body>
+</html>
