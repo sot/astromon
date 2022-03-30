@@ -1,0 +1,321 @@
+<!doctype html>
+
+<html>
+
+<head>
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta http-equiv="Content-Type" content="text/html; charset=windows-1252">
+	<title>Chandra absolute astrometric accuracy</title>
+
+	<!-- the following line is to support MathJax in older browsers -->
+	<script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script id="MathJax" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js">
+	</script>
+	<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css"
+				rel="stylesheet"
+				integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3"
+				crossorigin="anonymous">
+
+	<style>
+		h1 {
+			color: #990000;
+		}
+
+		h2 {
+			color: #990000;
+		}
+	</style>
+
+</head>
+
+<body>
+	<div class="container-md">
+		<!--#include virtual="/incl/header.html"-->
+	</div>
+
+	<div class="container-md">
+
+		<h2> Chandra absolute astrometric accuracy </h2>
+
+		<h3> Summary </h3>
+		<div class="bg-primary bg-opacity-10">
+			{% include 'summary.j2' %}
+		</div>
+
+		<ul>
+			<li><a href="#offset_distribution"> Distribution of aspect offsets for each detector </a></li>
+			<li><a href="#offset_history"> Time history of aspect offsets </a></li>
+			<li><a href="#explanation"> Detailed description </a>
+				<ul>
+					<li><a href="#offset_definition"> How are offsets defined? </a> </li>
+					<li><a href="#catalogs"> What catalogs are used? </a> </li>
+					<li>
+						<a href="#off_nominal_sources">
+							Off-axis sources or observations with non-zero SIM offset
+						</a>
+					</li>
+				</ul>
+			</li>
+			<li><a href="#archive"> Archival notes and announcements </a> </li>
+		</ul>
+
+
+		<div class="container">
+			<div class="row " align="center">
+				<div class="col" align="center"> <img src="offsets-cdf.png" class="img-thumbnail"> </div>
+			</div>
+			<!--div class="row ">
+				<div class="col" align="center"> <img src="offsets-history.png" class="img-thumbnail"> </div>
+			</div-->
+		</div>
+	
+		<a id="offset_distribution" />
+		<h3> Distribution of aspect offsets for each detector</h3>
+
+		<p>
+			The four plots below show the cumulative distribution of aspect offsets for
+			observations in the last 5 years. The aspect offset
+			is the distance from X-ray source centroid to the accurately
+			known position of the optical or radio counterpart.
+		</p>
+
+		<div class="container">
+			<div class="row ">
+				<div class="col-sm" align="center"> <img src="offsets-ACIS-S-cdf.png" class="img-thumbnail"> </div>
+				<div class="col-sm" align="center"> <img src="offsets-ACIS-I-cdf.png" class="img-thumbnail"> </div>
+			</div>
+			<div class="row">
+				<div class="col-sm" align="center"> <img src="offsets-HRC-S-cdf.png" class="img-thumbnail"> </div>
+				<div class="col-sm" align="center"> <img src="offsets-HRC-I-cdf.png" class="img-thumbnail"> </div>
+			</div>
+		</div>
+
+		<a id='offset_history' />
+		<h3> Time history of aspect offsets</h3>
+		<p> The time-history of
+			offsets for recent Chandra observations is shown below.
+		</p>
+
+		<div class="container">
+			<div class="row">
+				<div class="col-xl-6" align="center"> <img src="offsets-ACIS-S-history.png" class="img-thumbnail"> </div>
+				<div class="col-xl-6" align="center"> <img src="offsets-ACIS-I-history.png" class="img-thumbnail"> </div>
+			</div>
+			<div class="row">
+				<div class="col-xl-6" align="center"> <img src="offsets-HRC-S-history.png" class="img-thumbnail"> </div>
+				<div class="col-xl-6" align="center"> <img src="offsets-HRC-I-history.png" class="img-thumbnail"> </div>
+			</div>
+		</div>
+
+		<br><br>
+
+		<a name="explanation"/>
+		<h3> Detailed description </h3>
+
+		<p>
+			The above plots show the offsets between Chandra X-ray source coordinates and
+			the corresponding optical or radio coordinates. The offsets are derived using a dataset
+			comprised of observations from the last {{ data.cal.n_years }} years, selected for quality
+			according to the criteria described in this section.
+		</p>
+
+		<p>
+			Only observations with the following characteristics are considered:
+			<ul>
+				<li> Single-OBI observation </li>
+				<li> SIM-Z at the nominal detector value. (?) </li>
+				<li> <code>obs_mode==POINTING</code> </li>
+				<li> If it is an ACIS observation: <code> readmode==TIMED</code> and <code> dtycycle==0. </code> </li>
+				<li> Not in any of the following science categories: "SN, SNR, and isolated NS", "Clusters of
+					Galaxies", or "Solar System and Misc". Observations in these categories
+					are likely to confound <tt>celldetect</tt> and produce too many spurious
+					sources. (?)
+				</li>
+				<li> Not an observation of targets known to confound the source detection. </li>
+			</ul>
+		</p>
+	
+		<p>
+			During the source detection process, the detected sources fulfill the following requirements:
+			<ul>
+				<li> <code> SNR > {{ data.cal.snr }} </code> </li>
+				<li> For grating observations, sources must be within 0.4 arcmin from the optical axis. (?) </li>
+				<li> For imaging observations, sources must be within 3 arcmin from the optical axis. </li>
+			</ul>
+		</p>
+
+		<p>
+			An X-ray source matches an optical/radio source if the offset is less than 3
+			arcsec. If a source is matched in more than one catalog, the most accurate
+			catalog is used, in the following order of preference: ICRF2, Tycho2.
+		</p>
+
+		<a id="offset_definition" />
+		<h4> How are offsets defined? </h4>
+		<p>
+			The offsets \((\Delta Y, \Delta Z)\) are specified in the Chandra body coordinate system,
+			since they reflect drifts in hardware alignments. The origin of this coordinate system
+			is chosen to be the nominal pointing of the observatory for the observation
+			\((RA_{nom}, DEC_{nom}, ROLL_{nom})\). At a
+			spacecraft roll angle of 0.0 degrees, \(\Delta Y\) corresponds to an offset along Right Ascension,
+			and \(\Delta Z\) corresponds to an offset along Declination. The exact equation is:
+
+			\[
+			\begin{pmatrix} \Delta Y \\ \Delta Z \end{pmatrix}
+			=
+			\begin{pmatrix} \cos(ROLL_{nom}) & -\sin(ROLL_{nom}) \\ \sin(ROLL_{nom}) &  \cos(ROLL_{nom}) \end{pmatrix}
+			\begin{pmatrix} \cos(\text{DEC}_{nom}) \Delta RA \\ \Delta \text{DEC} \end{pmatrix}
+			\]
+		</p>
+
+		<a id="off_nominal_sources" />
+		<h4> Off-axis sources or observations with non-zero SIM offset</h4>
+		<p>
+			It is important to note that observations on ACIS or HRC-S at large off-nominal
+			SIM-Z can suffer additional residual aspect offsets of up to 0.5
+			arcsec. This is due primarily to distortion of fid light images by
+			the retroreflector collimator in the fiducial transfer system.
+			HRC-I observations at large off-nominal SIM-Z can have residual
+			aspect offsets of up to 3 arcsec due to the fid light distortion
+			as well as a possible rotation of the detector relative to the
+			geometry assumed in processing.
+		</p>
+
+		<p>
+			Sources which are at HRMA off-axis angles greater than 3 arcmin have additional offsets due
+		  to PSF blurring and asymmetry. A quick rule of thumb in this case is that the uncertainty in
+		  absolute astrometry is roughly 1/4 of the 50% encircled energy radius at the corresponding
+		  off-axis angle. This is based on the data tables available in the memo <a
+		  href="https://cxc.cfa.harvard.edu/cal/Hrma/PlateScale.html">Plate Scale and Relative Chip
+		  Postions</a>. A more accurate determination of uncertainties could be made using raytrace
+		  simulations with <a href="http://space.mit.edu/CXC/MARX/">MARX</a> or
+		  	<a href="http://cxc.harvard.edu/chart/">ChaRT</a>
+		</p>
+
+		<a name="catalogs" />
+		<h4> What catalogs are used? </h4>
+
+		<ul>
+			<li>
+				<a href="https://ui.adsabs.harvard.edu/abs/2009ITN....35....1M/abstract"> ICRF2 </a>
+				- Sources from The Second Realization of the International Celestial Reference Frame by Very
+				Long Baseline Interferometry <a
+				href="http://cdsarc.u-strasbg.fr/ftp/cats/I/323/tn35.pdf"> Ma et al. 2009, IERS
+				Technical Note No. 35 (pdf) </a>.
+				<a href="https://vizier.u-strasbg.fr/viz-bin/VizieR?-source=I/323">VizieR</a>.
+			</li>
+			<li>
+				<a href="https://ui.adsabs.harvard.edu/abs/2000A%26A...355L..27H/abstract">Tycho2</a> -
+				Reference catalog of
+				2.5 million stars observed by the Tycho instrument abord the ESA Hipparcos satellite.
+				Astrometric accuracy ~25 mas with stars down to ~11.5 mag. More information available in the
+				<a href="http://www.astro.ku.dk/~cf/CD/docs/guide.pdf">Guide to the Tycho2 catalog
+				(PDF)</a>.
+				<a href="https://vizier.u-strasbg.fr/viz-bin/VizieR-3?-source=I/259/tyc2">VizieR</a>.
+			</li>
+			<li>
+				<a href="https://ui.adsabs.harvard.edu/abs/2003yCat.2246....0C/abstract">2MASS</a> -
+				<font class="text-danger"> Not actually used yet. </font>
+				Two micron all-sky survey: 162,213,354 million point sources from 19,600 square degrees of sky.
+				<a href="http://www.ipac.caltech.edu/2mass/releases/second/doc/sec2_2.html#pscastrprop">
+				Astrometric accuracy</a> is better than 0.2 arcsec.
+				<a href="https://vizier.u-strasbg.fr/viz-bin/VizieR?-source=II/246"> VizieR </a>.
+			</li>
+			<li>
+				<a href="https://ui.adsabs.harvard.edu/abs/2003AJ....125..984M/abstract">USNO-B1.0</a> - 
+				<font class="text-danger">Not actually used yet. </font>
+				Monet, D.G. et al. (2003), "The USNO-B Catalog", The Astronomical Journal, vol. 125, no. 2,
+				pp. 984-993.
+				<a href="https://vizier.u-strasbg.fr/viz-bin/VizieR?-source=I/284"> VizieR </a>
+			</li>
+		</ul>
+
+		<a name="notes" />
+		<h4> Notes </h4>
+
+		<ul>
+			<li>
+				<p>
+					For old archival data it should
+					be noted that ACIS observations taken in 1999, and particularly
+					before ~November 1999 could suffer larger offsets. Shortly after
+					launch the alignment drifted rapidly due to outgassing of the ACIS
+					mount tabs, and the calibration does not account for this effect.
+				</p>
+			</li>
+		</ul>
+
+		<a id="archive" />
+		<h3>Archival notes and announcements</h3>
+
+		<div class="accordion" id="accordionExample">
+			<div class="accordion-item">
+				<h4 class="accordion-header" id="headingTwo">
+					<button class="accordion-button collapsed bg-primary bg-opacity-25" type="button" data-bs-toggle="collapse"
+						data-bs-target="#collapseTwo" aria-expanded="true" aria-controls="collapseTwo">
+						Note about aspect offset in early 2007: (May-2007)
+					</button>
+				</h4>
+				<div id="collapseTwo" class="accordion-collapse collapse" aria-labelledby="headingTwo"
+					data-bs-parent="#accordionExample">
+					<div class="accordion-body bg-primary bg-opacity-10">
+						<b>NOTE (2007-May):</b> Chandra observations taken after 2006-Dec-10 and processed on or
+						before 2007-May-14 are subject to a systematic aspect offset of approximately 0.4
+						arcsec. This is believed to be the result of a changed thermal environment following the
+						procedure to cool the ACA CCD from -15C to -19C that took place between late Nov-2006
+						and early Jan-2007. New calibration files to correct this offset were installed
+						effective 2007-May-14 and affected observations were reprocessed to remove the offset.
+						Observers analyzing these observations should ensure that the processing date is after
+						2007-May-14.
+					</div>
+				</div>
+			</div>
+			<div class="accordion-item">
+				<h4 class="accordion-header" id="headingOne">
+					<button class="accordion-button collapsed bg-primary bg-opacity-25" type="button" data-bs-toggle="collapse"
+						data-bs-target="#collapseOne" aria-controls="collapseOne">
+						Announcement of updated alignments (May-2002)
+					</button>
+				</h4>
+				<div id="collapseOne" class="accordion-collapse collapse" aria-labelledby="headingOne"
+					data-bs-parent="#accordionExample">
+					<div class="accordion-body bg-primary bg-opacity-10">
+						NEW ALIGNMENTS RELEASED: 2002-May-02 <br><br> New alignment files were
+						installed in the CXC processing pipeline on 2002-May-02. These alignments
+						eliminate all currently known systematic aspect offsets. Use the <a
+							href="http://cxc.harvard.edu/cal/ASPECT/fix_offset/fix_offset.cgi"> fix
+							offsets</a> thread to determine if your data are affected.
+
+						<p> The new alignments are based on a major re-analysis of aspect offsets for all
+						detectors since launch. Based on a decaying exponential fit to offsets (common to all
+						four detectors), the alignment shifts have been extrapolated out to 2002-12, which
+						should reduce future offsets. The details can be found in the technical note <a
+						href="http://cxc.harvard.edu/mta/ASPECT/boresight/UPDATE_2002-Apr/"> ECR: Update
+						CALALIGN align matrices</a>. The new alignments also include correction terms which
+						improve absolute aspect for some ACIS-I and HRC-I observations done with an off-nominal
+						SIM-Z position. The details can be found in the technical note <a
+						href="http://cxc.harvard.edu/mta/ASPECT/boresight/UPDATE_2002-Apr/">
+								ECR: Create CALALIGN coefficients to correct fid positions based on SIM-Z
+								offset</a>
+						</p>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<br>
+		<hr>
+		<address><a href="mailto:aspect_help@head.cfa.harvard.edu">Aspect Help</a></address>
+		<br>Last modified:
+		<!--#CONFIG TIMEFMT="%x"-->
+		<!--#flastmod file="$DOCUMENT_NAME"-->
+		<!--#include virtual="/incl/footer.html"-->
+
+	</div>
+
+</body>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js"
+	integrity="sha384-MrcW6ZMFYlzcLA8Nl+NtUVF0sA7MsXsP1UyJoMp4YLEuNSfAP+JcXn/tWtIaxVXM" crossorigin="anonymous"></script>
+
+</html>
