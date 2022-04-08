@@ -148,7 +148,7 @@ class Observation:
     def __del__(self):
         if self._clear:
             logger.info(f'Clearing {self.workdir}')
-            shutil.rmtree(self.workdir)
+            shutil.rmtree(self.workdir, ignore_errors=True)
 
     def __str__(self):
         return f'OBSID={self.obsid}'

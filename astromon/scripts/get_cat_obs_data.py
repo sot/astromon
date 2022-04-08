@@ -275,7 +275,7 @@ def main():
 
     if args.db_file.exists() and not args.no_exception:
         obsids = np.array(obsids, dtype=int)
-        astromon_obs = db.get('astromon_obs', dbfile=args.db_file)
+        astromon_obs = db.get_table('astromon_obs', dbfile=args.db_file)
         exceptions = np.in1d(obsids, astromon_obs['obsid'])
         n_exceptions = np.sum(exceptions)
         if n_exceptions:

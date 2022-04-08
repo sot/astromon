@@ -317,11 +317,11 @@ def cross_match(
     Cross-match x-ray sources with catalog counterparts.
     """
     if astromon_xray_src is None:
-        astromon_xray_src = db.get('astromon_xray_src', dbfile)
+        astromon_xray_src = db.get_table('astromon_xray_src', dbfile)
     if astromon_cat_src is None:
-        astromon_cat_src = db.get('astromon_cat_src', dbfile)
+        astromon_cat_src = db.get_table('astromon_cat_src', dbfile)
     if astromon_obs is None:
-        astromon_obs = db.get('astromon_obs', dbfile)
+        astromon_obs = db.get_table('astromon_obs', dbfile)
 
     if name == 'standard_xcorr':
         return _standard_cross_match(

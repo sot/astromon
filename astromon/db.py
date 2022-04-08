@@ -143,7 +143,7 @@ def get_dtype(table_name, dbfile=None):
             return None
 
 
-def get(table_name, dbfile=None):
+def get_table(table_name, dbfile=None):
     """
     Get an ENTIRE table.
     """
@@ -367,7 +367,7 @@ def _remove_regions_sql(con, regions):
 
 
 def _remove_regions_h5(h5, regions):
-    all_regions = get('astromon_regions', h5)
+    all_regions = get_table('astromon_regions', h5)
     all_regions = all_regions[~np.in1d(all_regions['region_id'], regions)]
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -414,7 +414,7 @@ def _add_regions_h5(h5, regions):
     import logging
     logger = logging.getLogger('astromon')
     logger.info(f'Adding regions: {regions}')
-    all_regions = get('astromon_regions', h5)
+    all_regions = get_table('astromon_regions', h5)
     if 'astromon_meta' in h5.root:
         meta = Table(h5.root.astromon_meta[:], dtype=DTYPES['astromon_meta'])
     else:
@@ -459,10 +459,10 @@ def get_cross_matches(dbfile=None):
     - c_loc
     - x_loc
     """
-    matches = get('astromon_xcorr', dbfile)
-    astromon_cat_src = get('astromon_cat_src', dbfile)
-    astromon_xray_src = get('astromon_xray_src', dbfile)
-    astromon_obs = get('astromon_obs', dbfile)
+    matches = get_table('astromon_xcorr', dbfile)
+    astromon_cat_src = get_table('astromon_cat_src', dbfile)
+    astromon_xray_src = get_table('astromon_xray_src', dbfile)
+    astromon_obs = get_table('astromon_obs', dbfile)
 
     categories = {cat_id: cat_name for cat_name, cat_id in observation.CATEGORY_ID_MAP.items()}
     categories[200] = 'Unknown'
