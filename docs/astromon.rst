@@ -35,10 +35,9 @@ excluding observations of some specific targets::
     os.environ['ASTROMON_FILE'] = '/Users/javierg/SAO/ska/data/astromon/ASTROMON_table.h5'
 
     from astropy.table import join
-    from astromon import db, telemetry
+    from astromon import db
 
     matches = db.get_cross_matches()
-    matches = join(matches, telemetry.get(matches['obsid'], '2013:001', '2022:001'), keys=['obsid'])
     matches.add_index('obsid')
 
     ok = np.ones(len(matches), dtype=bool)
