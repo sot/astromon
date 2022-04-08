@@ -15,7 +15,10 @@ DATA_DIR = Path(__file__).parent / 'data'
 def test_dtypes(dbfile_ext):
     # this checks that the dtypes in db.DTYPES, the ones from astromon/sql/tables/*sql,
     # and those of the returned tables match
-    names = ['astromon_xcorr', 'astromon_cat_src', 'astromon_xray_src', 'astromon_obs']
+    names = [
+        'astromon_xcorr', 'astromon_cat_src', 'astromon_xray_src', 'astromon_obs',
+        'astromon_regions'
+    ]
     with tempfile.TemporaryDirectory() as tmpdir:
         dbfile = Path(tmpdir) / f'test_dtypes.{dbfile_ext}'
         for name in names:
@@ -30,9 +33,6 @@ def test_dtypes(dbfile_ext):
                 and (dbfile_ext != 'h5' or db.DTYPES[name][n].char != 'S')
             ]
             assert not dtypes_differ, f'{name} dtypes differ: {dtypes_differ}'
-        name = 'astromon_regions'
-        t = db.get_table(name, dbfile)
-        assert t.dtype.names == db.DTYPES[name].names
 
 
 @pytest.mark.filterwarnings("error")
@@ -81,6 +81,15 @@ def test_regions(dbfile_ext):
         for name in names:
             tables[name] = Table.read(DATA_DIR / f'{name}.ecsv')
             db.save(dbfile, name, tables[name])
+
+        # warnings are filtered as errors here
+        with pytest.raises(UserWarning):
+            db.get_table('astromon_regions', dbfile)
+        # adding an empty table to prevent warning
+        db.save(
+            dbfile, 'astromon_regions',
+            Table(names=db.DTYPES['astromon_regions'].names, dtype=db.DTYPES['astromon_regions'])
+        )
 
         # adding one at a time
         db.get_table('astromon_regions', dbfile)

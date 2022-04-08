@@ -218,6 +218,8 @@ def _save_sql(con, table_name, data):
             raise Exception('Input data has no columns in common with table in DB')
 
         values = [str(tuple(row)) for row in data[data_column_names]]
+        if len(values) == 0:
+            return
         insert_query = f"insert into {table_name} ({', '.join(data_column_names)}) values"
         insert_query += ", ".join(values)
         insert_query += ";"
