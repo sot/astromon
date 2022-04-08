@@ -20,7 +20,7 @@ from Ska.Matplotlib import plot_cxctime, cxctime2plotdate
 from cxotime import CxoTime, units as u
 
 plt.rcParams['font.size'] = '16'
-
+plt.rcParams['figure.max_open_warning'] = 100
 
 JINJA2 = jinja2.Environment(
     loader=jinja2.PackageLoader('astromon.web', 'templates'),
@@ -225,7 +225,7 @@ def plot_cdf_3(
         alpha=0.5,
         linewidth=2,
     )
-    print(quantiles)
+    # print(quantiles)
     for q in quantiles:
         r = q['offset']
         q = q['q']
@@ -585,12 +585,16 @@ def main():
     )
 
     tpl = JINJA2.get_template('celmon_cal.html')
-    with open(args.out / 'cal' / 'index.html', 'w') as out:
+    file_path = args.out / 'cal' / 'index.html'
+    with open(file_path, 'w') as out:
         out.write(tpl.render(data={'cal': data_cal}))
+        print(f'report created at {file_path}')
 
     tpl = JINJA2.get_template('celmon_mta.html')
-    with open(args.out / 'mta' / 'index.html', 'w') as out:
+    file_path = args.out / 'mta' / 'index.html'
+    with open(file_path, 'w') as out:
         out.write(tpl.render(data={'cal': data_cal, 'mta': data_mta}))
+        print(f'report created at {file_path}')
 
 
 if __name__ == "__main__":
