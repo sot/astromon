@@ -493,7 +493,8 @@ def create_figures_mta(outdir):
 def create_figures_cal(outdir, snr=5, n_years=5, draw_median=True):
     outdir = Path(outdir)
 
-    start = CxoTime() - n_years * u.year
+    end = CxoTime()
+    start = end - n_years * u.year
     matches = db.get_cross_matches()
     ok = good_obs(matches)
     ok = filter_xcorr(matches, snr=snr)
@@ -507,7 +508,12 @@ def create_figures_cal(outdir, snr=5, n_years=5, draw_median=True):
         matches['time'], matches['dz'], bins_per_year=2
     )
 
-    result = {'snr': snr, 'n_years': n_years}
+    result = {
+        'snr': snr,
+        'n_years': n_years,
+        'start_date': start.iso.split()[0],
+        'end_date': end.iso.split()[0],
+    }
 
     bins, cdf, quantiles = cdf_(matches)
     result.update({
