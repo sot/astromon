@@ -233,7 +233,10 @@ def _get(
     )
 
 
-def rough_match(sources, time, radius=3 * u.arcsec):
+def rough_match(
+    sources, time, radius=3 * u.arcsec,
+    catalogs=('Tycho2', 'ICRS', 'USNO-B1.0', '2MASS', 'SDSS')
+):
     """
     Find sources in a set of standard catalogs around the x-ray sources given in `sources`,
     within an angular separation of at most `radius` (an astropy quantity).
@@ -272,7 +275,7 @@ def rough_match(sources, time, radius=3 * u.arcsec):
             radius=radius,
             catalog=name,
             logging_tag=logging_tag
-        ) for name in ['Tycho2', 'ICRS', 'USNO-B1.0', '2MASS', 'SDSS']]
+        ) for name in catalogs]
     res = table.vstack([r for r in res], metadata_conflicts='silent')
 
     if len(sources) and len(res):
