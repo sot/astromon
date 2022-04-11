@@ -15,8 +15,8 @@ The main data product of Astromon is a database that contains the following tabl
 * Cross-matches (astromon_xcorr). Pairs of X-ray and catalog sources, where there is at most one
   catalog source associated with a given detected X-ray source. 
 
-Astromon data can be accessed through the astromon.db module using convenience functions that
-return the tables as an astropy.table.Table::
+Astromon data can be accessed through the :any:`astromon.db` module using convenience functions that
+return the tables as an :ref:`Astropy Table <astropy:astropy-table>` ::
 
     from astromon import db
     matches = db.get_cross_matches()
@@ -25,14 +25,13 @@ return the tables as an astropy.table.Table::
     cat_src = db.get('astromon_cat_src')
     xcorr = db.get('astromon_xcorr')
 
-NOTE: One can modify the behavior of astromon.db and specify a different database file by defining
-the ASTROMON_FILE environmental variable.
+.. Note::
+
+    One can modify the behavior of :any:`astromon.db` and specify a different database file by
+    defining the ASTROMON_FILE environmental variable.
 
 A more elaborate example to do some analysis, correlating several MSIDs with astromon data, and
 excluding observations of some specific targets::
-
-    import os
-    os.environ['ASTROMON_FILE'] = '/Users/javierg/SAO/ska/data/astromon/ASTROMON_table.h5'
 
     from astropy.table import join
     from astromon import db
@@ -55,8 +54,8 @@ Observations
 ------------
 
 The access to proprietary information related to observations is encapsulated in the
-astromon.observation module. The main component is the Observation class, which encapsulates all
-calls to arc5gl, CIAO scripts, etc
+:any:`astromon.observation` module. The main component is the Observation class, which encapsulates
+all calls to arc5gl, CIAO scripts, etc
 
 The following statement instanciates an observation::
 
@@ -68,7 +67,7 @@ arc5gl to download them. The files are stored locally in a temporary directory u
 directory is given to the constructor::
 
     from astromon.observation import Observation
-    obs = Observation(8008, workdir='/Users/javierg/SAO/ska/data/astromon')
+    obs = Observation(8008, workdir='./astromon/work')
 
 in which case the files will persist after the observation instance is deleted.
 
@@ -77,26 +76,49 @@ prescribed sequence of commands that should result in the creation of files with
 
     obs.process()
 
+
 Cross-Matching Algorithms
 -------------------------
 
-The very first step in the matching process is to find all counterparts within a radius around the
-x-ray source. This is what we call a "rough match" and is done by astromon.cross_match.rough_match,
-which encapsulates all queries to various standard catalogs.
+The first step in the matching process is to find all counterparts within a radius around the
+x-ray sources. These *rough* matches constitute a superset of all *reasonable* cross-matches.
+This is done by :any:`astromon.cross_match.rough_match`, which encapsulates all queries to various
+catalogs:
+
+.. _catalog-list:
+
+- `Tycho2 <https://vizier.u-strasbg.fr/viz-bin/VizieR-3?-source=I/259/tyc2>`_. Reference catalog of
+  2.5 million stars observed by the Tycho instrument abord the ESA Hipparcos satellite.
+  Astrometric accuracy ~25 mas with stars down to ~11.5 mag. More information available in the
+  `Guide to the Tycho2 catalog (PDF) <http://www.astro.ku.dk/~cf/CD/docs/guide.pdf>`_.
+- `ICRF2 <https://vizier.u-strasbg.fr/viz-bin/VizieR?-source=I/323>`_.
+  Sources from The Second Realization of the International Celestial Reference Frame by Very
+  Long Baseline Interferometry `Ma et al. 2009, IERS Technical Note No. 35 (pdf)
+  <http://cdsarc.u-strasbg.fr/ftp/cats/I/323/tn35.pdf>`_
+- `USNO-B1.0 <https://vizier.u-strasbg.fr/viz-bin/VizieR?-source=I/284>`_.
+  Monet, D.G. et al. (2003), "The USNO-B Catalog", The Astronomical Journal, vol. 125, no. 2,
+  pp. 984-993.
+- `2MASS <https://vizier.u-strasbg.fr/viz-bin/VizieR?-source=II/246>`_.
+  Two micron all-sky survey: 162,213,354 million point sources from 19,600 square degrees of sky.
+- `SDSS <https://vizier.u-strasbg.fr/viz-bin/VizieR?-source=II/294>`_. The SDSS Photometric Catalog,
+  Release 7
 
 The actual cross-match, which yields at most one catalog source per x-ray source is performed by
-astromon.cross_match.rough_match.cross_match. This in turn delegates to specific implementation
-functions.
+:any:`astromon.cross_match.cross_match`. This in turn delegates to specific
+implementation functions that implement algorithms described below.
 
-Simple
-^^^^^^
+Simple Matching
+^^^^^^^^^^^^^^^
 
-The algorithm currently used is a simple algorithm where:
+The algorithm currently used is the ``"astromon_21"`` algorithm, which does the following:
 
-    - x-ray sources with SNR below a given value are discarded
+    - x-ray sources with ``SNR < 3`` are discarded
     - observations are filtered based on date
-    - x-ray sources with other x-ray sources within a given radius are discarded
+    - **x-ray sources with other x-ray sources within a given radius are discarded**
     - observations, x-ray sources and catalog sources are joined on OBSID and x-ray source ID.
-    - matches with source-counterpart separation larger than a given value are discarded
-    - catalog sources are selected from specific catalogs in a prescribed precedence. The first
-      counterpart found is taken to be the match.
+    - **matches with source-counterpart separation larger than a given value are discarded**
+    - for each x-ray source, the candidate matches are sorted according to catalog precedence and
+      angular separation, and the first match is selected. The catalogs considered are: (ICRF2,
+      Tycho2).
+
+**Bold statements are the ones I do not see in the source.**
