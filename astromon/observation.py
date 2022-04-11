@@ -27,6 +27,9 @@ from astropy.coordinates import SkyCoord
 import regions
 
 
+__all__ = ['Observation']
+
+
 logger = logging.getLogger('astromon')
 
 
@@ -64,10 +67,16 @@ Inverse mapping between observation category names and numerical values.
 
 
 class Skipped(FlowException):
+    """
+    Exception class used to abort and silently skip processing an observation.
+    """
     pass
 
 
 class SkippedWithWarning(FlowException):
+    """
+    Exception class used to abort, issue a warning, and skip processing an observation.
+    """
     pass
 
 

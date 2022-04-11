@@ -9,10 +9,21 @@ import subprocess
 import tempfile
 
 
+__all__ = [
+    'communicate', 'Ciao', 'chdir', 'ciao_context', 'logging_call_decorator', 'FlowException'
+]
+
+
 CIAO_ENV = {}
 
 
 class FlowException(Exception):
+    """
+    Exception class to interrupt the execution flow.
+
+    This exception class is used by :any:`logging_call_decorator` and is silently ignored unless
+    instructed otherwise.
+    """
     pass
 
 
@@ -23,9 +34,8 @@ def communicate(process, logger=None, level='WARNING', text=False, logging_tag='
     Parameters
     ----------
     process:
-        process returned by subprocess.Popen
-    logger: logging.Logger
-        a logging.Logger instance
+        process returned by :any:`python:subprocess.Popen`
+    logger: :any:`python:logging.Logger`
     level: str or int
         the logging level
     text: bool
@@ -64,9 +74,9 @@ class Ciao:
     ----------
     prefix : str
         The location of CIAO.
-    workdir : pathlib.Path or str.
+    workdir : :any:`python:pathlib.Path` or str
         Working directory. Used to set PFILES and ASCDS_WORK_PATH.
-    logger: logging.Logger.
+    logger: :any:`python:logging.Logger`
         If not provided, the root logger is used.
     """
     def __init__(self, prefix=None,
@@ -172,12 +182,11 @@ class CIAOContext(AbstractContextManager):
     """
     Context manager to set CIAO context (PFILES and ASCDS_WORK_PATH)
 
-
     Parameters
     ----------
-    directory : pathlib.Path or str.
+    directory : :any:`python:pathlib.Path` or str
         Working directory. Used to set PFILES and ASCDS_WORK_PATH.
-    logger: logging.Logger.
+    logger: :any:`python:logging.Logger`
         If not provided, the root logger is used.
     """
     def __init__(self, directory, logger=None):
@@ -215,6 +224,17 @@ def ciao_context_function(func):
 
 
 ciao_context = CIAOContext
+"""
+Context manager to set CIAO context (PFILES and ASCDS_WORK_PATH)
+
+
+Parameters
+----------
+directory : pathlib.Path or str
+    Working directory. Used to set PFILES and ASCDS_WORK_PATH.
+logger: :any:`python:logging.Logger`
+    If not provided, the root logger is used.
+"""
 
 
 class LoggingCallDecorator:
@@ -270,3 +290,6 @@ logging_call_decorator = LoggingCallDecorator(
     log_level=logging.INFO,
     logger=logging.getLogger('astromon')
 )
+"""
+Decorator to add logging messages at the start/end of the decorated function.
+"""

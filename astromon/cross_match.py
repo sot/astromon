@@ -238,18 +238,21 @@ def rough_match(
     catalogs=('Tycho2', 'ICRS', 'USNO-B1.0', '2MASS', 'SDSS')
 ):
     """
-    Find sources in a set of standard catalogs around the x-ray sources given in `sources`,
-    within an angular separation of at most `radius` (an astropy quantity).
+    Find sources in a set of :ref:`catalogs <catalog-list>` around the x-ray sources given
+    in `sources`,  within an angular separation of at most `radius`
+    (in :any:`astropy units <astropy:astropy-units>`).
 
     This function uses the 'ra', 'dec', 'id' and 'obsid' columns of the `sources` table.
     The obsid column is optional and is used only to check that the query corresponds to a single
     OBSID. Trying to query more than one OBSID at a time causes unexpected results after the
-    astropy table join
-    (see warning on Custom Join Functions: https://docs.astropy.org/en/stable/table/operations.html)
+    :ref:`astropy table join <astropy:table-join>`
+    (see warning on :ref:`Custom Join functions <astropy:astropy-table-join-functions>`)
 
-    WARNING: the current implementation of this function does create a temporary table with the
-    cartesian product of the x-ray sources and the catalog sources tables
-    (length ~ n_x_ray_sources^2). This is intended to be used with few x-ray sources at a time.
+    .. Warning::
+
+        The current implementation of this function does create a temporary table with the
+        cartesian product of the x-ray sources and the catalog sources tables
+        (length ~ n_x_ray_sources^2). This is intended to be used with few x-ray sources at a time.
     """
     if len(sources) == 0:
         return []

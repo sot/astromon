@@ -20,6 +20,8 @@ from ska_helpers.retry import tables_open_file
 
 from astromon import observation
 
+__all__ = ['get_table', 'get_cross_matches', 'save', 'add_regions', 'remove_regions']
+
 if 'ASTROMON_FILE' in os.environ:
     FILE = Path(os.environ['ASTROMON_FILE'])
 elif 'NO_DEFAULT_ASTROMON' in os.environ:
@@ -145,7 +147,29 @@ def get_dtype(table_name, dbfile=None):
 
 def get_table(table_name, dbfile=None):
     """
-    Get an ENTIRE table.
+    Get an entire table from the DB file.
+
+    Known table names:
+
+    - astromon_xcorr
+    - astromon_xray_src
+    - astromon_cat_src
+    - astromon_obs
+    - astromon_regions
+    - astromon_meta
+
+    Parameters
+    ----------
+    table_name: str
+        Name of the table to retrieve. If the requested table is in the file,
+        it will be returned even if it is not in the list of known tables.
+    dbfile: :any:`pathlib.Path`
+        File where tables are stored.
+        The default is `$ASTROMON_FILE` or `$SKA/data/astromon/astromon.h5`
+
+    Returns
+    -------
+    :any:`astropy.table.Table`
     """
     # logger = logging.getLogger('astromon')
     # if not Path(dbfile).exists():
@@ -272,6 +296,16 @@ def _save_hdf5(h5, table_name, data):
 def connect(dbfile=None):
     """
     Context manager that returns a DB connection (or an HDF5 file).
+
+    Parameters
+    ----------
+    dbfile: :any:`pathlib.Path`
+        File where tables are stored.
+        The default is `$ASTROMON_FILE` or `$SKA/data/astromon/astromon.h5`
+
+    Returns
+    -------
+    :any:`tables.File <tables.file.File>` or :any:`sqlite3.Connection`
     """
     if dbfile is None:
         dbfile = FILE
@@ -338,6 +372,15 @@ def save(db, table_name, data):
     Insert data into a table, deleting previous entries for the same OBSID.
 
     If the table does not exist, it is created using pre-existing table definitions.
+
+    Parameters
+    ----------
+    dbfile: :any:`pathlib.Path`
+        File where tables are stored.
+        The default is `$ASTROMON_FILE` or `$SKA/data/astromon/astromon.h5`
+    table_name: str
+        The name of the table.
+    data: :any:`astropy.table.Table`
     """
     with connect(db) as con:
         if type(con) is tables.file.File:
@@ -351,6 +394,14 @@ def save(db, table_name, data):
 def remove_regions(regions, db_file=None):
     """
     Remove exclusion regions (by ID) from the astromon_regions table.
+
+    Parameters
+    ----------
+    regions: list
+        list of integer region ID.
+    dbfile: :any:`pathlib.Path`
+        File where tables are stored.
+        The default is `$ASTROMON_FILE` or `$SKA/data/astromon/astromon.h5`
     """
     with connect(db_file) as con:
         if type(con) is tables.file.File:
@@ -383,6 +434,14 @@ def add_regions(regions, db_file=None):
     Add exclusion regions to the astromon_regions table.
 
     A unique region ID is automatically generated.
+
+    Parameters
+    ----------
+    regions: `astropy.table.Table`-compatible
+        This parameter gets converted to an `astropy.table.Table`.
+    dbfile: :any:`pathlib.Path`
+        File where tables are stored.
+        The default is `$ASTROMON_FILE` or `$SKA/data/astromon/astromon.h5`
     """
     with connect(db_file) as con:
         if type(con) is tables.file.File:
@@ -438,6 +497,10 @@ def _add_regions_h5(h5, regions):
 def set_formats(dat):
     """
     Sets format of columns with float dtype to show 2 decimals, except ra/dec/pileup (4 decimals).
+
+    Parameters
+    ----------
+    dat: `astropy.table.Table`
     """
     fmts = {'ra': '.4f',
             'x_ra': '.4f',
@@ -454,12 +517,33 @@ def set_formats(dat):
 
 def get_cross_matches(dbfile=None):
     """
-    Make a standard join of observations, x-ray sources and catalog counterparts.
+    Get a standard cross-match of observations, x-ray sources and catalog counterparts in `dbfile`.
 
-    This function returns an astropy.table.Table indexed by OBSID and adds a few columns on the fly:
+    A *standard* cross-match is a pre-computed cross-match between x-ray sources and catalog
+    counterparts. The name of the standard cross-match specifies the algorithm and the set of
+    parameters that have been used to cross-match.
+
+    If you want *non-standard* cross-match, with your own set of parameters, refer to the
+    :any:`cross_match <cross_match.cross_match>` function.
+
+    This function returns a :any:`Table <astropy:astropy.table.Table>` indexed by OBSID and adds a
+    few columns on the fly:
+
     - time
     - c_loc
     - x_loc
+
+    Parameters
+    ----------
+    name: str
+        name of the standard cross-match.
+    dbfile: :any:`pathlib.Path`
+        File where tables are stored.
+        The default is `$ASTROMON_FILE` or `$SKA/data/astromon/astromon.h5`
+
+    Returns
+    -------
+    :any:`tables.File <tables.file.File>`
     """
     matches = get_table('astromon_xcorr', dbfile)
     astromon_cat_src = get_table('astromon_cat_src', dbfile)
