@@ -17,6 +17,13 @@ __all__ = [
 CIAO_ENV = {}
 
 
+class MissingTableException(Exception):
+    """
+    Exception class in case a table is missing in the DB file.
+    """
+    pass
+
+
 class FlowException(Exception):
     """
     Exception class to interrupt the execution flow.

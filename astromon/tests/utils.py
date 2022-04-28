@@ -15,7 +15,7 @@ def create_h5(dbfile='test_data.h5'):
     ]
     for name in names:
         # t = db.get_table(name, dbfile)  # fails, file does not exist
-        db.save(dbfile, name, Table.read(DATA_DIR / f'{name}.ecsv'))  # populate the table
+        db.save(name, Table.read(DATA_DIR / f'{name}.ecsv'), dbfile)  # populate the table
 
 
 def save_test_data(dbfile, datadir=None):

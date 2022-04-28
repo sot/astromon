@@ -19,6 +19,8 @@ import tables
 from ska_helpers.retry import tables_open_file
 
 from astromon import observation
+from astromon.utils import MissingTableException
+
 
 __all__ = ['get_table', 'get_cross_matches', 'save', 'add_regions', 'remove_regions']
 
@@ -145,6 +147,31 @@ def get_dtype(table_name, dbfile=None):
             return None
 
 
+def create_table(table_name):
+    """
+    Create an empty table using standard dtypes.
+
+    Known table names:
+
+    - astromon_xcorr
+    - astromon_xray_src
+    - astromon_cat_src
+    - astromon_obs
+    - astromon_regions
+    - astromon_meta
+
+    Parameters
+    ----------
+    table_name: str
+        Name of the table to retrieve, which specifies the dtype.
+
+    Returns
+    -------
+    :any:`astropy.table.Table`
+    """
+    return table.Table(names=DTYPES[table_name].names, dtype=DTYPES[table_name])
+
+
 def get_table(table_name, dbfile=None):
     """
     Get an entire table from the DB file.
@@ -161,8 +188,8 @@ def get_table(table_name, dbfile=None):
     Parameters
     ----------
     table_name: str
-        Name of the table to retrieve. If the requested table is in the file,
-        it will be returned even if it is not in the list of known tables.
+        Name of the table to retrieve. If the requested table is not in the file,
+        an exception will be raised.
     dbfile: :any:`pathlib.Path`
         File where tables are stored.
         The default is `$ASTROMON_FILE` or `$SKA/data/astromon/astromon.h5`
@@ -185,36 +212,35 @@ def get_table(table_name, dbfile=None):
                 cur.execute(f'select * from {table_name}')
                 data = cur.fetchall()
                 data = [[d[i] for d in data] for i in range(len(table_column_names))]
-                return table.Table(
+                result = table.Table(
                     data if data else None,
                     names=table_column_names,
                     dtype=table_dtype
                 )
             except sqlite3.OperationalError as e:
-                if not re.match('no such table', str(e)) or table_name not in DTYPES:
+                # this converts the sqlite3.OperationalError into a more readable one for us.
+                if re.match('no such table', str(e)):
+                    raise MissingTableException(f'{table_name} is not in file.') from None
+                else:
                     raise
-                # logger.warning(f'{table_name} is not in file. Returning empty table.')
-                warnings.warn(f'{table_name} is not in file. Returning empty table.')
-                return table.Table(names=DTYPES[table_name].names, dtype=DTYPES[table_name])
 
         elif type(con) is tables.file.File:
             try:
                 res = con.get_node(f'/{table_name}')[:]
                 if table_name in DTYPES:
                     res = res.astype(DTYPES[table_name])
-                res = table.Table((res))
-                res.convert_bytestring_to_unicode()
-                return res
+                result = table.Table(res)
+                result.convert_bytestring_to_unicode()
             except tables.NoSuchNodeError:
-                if table_name in DTYPES:
-                    # logger.warning(f'{table_name} is not in file. Returning empty table.')
-                    warnings.warn(f'{table_name} is not in file. Returning empty table.')
-                    return table.Table(names=DTYPES[table_name].names, dtype=DTYPES[table_name])
                 names = sorted(set([n.name for n in con.root] + list(DTYPES.keys())))
-                raise Exception(
-                    f'Unknown table "{table_name}". Available tables: {names}') from None
+                raise MissingTableException(
+                    f'{table_name} not in file. Available tables: {names}') from None
         else:
             raise Exception(f'Unknown DB type: {dbfile}')
+
+    set_formats(result)
+    result.add_index('obsid')
+    return result
 
 
 def _save_sql(con, table_name, data):
@@ -367,7 +393,7 @@ def retry_operational_error(retries=3):
 
 
 @retry_operational_error()
-def save(dbfile, table_name, data):
+def save(table_name, data, dbfile):
     """
     Insert data into a table, deleting previous entries for the same OBSID.
 
@@ -375,12 +401,12 @@ def save(dbfile, table_name, data):
 
     Parameters
     ----------
-    dbfile: :any:`pathlib.Path`
-        File where tables are stored.
-        The default is `$ASTROMON_FILE` or `$SKA/data/astromon/astromon.h5`
     table_name: str
         The name of the table.
     data: :any:`astropy.table.Table`
+    dbfile: :any:`pathlib.Path`
+        File where tables are stored.
+        The default is `$ASTROMON_FILE` or `$SKA/data/astromon/astromon.h5`
     """
     with connect(dbfile) as con:
         if type(con) is tables.file.File:
@@ -394,6 +420,8 @@ def save(dbfile, table_name, data):
 def remove_regions(regions, dbfile=None):
     """
     Remove exclusion regions (by ID) from the astromon_regions table.
+
+    Raises an exception if the astromon_regions table is not in the dbfile.
 
     Parameters
     ----------
@@ -434,6 +462,7 @@ def add_regions(regions, dbfile=None):
     Add exclusion regions to the astromon_regions table.
 
     A unique region ID is automatically generated.
+    Raises an exception if the astromon_regions table is not in the dbfile.
 
     Parameters
     ----------
@@ -489,8 +518,8 @@ def _add_regions_h5(h5, regions):
     b = Table(b)
     all_regions = table.vstack([all_regions, b])
     meta['last_region_id'][0] = b['region_id'][-1]
-    save(h5, 'astromon_regions', all_regions)
-    save(h5, 'astromon_meta', meta)
+    save('astromon_regions', all_regions, h5)
+    save('astromon_meta', meta, h5)
     return b
 
 
@@ -515,7 +544,7 @@ def set_formats(dat):
             dat[col.name].info.format = fmts.get(col.name, '.2f')
 
 
-def get_cross_matches(name='astromon_21', dbfile=None):
+def get_cross_matches(name='astromon_21', dbfile=None, **kwargs):
     """
     Get a standard cross-match of observations, x-ray sources and catalog counterparts in `dbfile`.
 
@@ -523,8 +552,8 @@ def get_cross_matches(name='astromon_21', dbfile=None):
     counterparts. The name of the standard cross-match specifies the algorithm and the set of
     parameters that have been used to cross-match.
 
-    If you want *non-standard* cross-match, with your own set of parameters, refer to the
-    :any:`cross_match <cross_match.cross_match>` function.
+    If you want a *non-standard* cross-match, with your own set of parameters, refer to the
+    :any:`compute_cross_matches <cross_match.compute_cross_matches>` function.
 
     This function returns a :any:`Table <astropy:astropy.table.Table>` indexed by OBSID and adds a
     few columns on the fly:
@@ -540,11 +569,33 @@ def get_cross_matches(name='astromon_21', dbfile=None):
     dbfile: :any:`pathlib.Path`
         File where tables are stored.
         The default is `$ASTROMON_FILE` or `$SKA/data/astromon/astromon.h5`
+    kwargs: dict
+        All extra arguments are passed directly to :any:`cross_match.filter_matches`. These are
+        some of the allowed arguments:
+
+        - snr
+        - dr
+        - r_angle
+        - start
+        - stop
+        - r_angle_grating
+        - near_neighbor_dist
+        - exclude_regions
+        - exclude_bad_targets
+
+        Other extra arguments can be passed. In these cases, the argument name determines on which
+        column to filter. Each argument is interpreted according to the type of value passed:
+
+        - list values cause a row to be selected if the value at that row and column is in the list.
+        - other values cause a row to be selected if the value at that row and column is equal to
+          the argument value
 
     Returns
     -------
-    :any:`tables.File <tables.file.File>`
+    :any:`astropy.table.Table`
     """
+    from astromon.cross_match import filter_matches
+
     matches = get_table('astromon_xcorr', dbfile)
     matches = matches[matches['select_name'] == name]
     astromon_cat_src = get_table('astromon_cat_src', dbfile)
@@ -574,5 +625,8 @@ def get_cross_matches(name='astromon_21', dbfile=None):
     matches['x_loc'] = SkyCoord(matches['x_ra'] * u.deg, matches['x_dec'] * u.deg)
 
     set_formats(matches)
+    if kwargs:
+        ok = filter_matches(matches, **kwargs)
+        matches = matches[ok]
     matches.add_index('obsid')
     return matches

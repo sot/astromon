@@ -17,7 +17,7 @@ from astroquery.vizier import Vizier
 from Ska.DBI import DBI
 from cxotime import CxoTime
 import astromon
-from astromon import db, utils
+from astromon import db, utils, observation
 
 logger = logging.getLogger('astromon')
 
@@ -244,15 +244,32 @@ def rough_match(
 
     This function uses the 'ra', 'dec', 'id' and 'obsid' columns of the `sources` table.
     The obsid column is optional and is used only to check that the query corresponds to a single
-    OBSID. Trying to query more than one OBSID at a time causes unexpected results after the
-    :ref:`astropy table join <astropy:table-join>`
-    (see warning on :ref:`Custom Join functions <astropy:astropy-table-join-functions>`)
+    OBSID.
 
-    .. Warning::
+    .. Note::
 
-        The current implementation of this function does create a temporary table with the
+        The current implementation of this function creates a temporary table with the
         cartesian product of the x-ray sources and the catalog sources tables
         (length ~ n_x_ray_sources^2). This is intended to be used with few x-ray sources at a time.
+
+        The alternative to this decision would have been to use a custom join function, which can
+        lead to wrong results if the sources happen to be closer than `2*radius`. See warning on
+        :ref:`Custom Join functions <astropy:astropy-table-join-functions>`. Using a cartesian
+        join allows one to get rough matches without a requirement in `near_neighbor_dist`.
+
+    Parameters
+    ----------
+    sources: :any:`astropy.table.Table`
+        Table of x-ray sources as returned by
+        :any:`db.get_table("astromon_xray_src") <db.get_table>` or
+        :any:`observation.Observation.get_sources`. Required.
+    time: :any:`CxoTime <cxotime:index>`-compatible
+        Time of the observation. Required to account for proper motion.
+    radius: :any:`astropy.units.Quantity`
+        Radius around the x-ray sources to look for counterparts.
+    catalogs: list
+        A list of catalog names.
+        Default is ('Tycho2', 'ICRS', 'USNO-B1.0', '2MASS', 'SDSS')
     """
     if len(sources) == 0:
         return []
@@ -284,12 +301,18 @@ def rough_match(
     if len(sources) and len(res):
         sources['coord_xray'] = coords.SkyCoord(sources['ra'], sources['dec'], unit='deg')
         res['coord_cat'] = coords.SkyCoord(res['ra'], res['dec'], unit='deg')
-        sources['x_id'] = sources['id']
-        res = table.join(res, sources[['coord_xray', 'x_id']], join_type='cartesian')
+        res = table.join(res, sources[['coord_xray', 'id']], join_type='cartesian')
         sep = res['coord_xray'].separation(res['coord_cat'])
         res['separation'] = sep.to_value(unit='arcsec')
         res.remove_columns(['coord_xray', 'coord_cat'])
         res = res[sep < radius]
+        res.rename_column('id', 'x_id')
+    else:
+        dtype = _join_dtype(res.dtype, sources[['id']].dtype, [])
+        res = table.Table(dtype=dtype)
+        res.rename_column('id', 'x_id')
+        res['separation'] = table.Column(dtype=np.float32)
+
     return res
 
 
@@ -311,16 +334,195 @@ def do_sql_cross_match(selection_name):
         return table.Table(dbi.fetchall(sql_query))
 
 
-def cross_match(
-    name,
+def get_bad_target_mask(matches):
+    """
+    Returns a mask to remove targets that are known to give cross-matches with large residuals.
+
+    This is not used in standard processing and is here for convenience.
+
+    Parameters
+    ----------
+    matches: :any:`astropy.table.Table`
+        Table of astromon cros-matches as returned by :any:`cross_match` and
+        :any:`db.get_cross_matches`. Required.
+    """
+    ok = np.ones(len(matches), dtype=bool)
+    bad_targets = ['RW Aur', 'Tau Boo', '70 OPH', '16 Cyg', 'M87', 'Orion', 'HD 97950', 'HD4915']
+    bad_targets = [x.replace(' ', '').lower() for x in bad_targets]
+    for ii, target in enumerate(matches['target']):
+        target = target.replace(' ', '').lower()
+        for bad_target in bad_targets:
+            if target.startswith(bad_target):
+                ok[ii] = False
+    return ~ok
+
+
+def get_excluded_regions_mask(matches, regions=None):
+    """
+    Returns a mask to remove x-ray sources that are close to excluded regions.
+
+    Parameters
+    ----------
+    matches: :any:`astropy.table.Table`
+        Table of astromon cros-matches as returned by :any:`cross_match` and
+        :any:`db.get_cross_matches`. Required.
+    """
+    if regions is None:
+        regions = db.get_table('astromon_regions')
+    ii, jj = np.broadcast_arrays(np.arange(len(matches))[None, :], np.arange(len(regions))[:, None])
+    i, j = ii.flatten(), jj.flatten()
+    regions['loc'] = coords.SkyCoord(regions['ra'] * u.deg, regions['dec'] * u.deg)
+    in_region = matches['x_loc'][i].separation(regions['loc'][j]) < regions['radius'][j] * u.arcsec
+    in_region = in_region.reshape(ii.shape)
+    return np.any(in_region, axis=0)
+
+
+def filter_matches(
+    matches,
+    snr=None,
+    dr=None,
+    r_angle=None,
+    start=None,
+    stop=None,
+    r_angle_grating=None,
+    near_neighbor_dist=None,
+    exclude_regions=False,
+    exclude_bad_targets=False,
+    **kwargs
+):
+    """
+    Return a mask to filter out cross-matches based on some common criteria.
+
+    Parameters
+    ----------
+    matches: :any:`astropy.table.Table`
+        Table of cross-matches as returned by :any:`db.get_cross_matches` or :any:`cross_match`
+    snr: float
+        Filter matches based on signal-to-noise. Selects matches['snr'] <= snr.
+    dr: float
+        Filter matches based on angular offset. Selects matches['dr'] <= dr.
+    r_angle: float
+        Filter matches based on distance to optical axis.
+        Selects matches['r_angle'] <= r_angle (apply to non-grating observations only).
+    start: :any:`CxoTime <cxotime:index>`
+        Filter matches based on time. Selects matches['tstart'] >= start.
+    stop: :any:`CxoTime <cxotime:index>`
+        Filter matches based on time. Selects matches['tstart'] <= stop.
+    r_angle_grating: float
+        Filter matches based on distance to optical axis (apply to grating observations only).
+        Selects matches['r_angle_grating'] <= r_angle_grating.
+    near_neighbor_dist: float
+        Filter matches based on distance to closest neighbor.
+        Selects matches['near_neighbor_dist'] <= near_neighbor_dist.
+    exclude_bad_targets: bool
+        Default is False.
+    exclude_regions: bool
+        Default is False.
+    kwargs: dict
+        The keys in kwargs determine on which columns to filter. The values of kwargs are used
+        according to their type:
+        - list types cause a row to be selected if the column value is in the list.
+        - otherwise rows are selected if the column value is equal to the kwargs value
+    """
+    ok = np.ones(len(matches), dtype=bool)
+
+    if dr is not None:
+        ok &= matches['dr'] <= dr
+
+    if snr is not None:
+        ok &= matches['snr'] >= snr
+
+    if r_angle is not None:
+        ok &= matches['r_angle'] <= r_angle
+
+    if start is not None:
+        ok &= matches['tstart'] >= CxoTime(start).secs
+
+    if stop is not None:
+        ok &= matches['tstart'] <= CxoTime(stop).secs
+
+    if r_angle_grating is not None:
+        ok &= matches['r_angle_grating'] <= r_angle_grating
+
+    if near_neighbor_dist is not None:
+        ok &= matches['near_neighbor_dist'] <= near_neighbor_dist
+
+    for key, val in kwargs.items():
+        if isinstance(val, list):
+            ok &= np.isin(matches[key], val)
+        else:
+            ok &= matches[key] == val
+
+    if exclude_bad_targets:
+        ok &= ~get_bad_target_mask(matches)
+
+    if exclude_regions:
+        ok &= ~get_excluded_regions_mask(matches)
+
+    return ok
+
+
+def compute_cross_matches(
+    name=None,
     astromon_obs=None,
     astromon_xray_src=None,
     astromon_cat_src=None,
     dbfile=None,
+    exclude_regions=False,
+    exclude_bad_targets=False,
     logging_tag='',
+    **kwargs
 ):
     """
     Cross-match x-ray sources with catalog counterparts.
+
+    The arguments to this function are relayed to the actual implementation. The default
+    algorithm is the `name="simple"` cross-match
+    (see the documentation of :any:`simple_cross_match` for details).
+
+    Parameters
+    ----------
+    name: str
+        Can be the name one of the :any:`standard cross-matches <CROSS_MATCHES>`
+        or the name of the algorithm to use (only 'simple' is implemented). Default: 'simple'.
+    astromon_obs: :any:`astropy.table.Table`
+        Table of astromon observations as returned by
+        :any:`db.get_table("astromon_obs") <db.get_table>`.  The default is to get it from `dbfile`.
+    astromon_xray_src: :any:`astropy.table.Table`
+        Table of x-ray sources as returned by
+        :any:`db.get_table("astromon_xray_src") <db.get_table>` or
+        :any:`observation.Observation.get_sources`.  The default is to get it from `dbfile`.
+    astromon_cat_src: :any:`astropy.table.Table`
+        Table of catalog counterparts as returned by
+        :any:`db.get_table("astromon_cat_src") <db.get_table>`
+        or :any:`rough_match`. The default is to get it from `dbfile`.
+    dbfile: str
+        HDF5 or SQLite file where the tables are. The default is to let :any:`db.get_table` decide.
+    exclude_bad_targets: bool
+        Default is False.
+    exclude_regions: bool
+        Default is False.
+    logging_tag: str
+        A string to prepend to the logging messages.
+    kwargs: dict
+        Arguments passed to the algorithm implementation. Ignored if `name` is one of the
+        :any:`standard cross-matches <CROSS_MATCHES>`. kwargs is implementation dependant,
+        but the arguments of the 'simple' algorithm are:
+
+            - **catalogs**: A list of catalog names. The order matters.
+              Default is ['ICRS', 'Tycho2']
+            - **snr**: Minimum signal-to-noise ratio of x-ray sources to consider.
+              Default is 3.
+            - **r_angle**: Maximum r_angle (in arcsec).
+              Default is 120 arcsec (2 arcmin).
+            - **dr**: Maximum separation between x-ray source and catalog counterpart (in arcsec).
+              Default is 3 arcsec.
+            - **r_angle_grating**: Maximum r_angle in the case of grating observations (in arcsec).
+              Default is 24 arcsec (0.4 arcmin).
+            - **near_neighbor_dist**: Only consider x-ray sources with no other x-ray source
+              within this radial distance (arcsec). Default is 6 arcsec.
+            - **start**: Only consider observations after this :any:`CxoTime <cxotime:index>`.
+              Default is to consider all.
     """
     if astromon_xray_src is None:
         astromon_xray_src = db.get_table('astromon_xray_src', dbfile)
@@ -329,134 +531,183 @@ def cross_match(
     if astromon_obs is None:
         astromon_obs = db.get_table('astromon_obs', dbfile)
 
-    if name == 'standard_xcorr':
-        return _standard_cross_match(
-            astromon_obs,
-            astromon_xray_src,
-            astromon_cat_src,
+    if name is None:
+        name = 'default' if not kwargs else 'simple'
+
+    if name in CROSS_MATCHES_ARGS:
+        if kwargs:
+            logger.warning(f'calling astromon.cross_match with {name=}. kwargs are ignored.')
+        args = CROSS_MATCHES_ARGS[name].copy()
+        method = CROSS_MATCH_METHODS[args.pop('method')]
+    elif name in CROSS_MATCH_METHODS:
+        method = CROSS_MATCH_METHODS[name]
+        args = dict(
             name=name,
-            catalogs=['Tycho2', 'SIMBAD_high', 'CELMON', 'ICRS', 'ASTROMON'],
-            snr=5.0,
-            r_angle=120,
-            start=CxoTime() - 5 * 365 * u.day,
-        )
-    elif name == 'oaa4_snr4':
-        return _standard_cross_match(
-            astromon_obs,
-            astromon_xray_src,
-            astromon_cat_src,
-            name=name,
-            catalogs=['Tycho2', 'SIMBAD_high', 'CELMON', 'ICRS', 'ASTROMON',
-                      'SDSS', '2MASS', 'USNO-B1.0'],
-            snr=4.0,
-            r_angle=240,
-        )
-    elif name == 'astromon_21':
-        return _simple_cross_match(
-            astromon_obs,
-            astromon_xray_src,
-            astromon_cat_src,
-            name=name,
-            catalogs=['ICRS', 'Tycho2'],
-            snr=3,
-            r_angle=120.,
-            logging_tag=logging_tag,
+            **kwargs
         )
     else:
         raise Exception(f'Unknown x-matching name: "{name}"')
 
-
-def _standard_cross_match(
-    astromon_obs,
-    astromon_xray_src,
-    astromon_cat_src,
-    name,
-    catalogs,
-    snr,
-    r_angle,
-    start=None
-):
-    """
-    Standard cross X-ray -- Catalog cross correlation query
-
-    - X-ray sources within 3 arcmin off-axis (NONE) or 0.4 arcmin (grating)
-    - X-ray snr >  5.0
-    - X-ray extr_rad_grating,r,a,0.4,,,"Extr. rad. around grating source (arcmin)"
-    - X-ray - Catalog position match within 3 arcsec
-    - Catalog is high precision 'Tycho2', 'SIMBAD_high', 'CELMON', 'ICRS', 'ASTROMON'
-    """
-
-    # astromon_obs = astromon_obs[(astromon_obs['process_status'] == 'OK')]
-
-    if start is not None:
-        date_obs = CxoTime(astromon_obs['date_obs'].astype(str))
-        astromon_obs = astromon_obs[date_obs > start]
-
-    # only X-ray sources with SNR > 5 and no near-neighbors
-    astromon_xray_src = astromon_xray_src[
-        (astromon_xray_src['snr'] > snr)
-        & (astromon_xray_src['near_neighbor_dist'] > 6.0)
-        # astromon_xray_src['status_id'] = 0)
-    ]
-
-    # only some catalogs
-    astromon_cat_src = astromon_cat_src[np.in1d(astromon_cat_src['catalog'], catalogs)]
-
-    result = table.join(
+    result = method(
         astromon_obs,
         astromon_xray_src,
-        keys=['obsid'],
-    )
-    result = table.join(
-        result,
         astromon_cat_src,
-        keys=['obsid', 'x_id'],
+        logging_tag=logging_tag,
+        **args
     )
 
-    astromon_xray_src.rename_columns(
-        ['name_1', 'id_1', 'ra_1', 'dec_1', 'y_angle_1', 'z_angle_1'],
-        ['x_name', 'x_id', 'x_ra', 'x_dec', 'x_y_angle', 'x_z_angle']
-    )
-    astromon_cat_src.rename_columns(
-        ['name_2', 'id_2', 'ra_2', 'dec_2', 'y_angle_2', 'z_angle_2'],
-        ['c_name', 'c_id', 'c_ra', 'c_dec', 'c_y_angle', 'c_z_angle']
-    )
+    result['time'] = CxoTime(result['date_obs'])
+    result['c_loc'] = coords.SkyCoord(result['c_ra'], result['c_dec'], unit='deg')
+    result['x_loc'] = coords.SkyCoord(result['x_ra'], result['x_dec'], unit='deg')
 
-    result['dy'] = result['c_y_angle'] - result['x_y_angle']
-    result['dz'] = result['c_z_angle'] - result['x_z_angle']
-    result['dr2'] = result['dy']**2 + result['dz']**2
-    result['dr'] = np.sqrt(result['dr2'])
-    result['select_name'] = name
-
-    result = result[
-        ((result['r_angle'] < 24) | ((result['grating'] == 'NONE') & (result['r_angle'] < r_angle)))
-        & (result['dr2'] < 9.0)
+    result['category'] = [
+        observation.ID_CATEGORY_MAP[cat] for cat in result['category_id']
     ]
 
-    return result[['select_name', 'obsid', 'c_id', 'x_id', 'dy', 'dz', 'dr']]
+    if exclude_bad_targets:
+        result = result[~get_bad_target_mask(result)]
+    if exclude_regions:
+        regions = db.get_table('astromon_regions', dbfile=dbfile)
+        result = result[~get_excluded_regions_mask(result, regions=regions)]
+
+    result.add_index('obsid')
+    _set_formats(result)
+
+    return result
 
 
-def _simple_cross_match(
+def _join_dtype(dtype1, dtype2, keys):
+    """
+    Get the dtype resulting from the join of two tables with the given dtypes.
+    """
+    dtype1 = {name: dtype1[name] for name in dtype1.names}
+    dtype2 = {name: dtype2[name] for name in dtype2.names}
+    for key in keys:
+        del dtype2[key]
+    dtype1.update(dtype2)
+    return np.dtype([(name, dtype1[name]) for name in dtype1])
+
+
+def simple_cross_match(
     astromon_obs,
     astromon_xray_src,
     astromon_cat_src,
-    name,
-    catalogs,
-    snr,
+    name='',
+    catalogs=('ICRS', 'Tycho2'),
+    snr=3,
     r_angle=120.,
+    dr=3,
+    r_angle_grating=24.,
+    near_neighbor_dist=6.0,
     start=None,
+    stop=None,
     logging_tag='',
 ):
-    astromon_xray_src = astromon_xray_src[astromon_xray_src['snr'] > snr]
+    """
+    The simplest cross-match of x-ray sources with catalog counterparts.
+
+    This algorithm selects pairs of x-ray sources and catalog counterparts according to these
+    criteria:
+
+    - Observations done after `start`.
+    - X-ray sources with signal-over-noise ratio > `snr`.
+    - X-ray sources at most `r_angle` off-axis (grating observations) or `r_angle_grating`
+      arcsec (non-grating observations).
+    - Angular separation between X-ray and catalog counterpart less than `dr` arcsec.
+    - X-ray sources that are at most `near_neighbor_dist` arcsec from the closest x-ray source.
+    - Counterparts from catalogs included in `catalog`.
+
+    The selected pairs are sorted according to catalog and angular separation.
+    The order of precedence for the catalogs is the order in the `catalogs` argument.
+    The first pair for each x-ray source is selected as the catalog match.
+
+    .. Warning::
+
+        This algorithm does not check whether two or more sources are paired with the same
+        counterpart within a radius `dr`. To prevent this from happening, `near_neighbor_dist`
+        should be at least twice `dr`.
+
+    .. Note::
+
+        Remember that this cross-match function is applied over a set of *rough matches* resulting
+        from applying :any:`rough_match <cross_match.rough_match>`. In consequence, `dr` should be
+        smaller than the one used in :any:`rough_match <cross_match.rough_match>`.
+
+    Parameters
+    ----------
+    astromon_obs: :any:`astropy.table.Table`
+        Table of astromon observations as returned by
+        :any:`db.get_table("astromon_obs") <db.get_table>`. Required.
+    astromon_xray_src: :any:`astropy.table.Table`
+        Table of x-ray sources as returned by
+        :any:`db.get_table("astromon_xray_src") <db.get_table>` or
+        :any:`observation.Observation.get_sources`. Required.
+    astromon_cat_src: :any:`astropy.table.Table`
+        Table of catalog counterparts as returned by
+        :any:`db.get_table("astromon_cat_src") <db.get_table>`
+        or :any:`rough_match`. Required.
+    name: str
+        The name of the algorithm to use or the name of a standard set of arguments.
+        Default is 'simple'
+    catalogs: list
+        A list of catalog names. The order matters. Default is ['ICRS', 'Tycho2']
+    snr: float
+        Minimum signal-to-noise ratio of x-ray sources to consider.
+        Default is 3.
+    r_angle: float
+        Maximum r_angle (in arcsec).
+        Default is 120 arcsec (2 arcmin).
+    dr: float
+        Maximum separation between x-ray source and catalog counterpart (in arcsec).
+        Default is 3 arcsec.
+    r_angle_grating: float
+        Maximum r_angle in the case of grating observations (in arcsec).
+        Default is 24 arcsec (0.4 arcmin).
+    near_neighbor_dist: float
+        Only consider x-ray sources with no other x-ray source within this radial distance (arcsec).
+        Default is 6 arcsec.
+    start:  :any:`CxoTime <cxotime:index>`-compatible timestamp
+        Only consider observations after this time.
+        Default is to consider all.
+    stop:  :any:`CxoTime <cxotime:index>`-compatible timestamp
+        Only consider observations before this time.
+        Default is to consider all.
+    logging_tag: str
+        A string to prepend to the logging messages.
+    """
+
+    astromon_xray_src = astromon_xray_src[
+        (astromon_xray_src['snr'] > snr)
+        & (astromon_xray_src['near_neighbor_dist'] > near_neighbor_dist)
+    ]
     astromon_cat_src = astromon_cat_src[np.in1d(astromon_cat_src['catalog'], catalogs)]
+
+    # I can rename and drop these to match the standard in astromon.db because I just made copies
+    astromon_cat_src.rename_columns(
+        ['id', 'ra', 'dec', 'y_angle', 'z_angle'],
+        ['c_id', 'c_ra', 'c_dec', 'c_y_angle', 'c_z_angle']
+    )
+    astromon_xray_src.rename_columns(
+        ['id', 'ra', 'dec', 'y_angle', 'z_angle'],
+        ['x_id', 'x_ra', 'x_dec', 'x_y_angle', 'x_z_angle']
+    )
+    if 'name' in astromon_xray_src.colnames:
+        astromon_xray_src.remove_column('name')
 
     if start is not None:
         date_obs = CxoTime(astromon_obs['date_obs'].astype(str))
         astromon_obs = astromon_obs[date_obs > start]
+
+    if stop is not None:
+        date_obs = CxoTime(astromon_obs['date_obs'].astype(str))
+        astromon_obs = astromon_obs[date_obs <= stop]
 
     if len(astromon_xray_src) == 0 or len(astromon_cat_src) == 0:
         logger.debug(f'{logging_tag} No xray or cat sources')
-        return []
+        dtype = _join_dtype(astromon_obs.dtype, astromon_xray_src.dtype, ['obsid'])
+        dtype = _join_dtype(dtype, astromon_cat_src.dtype, ['obsid', 'x_id'])
+        return table.Table(dtype=dtype)
+
     matches = table.join(
         astromon_obs,
         astromon_xray_src,
@@ -468,26 +719,92 @@ def _simple_cross_match(
         keys=['obsid', 'x_id'],
         table_names=['xray', 'cat']
     )
-    assert np.all(matches['id_xray'] == matches['x_id'])
-    matches.rename_column('id_cat', 'c_id')
 
-    matches['dz'] = matches['z_angle_xray'] - matches['z_angle_cat']
-    matches['dy'] = matches['y_angle_xray'] - matches['y_angle_cat']
+    matches['dz'] = matches['x_z_angle'] - matches['c_z_angle']
+    matches['dy'] = matches['x_y_angle'] - matches['c_y_angle']
     matches['dr'] = np.sqrt(matches['dy']**2 + matches['dz']**2)
     matches['cat_order'] = 200
     for i, k in enumerate(catalogs):
-        matches[matches['catalog'] == k]['cat_order'] = i
+        matches['cat_order'][matches['catalog'] == k] = i
 
-    matches = matches[matches['r_angle'] < r_angle]
+    matches = matches[
+        ((matches['grating'] == 'NONE') & (matches['r_angle'] < r_angle))
+        | ((matches['grating'] != 'NONE') & (matches['r_angle'] < r_angle_grating))
+    ]
+    matches = matches[matches['dr'] < dr]
 
     if len(matches) == 0:
-        return []
+        return matches
 
-    matches = matches.group_by('obsid')
-    for g in matches.groups:
-        g.sort(['cat_order', 'dr'])
-    result = table.vstack([g[0] for g in matches.groups])
+    mg = matches.group_by(['obsid', 'x_id'])
+    indices = mg.groups.indices
+    idxs = []
+    for i0, i1 in zip(indices[:-1], indices[1:]):
+        idxs_sort = np.lexsort((mg['dr'][i0:i1], mg['cat_order'][i0:i1]))
+        idxs.append(i0 + idxs_sort[0])
+    result = mg[idxs]
 
     result['select_name'] = name
 
-    return result[['select_name', 'obsid', 'c_id', 'x_id', 'dy', 'dz', 'dr']]
+    return result
+
+
+CROSS_MATCHES_ARGS = {
+    'astromon_21': {
+        'name': 'astromon_21',
+        'method': 'simple',
+        'catalogs': ['ICRS', 'Tycho2'],
+        'snr': 3,
+        'r_angle': 120.,
+        'r_angle_grating': 120.,
+        'near_neighbor_dist': 6.,
+        'dr': 3.,
+    },
+    'astromon_22': {
+        'name': 'astromon_22',
+        'method': 'simple',
+        'catalogs': ['ICRS', 'Tycho2'],
+        'snr': 3,
+        'r_angle': 120.,
+        'r_angle_grating': 24.,
+        'near_neighbor_dist': 6.,
+        'dr': 3.,
+    }
+}
+"""
+*Standard* cross-match arguments.
+"""
+CROSS_MATCHES_ARGS['default'] = CROSS_MATCHES_ARGS['astromon_21']
+
+"""
+*Standard* cross-matches (the keys of :any:`CROSS_MATCHES_ARGS`).
+"""
+CROSS_MATCHES = sorted(CROSS_MATCHES_ARGS.keys())
+
+"""
+Available cross-matching algorithms to be used in :any:`compute_cross_matches`.
+"""
+CROSS_MATCH_METHODS = {
+    'simple': simple_cross_match
+}
+
+
+def _set_formats(dat):
+    """
+    Sets format of columns with float dtype to show 2 decimals, except ra/dec/pileup (4 decimals).
+
+    Parameters
+    ----------
+    dat: `astropy.table.Table`
+    """
+    fmts = {'ra': '.4f',
+            'x_ra': '.4f',
+            'c_ra': '.4f',
+            'dec': '.4f',
+            'x_dec': '.4f',
+            'c_dec': '.4f',
+            'pileup': '.4f'}
+    for col in dat.itercols():
+        if (hasattr(col, 'name') and col.name in dat.colnames
+                and hasattr(dat[col.name], 'dtype') and col.dtype.kind == 'f'):
+            dat[col.name].info.format = fmts.get(col.name, '.2f')
