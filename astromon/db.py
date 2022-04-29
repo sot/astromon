@@ -367,7 +367,7 @@ def retry_operational_error(retries=3):
 
 
 @retry_operational_error()
-def save(db, table_name, data):
+def save(dbfile, table_name, data):
     """
     Insert data into a table, deleting previous entries for the same OBSID.
 
@@ -382,16 +382,16 @@ def save(db, table_name, data):
         The name of the table.
     data: :any:`astropy.table.Table`
     """
-    with connect(db) as con:
+    with connect(dbfile) as con:
         if type(con) is tables.file.File:
             return _save_hdf5(con, table_name, data)
         elif type(con) is sqlite3.Connection:
             return _save_sql(con, table_name, data)
         else:
-            raise Exception(f'Unknown DB type: {db}/{con}')
+            raise Exception(f'Unknown DB type: {dbfile}/{con}')
 
 
-def remove_regions(regions, db_file=None):
+def remove_regions(regions, dbfile=None):
     """
     Remove exclusion regions (by ID) from the astromon_regions table.
 
@@ -403,13 +403,13 @@ def remove_regions(regions, db_file=None):
         File where tables are stored.
         The default is `$ASTROMON_FILE` or `$SKA/data/astromon/astromon.h5`
     """
-    with connect(db_file) as con:
+    with connect(dbfile) as con:
         if type(con) is tables.file.File:
             _remove_regions_h5(con, regions)
         elif type(con) is sqlite3.Connection:
             _remove_regions_sql(con, regions)
         else:
-            raise Exception(f'Unknown DB type: {db_file}/{con}')
+            raise Exception(f'Unknown DB type: {dbfile}/{con}')
 
 
 def _remove_regions_sql(con, regions):
@@ -429,7 +429,7 @@ def _remove_regions_h5(h5, regions):
         h5.create_table('/', 'astromon_regions', all_regions.as_array())
 
 
-def add_regions(regions, db_file=None):
+def add_regions(regions, dbfile=None):
     """
     Add exclusion regions to the astromon_regions table.
 
@@ -443,13 +443,13 @@ def add_regions(regions, db_file=None):
         File where tables are stored.
         The default is `$ASTROMON_FILE` or `$SKA/data/astromon/astromon.h5`
     """
-    with connect(db_file) as con:
+    with connect(dbfile) as con:
         if type(con) is tables.file.File:
             return _add_regions_h5(con, regions)
         elif type(con) is sqlite3.Connection:
             return _add_regions_sql(con, regions)
         else:
-            raise Exception(f'Unknown DB type: {db_file}/{con}')
+            raise Exception(f'Unknown DB type: {dbfile}/{con}')
 
 
 def _add_regions_sql(con, regions):
@@ -515,7 +515,7 @@ def set_formats(dat):
             dat[col.name].info.format = fmts.get(col.name, '.2f')
 
 
-def get_cross_matches(dbfile=None):
+def get_cross_matches(name='astromon_21', dbfile=None):
     """
     Get a standard cross-match of observations, x-ray sources and catalog counterparts in `dbfile`.
 
@@ -546,6 +546,7 @@ def get_cross_matches(dbfile=None):
     :any:`tables.File <tables.file.File>`
     """
     matches = get_table('astromon_xcorr', dbfile)
+    matches = matches[matches['select_name'] == name]
     astromon_cat_src = get_table('astromon_cat_src', dbfile)
     astromon_xray_src = get_table('astromon_xray_src', dbfile)
     astromon_obs = get_table('astromon_obs', dbfile)

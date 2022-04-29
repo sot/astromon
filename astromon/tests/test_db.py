@@ -96,10 +96,10 @@ def test_regions(dbfile_ext):
         regions_1 = Table([
             {'ra': 0., 'dec': 0., 'radius': 5, 'obsid': 0, 'user': 'me', 'comments': ''}
         ])
-        db.add_regions(regions_1, db_file=dbfile)
+        db.add_regions(regions_1, dbfile=dbfile)
         regions_2 = Table(
             [{'ra': 1., 'dec': 0., 'radius': 5, 'obsid': 0, 'user': 'them', 'comments': ''}])
-        db.add_regions(regions_2, db_file=str(dbfile))
+        db.add_regions(regions_2, dbfile=str(dbfile))
         regions = db.get_table('astromon_regions', dbfile=dbfile)
         regions_ref = Table(
             [[1, 2], [0.0, 1.0], [0.0, 0.0], [5, 5], [0, 0], ['me', 'them'], ['', '']],
@@ -119,7 +119,7 @@ def test_regions(dbfile_ext):
                 assert np.all(regions[name] == regions_ref[name])
 
         # removing
-        db.remove_regions([1], db_file=dbfile)
+        db.remove_regions([1], dbfile=dbfile)
         regions = db.get_table('astromon_regions', dbfile=dbfile)
         regions_ref = Table(
             [[2], [1.0], [0.0], [5], [0], ['them'], ['']],
@@ -139,7 +139,7 @@ def test_regions(dbfile_ext):
                 assert np.all(regions[name] == regions_ref[name])
 
         # removing so it is empty
-        db.remove_regions([2], db_file=dbfile)
+        db.remove_regions([2], dbfile=dbfile)
         regions = db.get_table('astromon_regions', dbfile=dbfile)
         assert regions.colnames == regions_ref.colnames, 'col names'
         # assert regions.dtype == regions_ref.dtype, 'dtypes'
@@ -153,14 +153,14 @@ def test_regions(dbfile_ext):
         assert len(regions) == 0
 
         # remove non-existent
-        db.remove_regions([3], db_file=dbfile)  # silently removes nothing
+        db.remove_regions([3], dbfile=dbfile)  # silently removes nothing
 
         # adding a few and with autoincrementing region_id
         regions_1 = Table([
             {'ra': 0., 'dec': 0., 'radius': 5, 'obsid': 0, 'user': 'me', 'comments': ''},
             {'ra': 1., 'dec': 0., 'radius': 5, 'obsid': 0, 'user': 'them', 'comments': ''}
         ])
-        db.add_regions(regions_1, db_file=dbfile)
+        db.add_regions(regions_1, dbfile=dbfile)
         regions = db.get_table('astromon_regions', dbfile=dbfile)
         regions_ref = Table(
             [[3, 4], [0.0, 1.0], [0.0, 0.0], [5, 5], [0, 0], ['me', 'them'], ['', '']],
