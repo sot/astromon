@@ -33,7 +33,7 @@ def good_obs(matches):
     Discard some observations that are known to give large offsets.
     """
     ok = np.ones(len(matches), dtype=bool)
-    bad_targets = ['RW Aur', 'Tau Boo', '70 OPH', '16 Cyg', 'M87', 'Orion', 'HD 97950' 'HD4915']
+    bad_targets = ['RW Aur', 'Tau Boo', '70 OPH', '16 Cyg', 'M87', 'Orion', 'HD 97950', 'HD4915']
     bad_targets = [x.replace(' ', '').lower() for x in bad_targets]
     for ii, target in enumerate(matches['target']):
         target = target.replace(' ', '').lower()
