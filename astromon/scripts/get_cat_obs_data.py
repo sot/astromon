@@ -248,9 +248,6 @@ def main():
 
     logger = pyyaks.logger.get_logger(name='astromon', level=args.log_level.upper())
 
-    args.stop = CxoTime(args.stop).date if args.stop else CxoTime.now().date
-    args.start = CxoTime(args.start).date if args.start else (CxoTime(args.stop) - 30 * u.day).date
-
     if not args.db_file.exists():
         logger.info(f'File does not exist: {args.db_file}. Will create')
     args.db_file.parent.mkdir(exist_ok=True, parents=True)
