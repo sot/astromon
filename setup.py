@@ -12,6 +12,7 @@ entry_points = {
         'astromon-process-obs=astromon.observation:main',
         'astromon-cat-obs-data=astromon.scripts.get_cat_obs_data:main',
         'astromon-web-pages=astromon.web.celmon:main',
+        'astromon-calc-rms=astromon.scripts.calc_astrometry_rms:main',
     ]
 }
 
