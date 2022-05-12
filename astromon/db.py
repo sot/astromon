@@ -551,10 +551,8 @@ def get_cross_matches(name='astromon_21', dbfile=None):
     astromon_xray_src = get_table('astromon_xray_src', dbfile)
     astromon_obs = get_table('astromon_obs', dbfile)
 
-    categories = {cat_id: cat_name for cat_name, cat_id in observation.CATEGORY_ID_MAP.items()}
-    categories[200] = 'Unknown'
     astromon_obs['category'] = [
-        categories[cat] for cat in astromon_obs['category_id']
+        observation.ID_CATEGORY_MAP[cat] for cat in astromon_obs['category_id']
     ]
 
     astromon_cat_src.remove_column('x_id')
