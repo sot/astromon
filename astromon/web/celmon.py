@@ -20,7 +20,7 @@ from Ska.Matplotlib import plot_cxctime, cxctime2plotdate
 from cxotime import CxoTime, units as u
 
 plt.rcParams['font.size'] = '16'
-
+plt.rcParams['figure.max_open_warning'] = 100
 
 JINJA2 = jinja2.Environment(
     loader=jinja2.PackageLoader('astromon.web', 'templates'),
@@ -33,7 +33,7 @@ def good_obs(matches):
     Discard some observations that are known to give large offsets.
     """
     ok = np.ones(len(matches), dtype=bool)
-    bad_targets = ['RW Aur', 'Tau Boo', '70 OPH', '16 Cyg', 'M87', 'Orion', 'HD 97950' 'HD4915']
+    bad_targets = ['RW Aur', 'Tau Boo', '70 OPH', '16 Cyg', 'M87', 'Orion', 'HD 97950', 'HD4915']
     bad_targets = [x.replace(' ', '').lower() for x in bad_targets]
     for ii, target in enumerate(matches['target']):
         target = target.replace(' ', '').lower()
@@ -225,7 +225,7 @@ def plot_cdf_3(
         alpha=0.5,
         linewidth=2,
     )
-    print(quantiles)
+    # print(quantiles)
     for q in quantiles:
         r = q['offset']
         q = q['q']
@@ -493,7 +493,8 @@ def create_figures_mta(outdir):
 def create_figures_cal(outdir, snr=5, n_years=5, draw_median=True):
     outdir = Path(outdir)
 
-    start = CxoTime() - n_years * u.year
+    end = CxoTime()
+    start = end - n_years * u.year
     matches = db.get_cross_matches()
     ok = good_obs(matches)
     ok = filter_xcorr(matches, snr=snr)
@@ -507,7 +508,12 @@ def create_figures_cal(outdir, snr=5, n_years=5, draw_median=True):
         matches['time'], matches['dz'], bins_per_year=2
     )
 
-    result = {'snr': snr, 'n_years': n_years}
+    result = {
+        'snr': snr,
+        'n_years': n_years,
+        'start_date': start.iso.split()[0],
+        'end_date': end.iso.split()[0],
+    }
 
     bins, cdf, quantiles = cdf_(matches)
     result.update({
@@ -579,12 +585,16 @@ def main():
     )
 
     tpl = JINJA2.get_template('celmon_cal.html')
-    with open(args.out / 'cal' / 'index.html', 'w') as out:
+    file_path = args.out / 'cal' / 'index.html'
+    with open(file_path, 'w') as out:
         out.write(tpl.render(data={'cal': data_cal}))
+        print(f'report created at {file_path}')
 
     tpl = JINJA2.get_template('celmon_mta.html')
-    with open(args.out / 'mta' / 'index.html', 'w') as out:
+    file_path = args.out / 'mta' / 'index.html'
+    with open(file_path, 'w') as out:
         out.write(tpl.render(data={'cal': data_cal, 'mta': data_mta}))
+        print(f'report created at {file_path}')
 
 
 if __name__ == "__main__":

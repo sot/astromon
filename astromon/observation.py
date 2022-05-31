@@ -27,6 +27,9 @@ from astropy.coordinates import SkyCoord
 import regions
 
 
+__all__ = ['Observation']
+
+
 logger = logging.getLogger('astromon')
 
 
@@ -38,36 +41,43 @@ _multi_obi_obsids = [
 
 
 ID_CATEGORY_MAP = {
-    'Normal Stars and WD': 10,
-    'WD Binaries and CVs': 20,
-    'BH and NS Binaries': 30,
-    'Normal Galaxies': 40,
-    'Active Galaxies and Quasars': 50,
-    'Extragalactic Diffuse Emission & Surveys': 60,
-    'Galactic Diffuse Emission & Surveys': 70,
-    'Solar System and Misc': 100,
-    'SN, SNR, and Isolated NS': 110,
-    'Clusters of Galaxies': 120,
+    10: 'Normal Stars and WD',
+    20: 'WD Binaries and CVs',
+    30: 'BH and NS Binaries',
+    40: 'Normal Galaxies',
+    50: 'Active Galaxies and Quasars',
+    60: 'Extragalactic Diffuse Emission & Surveys',
+    70: 'Galactic Diffuse Emission & Surveys',
+    100: 'Solar System and Misc',
+    110: 'SN, SNR, and Isolated NS',
+    120: 'Clusters of Galaxies',
+    200: 'Unknown',
 }
 """
-Mapping between observation category names and numerical values.
+Mapping between observation ID and category names.
 """
 
 
 CATEGORY_ID_MAP = collections.defaultdict(
     lambda: 200,
-    {k.lower(): v for k, v in ID_CATEGORY_MAP.items()}
+    {k.lower(): v for v, k in ID_CATEGORY_MAP.items()}
 )
 """
-Inverse mapping between observation category names and numerical values.
+Mapping between observation category names and numerical values.
 """
 
 
 class Skipped(FlowException):
+    """
+    Exception class used to abort and silently skip processing an observation.
+    """
     pass
 
 
 class SkippedWithWarning(FlowException):
+    """
+    Exception class used to abort, issue a warning, and skip processing an observation.
+    """
     pass
 
 
@@ -148,7 +158,7 @@ class Observation:
     def __del__(self):
         if self._clear:
             logger.info(f'Clearing {self.workdir}')
-            shutil.rmtree(self.workdir)
+            shutil.rmtree(self.workdir, ignore_errors=True)
 
     def __str__(self):
         return f'OBSID={self.obsid}'

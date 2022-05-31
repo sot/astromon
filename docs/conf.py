@@ -36,7 +36,15 @@ extensions = [
     'sphinx.ext.viewcode',
     # 'sphinx.ext.mathjax',
     'sphinx.ext.napoleon',
+    'sphinx.ext.intersphinx',
 ]
+
+intersphinx_mapping = {
+    'astropy': ('https://docs.astropy.org/en/stable/', None),
+    'python': ('https://docs.python.org/3/', None),
+    'cxotime': ('https://sot.github.io/cxotime/', None),
+    'pytables': ('https://www.pytables.org/', None),
+}
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']

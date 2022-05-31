@@ -6,6 +6,8 @@ import pytest
 from astropy.table import Table
 
 from astromon import db
+from astromon import utils
+
 
 DATA_DIR = Path(__file__).parent / 'data'
 
@@ -15,13 +17,16 @@ DATA_DIR = Path(__file__).parent / 'data'
 def test_dtypes(dbfile_ext):
     # this checks that the dtypes in db.DTYPES, the ones from astromon/sql/tables/*sql,
     # and those of the returned tables match
-    names = ['astromon_xcorr', 'astromon_cat_src', 'astromon_xray_src', 'astromon_obs']
+    names = [
+        'astromon_xcorr', 'astromon_cat_src', 'astromon_xray_src', 'astromon_obs',
+        'astromon_regions'
+    ]
     with tempfile.TemporaryDirectory() as tmpdir:
         dbfile = Path(tmpdir) / f'test_dtypes.{dbfile_ext}'
         for name in names:
-            # t = db.get(name, dbfile)  # fails, file does not exist
-            db.save(dbfile, name, Table.read(DATA_DIR / f'{name}.ecsv'))  # populate the table
-            t = db.get(name, dbfile)
+            # t = db.get_table(name, dbfile)  # fails, file does not exist
+            db.save(name, Table.read(DATA_DIR / f'{name}.ecsv'), dbfile)  # populate the table
+            t = db.get_table(name, dbfile)
             assert t.dtype.names == db.DTYPES[name].names
             dtypes_differ = [
                 (n, t.dtype[n], db.DTYPES[name][n], db.DTYPES[name][n].char)
@@ -30,9 +35,6 @@ def test_dtypes(dbfile_ext):
                 and (dbfile_ext != 'h5' or db.DTYPES[name][n].char != 'S')
             ]
             assert not dtypes_differ, f'{name} dtypes differ: {dtypes_differ}'
-        name = 'astromon_regions'
-        t = db.get(name, dbfile)
-        assert t.dtype.names == db.DTYPES[name].names
 
 
 @pytest.mark.filterwarnings("error")
@@ -49,14 +51,14 @@ def test_save_and_get():
         dbfile = Path(tmpdir) / 'test_save_and_read.h5'
         for name in names:
             print(name)
-            db.save(dbfile, name, tables[name])
-            tables_h5[name] = db.get(name, dbfile)
+            db.save(name, tables[name], dbfile)
+            tables_h5[name] = db.get_table(name, dbfile)
 
         print('SQLite format')
         dbfile = Path(tmpdir) / 'test_save_and_read.db3'
         for name in names:
-            db.save((dbfile), name, tables[name])
-            tables_sql[name] = db.get(name, dbfile)
+            db.save(name, tables[name], dbfile)
+            tables_sql[name] = db.get_table(name, dbfile)
 
         for name in names:
             assert len(tables_sql[name]) == len(tables_h5[name]), \
@@ -80,18 +82,28 @@ def test_regions(dbfile_ext):
         dbfile = Path(tmpdir) / f'test_regions.{dbfile_ext}'
         for name in names:
             tables[name] = Table.read(DATA_DIR / f'{name}.ecsv')
-            db.save(dbfile, name, tables[name])
+            db.save(name, tables[name], dbfile)
+
+        # warnings are filtered as errors here
+        with pytest.raises(utils.MissingTableException):
+            db.get_table('astromon_regions', dbfile)
+        # adding an empty table to prevent exception
+        db.save(
+            'astromon_regions',
+            db.create_table('astromon_regions'),
+            dbfile
+        )
 
         # adding one at a time
-        db.get('astromon_regions', dbfile)
+        db.get_table('astromon_regions', dbfile)
         regions_1 = Table([
             {'ra': 0., 'dec': 0., 'radius': 5, 'obsid': 0, 'user': 'me', 'comments': ''}
         ])
-        db.add_regions(regions_1, db_file=dbfile)
+        db.add_regions(regions_1, dbfile=dbfile)
         regions_2 = Table(
             [{'ra': 1., 'dec': 0., 'radius': 5, 'obsid': 0, 'user': 'them', 'comments': ''}])
-        db.add_regions(regions_2, db_file=str(dbfile))
-        regions = db.get('astromon_regions', dbfile=dbfile)
+        db.add_regions(regions_2, dbfile=str(dbfile))
+        regions = db.get_table('astromon_regions', dbfile=dbfile)
         regions_ref = Table(
             [[1, 2], [0.0, 1.0], [0.0, 0.0], [5, 5], [0, 0], ['me', 'them'], ['', '']],
             dtype=db.ASTROMON_REGION_DTYPE,
@@ -110,8 +122,8 @@ def test_regions(dbfile_ext):
                 assert np.all(regions[name] == regions_ref[name])
 
         # removing
-        db.remove_regions([1], db_file=dbfile)
-        regions = db.get('astromon_regions', dbfile=dbfile)
+        db.remove_regions([1], dbfile=dbfile)
+        regions = db.get_table('astromon_regions', dbfile=dbfile)
         regions_ref = Table(
             [[2], [1.0], [0.0], [5], [0], ['them'], ['']],
             dtype=db.ASTROMON_REGION_DTYPE,
@@ -130,8 +142,8 @@ def test_regions(dbfile_ext):
                 assert np.all(regions[name] == regions_ref[name])
 
         # removing so it is empty
-        db.remove_regions([2], db_file=dbfile)
-        regions = db.get('astromon_regions', dbfile=dbfile)
+        db.remove_regions([2], dbfile=dbfile)
+        regions = db.get_table('astromon_regions', dbfile=dbfile)
         assert regions.colnames == regions_ref.colnames, 'col names'
         # assert regions.dtype == regions_ref.dtype, 'dtypes'
         dtypes_differ = [
@@ -144,15 +156,15 @@ def test_regions(dbfile_ext):
         assert len(regions) == 0
 
         # remove non-existent
-        db.remove_regions([3], db_file=dbfile)  # silently removes nothing
+        db.remove_regions([3], dbfile=dbfile)  # silently removes nothing
 
         # adding a few and with autoincrementing region_id
         regions_1 = Table([
             {'ra': 0., 'dec': 0., 'radius': 5, 'obsid': 0, 'user': 'me', 'comments': ''},
             {'ra': 1., 'dec': 0., 'radius': 5, 'obsid': 0, 'user': 'them', 'comments': ''}
         ])
-        db.add_regions(regions_1, db_file=dbfile)
-        regions = db.get('astromon_regions', dbfile=dbfile)
+        db.add_regions(regions_1, dbfile=dbfile)
+        regions = db.get_table('astromon_regions', dbfile=dbfile)
         regions_ref = Table(
             [[3, 4], [0.0, 1.0], [0.0, 0.0], [5, 5], [0, 0], ['me', 'them'], ['', '']],
             dtype=db.ASTROMON_REGION_DTYPE,
