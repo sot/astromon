@@ -1,0 +1,16 @@
+# %ECSV 1.0
+# ---
+# datatype:
+# - {name: region_id, datatype: int32}
+# - {name: ra, datatype: float64}
+# - {name: dec, datatype: float64}
+# - {name: radius, datatype: float32}
+# - {name: obsid, datatype: int32}
+# - {name: user, datatype: string}
+# - {name: comments, datatype: string}
+# schema: astropy-2.0
+region_id ra dec radius obsid user comments
+9 128.8361839984206 -45.17654050321445 200.0 0 j 0
+11 187.70263686010165 12.392113543877699 5.0 0 jgonzalez 0
+12 187.7012375888888 12.392933540654155 5.0 0 jgonzalez 0
+13 187.70459582969386 12.391566869690632 5.0 0 jgonzalez 0

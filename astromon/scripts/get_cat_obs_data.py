@@ -17,7 +17,7 @@ import numpy as np
 
 from cxotime import CxoTime, units as u
 
-from astropy.table import Table, vstack
+from astropy.table import Table, Column, vstack
 
 import stk
 
@@ -25,7 +25,7 @@ from chandra_aca.transform import radec_to_yagzag
 from Quaternion import Quat
 from Ska.arc5gl import Arc5gl
 from astromon.observation import Observation, Skipped, SkippedWithWarning
-from astromon.cross_match import rough_match, cross_match
+from astromon.cross_match import rough_match, compute_cross_matches
 from astromon import db, utils
 import pyyaks.logger
 
@@ -90,7 +90,7 @@ def save(data, db_file):
     with db.connect(db_file) as con:
         for name in names:
             if len(data[name]):
-                db.save(con, name, data[name])
+                db.save(name, data[name], con)
 
 
 def process(obsid, workdir, log_level, archive_dir):
@@ -116,15 +116,22 @@ def process(obsid, workdir, log_level, archive_dir):
             match_candidates['y_angle'], match_candidates['z_angle'] = radec_to_yagzag(
                 match_candidates['ra'], match_candidates['dec'], q
             )
+        else:
+            match_candidates['obsid'] = Column(dtype=int)
+            match_candidates['id'] = Column(dtype=int)
+            match_candidates['y_angle'] = Column(dtype=np.float32)
+            match_candidates['z_angle'] = Column(dtype=np.float32)
 
         logger.debug(f'OBSID={obsid} About to cross-match')
-        matches = cross_match(
+        matches = compute_cross_matches(
             'astromon_21',
             astromon_obs=obspar,
             astromon_xray_src=sources,
             astromon_cat_src=match_candidates,
             logging_tag=f'OBSID={obsid}',
         )
+        if matches:
+            matches = matches[['select_name', 'obsid', 'c_id', 'x_id', 'dy', 'dz', 'dr']]
 
         result = {
             'ok': True,
@@ -248,11 +255,12 @@ def main():
 
     logger = pyyaks.logger.get_logger(name='astromon', level=args.log_level.upper())
 
-    args.stop = CxoTime(args.stop).date if args.stop else CxoTime.now().date
-    args.start = CxoTime(args.start).date if args.start else (CxoTime(args.stop) - 30 * u.day).date
-
     if not args.db_file.exists():
         logger.info(f'File does not exist: {args.db_file}. Will create')
+        for name in db.DTYPES:
+            tab = db.create_table(name)
+            db.save(name, tab, dbfile=args.db_file)
+
     args.db_file.parent.mkdir(exist_ok=True, parents=True)
 
     if args.workdir:
@@ -275,16 +283,19 @@ def main():
 
     if args.db_file.exists() and not args.no_exception:
         obsids = np.array(obsids, dtype=int)
-        astromon_obs = db.get_table('astromon_obs', dbfile=args.db_file)
-        exceptions = np.in1d(obsids, astromon_obs['obsid'])
-        n_exceptions = np.sum(exceptions)
-        if n_exceptions:
-            exceptions_str = str(obsids[exceptions])[1:-1]
-            logger.info(
-                f'skipping {n_exceptions} OBSID{"s" if n_exceptions > 1 else ""} '
-                f'that {"are" if n_exceptions > 1 else "is"} on file already: {exceptions_str}'
-            )
-        obsids = obsids[~exceptions].astype(str)
+        try:
+            astromon_obs = db.get_table('astromon_obs', dbfile=args.db_file)
+            exceptions = np.in1d(obsids, astromon_obs['obsid'])
+            n_exceptions = np.sum(exceptions)
+            if n_exceptions:
+                exceptions_str = str(obsids[exceptions])[1:-1]
+                logger.info(
+                    f'skipping {n_exceptions} OBSID{"s" if n_exceptions > 1 else ""} '
+                    f'that {"are" if n_exceptions > 1 else "is"} on file already: {exceptions_str}'
+                )
+            obsids = obsids[~exceptions].astype(str)
+        except utils.MissingTableException:
+            pass
 
     if len(obsids) == 0:
         logger.info('All OBSIDs already processed')

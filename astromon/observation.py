@@ -41,28 +41,29 @@ _multi_obi_obsids = [
 
 
 ID_CATEGORY_MAP = {
-    'Normal Stars and WD': 10,
-    'WD Binaries and CVs': 20,
-    'BH and NS Binaries': 30,
-    'Normal Galaxies': 40,
-    'Active Galaxies and Quasars': 50,
-    'Extragalactic Diffuse Emission & Surveys': 60,
-    'Galactic Diffuse Emission & Surveys': 70,
-    'Solar System and Misc': 100,
-    'SN, SNR, and Isolated NS': 110,
-    'Clusters of Galaxies': 120,
+    10: 'Normal Stars and WD',
+    20: 'WD Binaries and CVs',
+    30: 'BH and NS Binaries',
+    40: 'Normal Galaxies',
+    50: 'Active Galaxies and Quasars',
+    60: 'Extragalactic Diffuse Emission & Surveys',
+    70: 'Galactic Diffuse Emission & Surveys',
+    100: 'Solar System and Misc',
+    110: 'SN, SNR, and Isolated NS',
+    120: 'Clusters of Galaxies',
+    200: 'Unknown',
 }
 """
-Mapping between observation category names and numerical values.
+Mapping between observation ID and category names.
 """
 
 
 CATEGORY_ID_MAP = collections.defaultdict(
     lambda: 200,
-    {k.lower(): v for k, v in ID_CATEGORY_MAP.items()}
+    {k.lower(): v for v, k in ID_CATEGORY_MAP.items()}
 )
 """
-Inverse mapping between observation category names and numerical values.
+Mapping between observation category names and numerical values.
 """
 
 

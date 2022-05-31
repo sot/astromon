@@ -6,6 +6,8 @@ import pytest
 from astropy.table import Table
 
 from astromon import db
+from astromon import utils
+
 
 DATA_DIR = Path(__file__).parent / 'data'
 
@@ -23,7 +25,7 @@ def test_dtypes(dbfile_ext):
         dbfile = Path(tmpdir) / f'test_dtypes.{dbfile_ext}'
         for name in names:
             # t = db.get_table(name, dbfile)  # fails, file does not exist
-            db.save(dbfile, name, Table.read(DATA_DIR / f'{name}.ecsv'))  # populate the table
+            db.save(name, Table.read(DATA_DIR / f'{name}.ecsv'), dbfile)  # populate the table
             t = db.get_table(name, dbfile)
             assert t.dtype.names == db.DTYPES[name].names
             dtypes_differ = [
@@ -49,13 +51,13 @@ def test_save_and_get():
         dbfile = Path(tmpdir) / 'test_save_and_read.h5'
         for name in names:
             print(name)
-            db.save(dbfile, name, tables[name])
+            db.save(name, tables[name], dbfile)
             tables_h5[name] = db.get_table(name, dbfile)
 
         print('SQLite format')
         dbfile = Path(tmpdir) / 'test_save_and_read.db3'
         for name in names:
-            db.save((dbfile), name, tables[name])
+            db.save(name, tables[name], dbfile)
             tables_sql[name] = db.get_table(name, dbfile)
 
         for name in names:
@@ -80,15 +82,16 @@ def test_regions(dbfile_ext):
         dbfile = Path(tmpdir) / f'test_regions.{dbfile_ext}'
         for name in names:
             tables[name] = Table.read(DATA_DIR / f'{name}.ecsv')
-            db.save(dbfile, name, tables[name])
+            db.save(name, tables[name], dbfile)
 
         # warnings are filtered as errors here
-        with pytest.raises(UserWarning):
+        with pytest.raises(utils.MissingTableException):
             db.get_table('astromon_regions', dbfile)
-        # adding an empty table to prevent warning
+        # adding an empty table to prevent exception
         db.save(
-            dbfile, 'astromon_regions',
-            Table(names=db.DTYPES['astromon_regions'].names, dtype=db.DTYPES['astromon_regions'])
+            'astromon_regions',
+            db.create_table('astromon_regions'),
+            dbfile
         )
 
         # adding one at a time
