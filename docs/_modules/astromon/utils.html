@@ -5,7 +5,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>astromon.utils &#8212; Astromon 0.2.dev29+ge077a63 documentation</title>
+    <title>astromon.utils &#8212; Astromon 1.0.0a2.dev61+g84f1ae7.d20220531 documentation</title>
     <link rel="stylesheet" type="text/css" href="../../_static/pygments.css" />
     <link rel="stylesheet" type="text/css" href="../../_static/bootstrap-astropy.css" />
     
@@ -46,7 +46,7 @@
     <h3>Navigation</h3>
     <ul>
       <li>
-	<a href="../../index.html">Astromon 0.2.dev29+ge077a63 documentation</a>
+	<a href="../../index.html">Astromon 1.0.0a2.dev61+g84f1ae7.d20220531 documentation</a>
 	 &#187;
       </li>
       <li><a href="../index.html" accesskey="U">Module code</a> &#187;</li>
@@ -73,11 +73,63 @@
 <span class="kn">import</span> <span class="nn">tempfile</span>
 
 
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s1">&#39;communicate&#39;</span><span class="p">,</span> <span class="s1">&#39;Ciao&#39;</span><span class="p">,</span> <span class="s1">&#39;chdir&#39;</span><span class="p">,</span> <span class="s1">&#39;ciao_context&#39;</span><span class="p">,</span> <span class="s1">&#39;logging_call_decorator&#39;</span><span class="p">,</span> <span class="s1">&#39;FlowException&#39;</span>
+<span class="p">]</span>
+
+
 <span class="n">CIAO_ENV</span> <span class="o">=</span> <span class="p">{}</span>
 
 
+<span class="k">class</span> <span class="nc">MissingTableException</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Exception class in case a table is missing in the DB file.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">pass</span>
+
+
 <div class="viewcode-block" id="FlowException"><a class="viewcode-back" href="../../api.html#astromon.utils.FlowException">[docs]</a><span class="k">class</span> <span class="nc">FlowException</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Exception class to interrupt the execution flow.</span>
+
+<span class="sd">    This exception class is used by :any:`logging_call_decorator` and is silently ignored unless</span>
+<span class="sd">    instructed otherwise.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">pass</span></div>
+
+
+<div class="viewcode-block" id="communicate"><a class="viewcode-back" href="../../api.html#astromon.utils.communicate">[docs]</a><span class="k">def</span> <span class="nf">communicate</span><span class="p">(</span><span class="n">process</span><span class="p">,</span> <span class="n">logger</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="s1">&#39;WARNING&#39;</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">logging_tag</span><span class="o">=</span><span class="s1">&#39;&#39;</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Real-time reading of a subprocess stdout.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    process:</span>
+<span class="sd">        process returned by :any:`python:subprocess.Popen`</span>
+<span class="sd">    logger: :any:`python:logging.Logger`</span>
+<span class="sd">    level: str or int</span>
+<span class="sd">        the logging level</span>
+<span class="sd">    text: bool</span>
+<span class="sd">        whether the process output is text or binary</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">level</span><span class="p">)</span> <span class="ow">is</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="n">level</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">logging</span><span class="p">,</span> <span class="n">level</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">logger</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">()</span>
+
+    <span class="k">while</span> <span class="kc">True</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">process</span><span class="o">.</span><span class="n">poll</span><span class="p">()</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">break</span>
+        <span class="n">line</span> <span class="o">=</span> <span class="n">process</span><span class="o">.</span><span class="n">stdout</span><span class="o">.</span><span class="n">readline</span><span class="p">()</span>
+        <span class="n">line</span> <span class="o">=</span> <span class="n">line</span> <span class="k">if</span> <span class="n">text</span> <span class="k">else</span> <span class="n">line</span><span class="o">.</span><span class="n">decode</span><span class="p">()</span>
+        <span class="n">line</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">rstrip</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">level</span><span class="p">,</span> <span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">logging_tag</span><span class="si">}</span><span class="s1"> </span><span class="si">{</span><span class="n">line</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">)</span>
+
+    <span class="c1"># in case the buffer is still not empty after the process ended</span>
+    <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">process</span><span class="o">.</span><span class="n">stdout</span><span class="o">.</span><span class="n">readlines</span><span class="p">():</span>
+        <span class="n">line</span> <span class="o">=</span> <span class="n">line</span> <span class="k">if</span> <span class="n">text</span> <span class="k">else</span> <span class="n">line</span><span class="o">.</span><span class="n">decode</span><span class="p">()</span>
+        <span class="n">line</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">rstrip</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">level</span><span class="p">,</span> <span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">logging_tag</span><span class="si">}</span><span class="s1"> </span><span class="si">{</span><span class="n">line</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="Ciao"><a class="viewcode-back" href="../../api.html#astromon.utils.Ciao">[docs]</a><span class="k">class</span> <span class="nc">Ciao</span><span class="p">:</span>
@@ -93,9 +145,9 @@
 <span class="sd">    ----------</span>
 <span class="sd">    prefix : str</span>
 <span class="sd">        The location of CIAO.</span>
-<span class="sd">    workdir : pathlib.Path or str.</span>
+<span class="sd">    workdir : :any:`python:pathlib.Path` or str</span>
 <span class="sd">        Working directory. Used to set PFILES and ASCDS_WORK_PATH.</span>
-<span class="sd">    logger: logging.Logger.</span>
+<span class="sd">    logger: :any:`python:logging.Logger`</span>
 <span class="sd">        If not provided, the root logger is used.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">prefix</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
@@ -152,26 +204,22 @@
             <span class="n">stdout</span><span class="o">=</span><span class="n">stdout</span><span class="p">,</span>
             <span class="n">stderr</span><span class="o">=</span><span class="n">stderr</span><span class="p">,</span>
             <span class="n">env</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">env</span><span class="p">)</span>
-        <span class="n">output</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">process</span><span class="o">.</span><span class="n">communicate</span><span class="p">()</span>
-        <span class="k">if</span> <span class="n">output</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">output</span><span class="o">.</span><span class="n">decode</span><span class="p">():</span>
-            <span class="n">output</span> <span class="o">=</span> <span class="n">output</span><span class="o">.</span><span class="n">decode</span><span class="p">()</span>
-            <span class="n">output</span> <span class="o">=</span> <span class="s1">&#39;</span><span class="se">\n</span><span class="s1">&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">logging_tag</span><span class="si">}</span><span class="s1"> </span><span class="si">{</span><span class="n">line</span><span class="si">}</span><span class="s1">&#39;</span> <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">output</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">&#39;</span><span class="se">\n</span><span class="s1">&#39;</span><span class="p">)])</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
+        <span class="n">communicate</span><span class="p">(</span><span class="n">process</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="mi">20</span><span class="p">,</span> <span class="n">logging_tag</span><span class="o">=</span><span class="n">logging_tag</span><span class="p">)</span>  <span class="c1"># 20 is logging.INFO</span>
         <span class="k">if</span> <span class="n">process</span><span class="o">.</span><span class="n">returncode</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">logging_tag</span><span class="si">}</span><span class="s1"> </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s1"> failed&#39;</span><span class="p">)</span>
 
-<div class="viewcode-block" id="Ciao.pget"><a class="viewcode-back" href="../../api.html#astromon.utils.Ciao.pget">[docs]</a>    <span class="k">def</span> <span class="nf">pget</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">command</span><span class="p">,</span> <span class="n">param</span><span class="o">=</span><span class="s1">&#39;value&#39;</span><span class="p">):</span>
+<div class="viewcode-block" id="Ciao.pget"><a class="viewcode-back" href="../../api.html#astromon.utils.Ciao.pget">[docs]</a>    <span class="k">def</span> <span class="nf">pget</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">command</span><span class="p">,</span> <span class="n">param</span><span class="o">=</span><span class="s1">&#39;value&#39;</span><span class="p">,</span> <span class="n">logging_tag</span><span class="o">=</span><span class="s1">&#39;&#39;</span><span class="p">):</span>
         <span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Call CIAO&#39;s pget and return the standard output.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;pget </span><span class="si">{</span><span class="n">command</span><span class="si">}</span><span class="s1"> </span><span class="si">{</span><span class="n">param</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">logging_tag</span><span class="si">}</span><span class="s1"> pget </span><span class="si">{</span><span class="n">command</span><span class="si">}</span><span class="s1"> </span><span class="si">{</span><span class="n">param</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">check_output</span><span class="p">(</span>
             <span class="p">[</span><span class="s1">&#39;pget&#39;</span><span class="p">,</span> <span class="n">command</span><span class="p">,</span> <span class="n">param</span><span class="p">],</span>
             <span class="n">env</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">env</span>
         <span class="p">)</span><span class="o">.</span><span class="n">decode</span><span class="p">()</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span></div></div>
 
 
-<div class="viewcode-block" id="set_ciao_context"><a class="viewcode-back" href="../../api.html#astromon.utils.set_ciao_context">[docs]</a><span class="k">def</span> <span class="nf">set_ciao_context</span><span class="p">(</span><span class="n">directory</span><span class="p">):</span>
+<span class="k">def</span> <span class="nf">set_ciao_context</span><span class="p">(</span><span class="n">directory</span><span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Set the environment variables used by CIAO (PFILES and ASCDS_WORK_PATH).</span>
 <span class="sd">    &quot;&quot;&quot;</span>
@@ -184,7 +232,7 @@
         <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;ASCDS_INSTALL&quot;</span><span class="p">]</span> <span class="o">+</span> <span class="s2">&quot;/param&quot;</span><span class="p">,</span>
         <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;ASCDS_INSTALL&quot;</span><span class="p">]</span> <span class="o">+</span> <span class="s2">&quot;/contrib/param&quot;</span>
     <span class="p">)</span>
-    <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;PFILES&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">pf</span></div>
+    <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;PFILES&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">pf</span>
 
 
 <div class="viewcode-block" id="chdir"><a class="viewcode-back" href="../../api.html#astromon.utils.chdir">[docs]</a><span class="k">class</span> <span class="nc">chdir</span><span class="p">(</span><span class="n">AbstractContextManager</span><span class="p">):</span>
@@ -201,16 +249,15 @@
         <span class="k">return</span> <span class="n">exc_type</span> <span class="ow">is</span> <span class="kc">None</span></div>
 
 
-<div class="viewcode-block" id="CIAOContext"><a class="viewcode-back" href="../../api.html#astromon.utils.CIAOContext">[docs]</a><span class="k">class</span> <span class="nc">CIAOContext</span><span class="p">(</span><span class="n">AbstractContextManager</span><span class="p">):</span>
+<span class="k">class</span> <span class="nc">CIAOContext</span><span class="p">(</span><span class="n">AbstractContextManager</span><span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Context manager to set CIAO context (PFILES and ASCDS_WORK_PATH)</span>
 
-
 <span class="sd">    Parameters</span>
 <span class="sd">    ----------</span>
-<span class="sd">    directory : pathlib.Path or str.</span>
+<span class="sd">    directory : :any:`python:pathlib.Path` or str</span>
 <span class="sd">        Working directory. Used to set PFILES and ASCDS_WORK_PATH.</span>
-<span class="sd">    logger: logging.Logger.</span>
+<span class="sd">    logger: :any:`python:logging.Logger`</span>
 <span class="sd">        If not provided, the root logger is used.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">directory</span><span class="p">,</span> <span class="n">logger</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
@@ -225,10 +272,10 @@
         <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">update</span><span class="p">({</span>
             <span class="n">key</span><span class="p">:</span> <span class="n">val</span> <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">val</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">env</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">val</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
         <span class="p">})</span>
-        <span class="k">return</span> <span class="n">exc_type</span> <span class="ow">is</span> <span class="kc">None</span></div>
+        <span class="k">return</span> <span class="n">exc_type</span> <span class="ow">is</span> <span class="kc">None</span>
 
 
-<div class="viewcode-block" id="ciao_context_function"><a class="viewcode-back" href="../../api.html#astromon.utils.ciao_context_function">[docs]</a><span class="k">def</span> <span class="nf">ciao_context_function</span><span class="p">(</span><span class="n">func</span><span class="p">):</span>
+<span class="k">def</span> <span class="nf">ciao_context_function</span><span class="p">(</span><span class="n">func</span><span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Decorator to set the CIAO parameters directory within the context of a member function.</span>
 
@@ -244,13 +291,24 @@
                 <span class="bp">self</span><span class="o">.</span><span class="n">workdir</span> <span class="o">/</span> <span class="bp">self</span><span class="o">.</span><span class="n">obsid</span> <span class="o">/</span> <span class="s1">&#39;params&#39;</span><span class="p">,</span>
                 <span class="n">logger</span><span class="o">=</span><span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s1">&#39;astromon.utils&#39;</span><span class="p">)):</span>
             <span class="k">return</span> <span class="n">func</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
-    <span class="k">return</span> <span class="n">ciao_context_wrapper</span></div>
+    <span class="k">return</span> <span class="n">ciao_context_wrapper</span>
 
 
 <span class="n">ciao_context</span> <span class="o">=</span> <span class="n">CIAOContext</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Context manager to set CIAO context (PFILES and ASCDS_WORK_PATH)</span>
 
 
-<div class="viewcode-block" id="LoggingCallDecorator"><a class="viewcode-back" href="../../api.html#astromon.utils.LoggingCallDecorator">[docs]</a><span class="k">class</span> <span class="nc">LoggingCallDecorator</span><span class="p">:</span>
+<span class="sd">Parameters</span>
+<span class="sd">----------</span>
+<span class="sd">directory : pathlib.Path or str</span>
+<span class="sd">    Working directory. Used to set PFILES and ASCDS_WORK_PATH.</span>
+<span class="sd">logger: :any:`python:logging.Logger`</span>
+<span class="sd">    If not provided, the root logger is used.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+
+<span class="k">class</span> <span class="nc">LoggingCallDecorator</span><span class="p">:</span>
     <span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Decorator to add logging messages at the start/end of the decorated function.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
@@ -292,17 +350,20 @@
             <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">log</span><span class="p">(</span>
                     <span class="bp">self</span><span class="o">.</span><span class="n">log_level</span><span class="p">,</span>
-                    <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">instance</span><span class="si">}{</span><span class="n">func</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">(</span><span class="si">{</span><span class="n">args_str</span><span class="si">}</span><span class="s2">) Error: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">instance</span><span class="si">}{</span><span class="n">func</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">(</span><span class="si">{</span><span class="n">args_str</span><span class="si">}</span><span class="s2">) Except: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span>
                 <span class="p">)</span>
                 <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">ignore_exceptions</span><span class="p">:</span>
                     <span class="k">raise</span>
-        <span class="k">return</span> <span class="n">_logging_call_decorator</span></div>
+        <span class="k">return</span> <span class="n">_logging_call_decorator</span>
 
 
 <span class="n">logging_call_decorator</span> <span class="o">=</span> <span class="n">LoggingCallDecorator</span><span class="p">(</span>
     <span class="n">log_level</span><span class="o">=</span><span class="n">logging</span><span class="o">.</span><span class="n">INFO</span><span class="p">,</span>
     <span class="n">logger</span><span class="o">=</span><span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s1">&#39;astromon&#39;</span><span class="p">)</span>
 <span class="p">)</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Decorator to add logging messages at the start/end of the decorated function.</span>
+<span class="sd">&quot;&quot;&quot;</span>
 </pre></div>
 
             <div class="clearer"></div>

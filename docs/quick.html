@@ -6,7 +6,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
 
-    <title>Quick Start &#8212; Astromon 0.2.dev29+ge077a63 documentation</title>
+    <title>Quick Start &#8212; Astromon 1.0.0a2.dev61+g84f1ae7.d20220531 documentation</title>
     <link rel="stylesheet" type="text/css" href="_static/pygments.css" />
     <link rel="stylesheet" type="text/css" href="_static/bootstrap-astropy.css" />
     
@@ -60,7 +60,7 @@
 	 |
       </li>
       <li>
-	<a href="index.html">Astromon 0.2.dev29+ge077a63 documentation</a>
+	<a href="index.html">Astromon 1.0.0a2.dev61+g84f1ae7.d20220531 documentation</a>
 	 &#187;
       </li>
       
@@ -76,20 +76,82 @@
             
   <section id="quick-start">
 <h1>Quick Start<a class="headerlink" href="#quick-start" title="Permalink to this headline">¶</a></h1>
-<p>The most common usage of the astromon data products is the list of cross-matches:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">astromon</span> <span class="kn">import</span> <span class="n">db</span>
-<span class="n">matches</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get_cross_matches</span><span class="p">()</span>
+<section id="pre-computed-queries">
+<h2>Pre-computed queries<a class="headerlink" href="#pre-computed-queries" title="Permalink to this headline">¶</a></h2>
+<p>A common usage of the astromon data products is to get the <em>standard</em> pre-computed cross-matches
+using <a class="reference internal" href="api.html#astromon.db.get_cross_matches" title="astromon.db.get_cross_matches"><code class="xref any py py-func docutils literal notranslate"><span class="pre">db.get_cross_matches</span></code></a>. This function takes a <code class="docutils literal notranslate"><span class="pre">name</span></code> argument that specifies the
+algorithm that was used to cross-match and the arguments passed to the cross-matching
+function. It returns a table that results from joining a few underlying tables. If the name is not
+provided, the default set described in <a class="reference internal" href="astromon.html#cross-matching-algorithms"><span class="std std-ref">Cross-Matching Algorithms</span></a> is returned:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">astromon</span> <span class="kn">import</span> <span class="n">get_cross_matches</span>
+<span class="n">matches</span> <span class="o">=</span> <span class="n">get_cross_matches</span><span class="p">()</span>
 </pre></div>
 </div>
-<p>This table is the result of joining a few underlying tables. One can easily get those tables too:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">astromon</span> <span class="kn">import</span> <span class="n">db</span>
-<span class="n">observations</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;astromon_obs&#39;</span><span class="p">)</span>
-<span class="n">xray_src</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;astromon_xray_src&#39;</span><span class="p">)</span>
-<span class="n">cat_src</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;astromon_cat_src&#39;</span><span class="p">)</span>
-<span class="n">xcorr</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;astromon_xcorr&#39;</span><span class="p">)</span>
+<p>Here is a more elaborate example to do some analysis, filtering on some columns,
+and excluding x-ray sources in known problematic regions:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">astromon</span> <span class="kn">import</span> <span class="n">get_cross_matches</span>
+<span class="n">matches</span> <span class="o">=</span> <span class="n">get_cross_matches</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s1">&#39;astromon_21&#39;</span><span class="p">,</span>
+    <span class="n">exclude_regions</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">snr</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>
+    <span class="n">dr</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">catalog</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;Tycho2&#39;</span><span class="p">]</span>
+<span class="p">)</span>
 </pre></div>
 </div>
-<p>With all these functions, there are two ways one can optionally specify the DB file to use:</p>
+</section>
+<section id="custom-cross-matches">
+<h2>Custom cross-matches<a class="headerlink" href="#custom-cross-matches" title="Permalink to this headline">¶</a></h2>
+<p>It is possible to re-compute cross-matches using the
+<a class="reference internal" href="api.html#astromon.cross_match.compute_cross_matches" title="astromon.cross_match.compute_cross_matches"><code class="xref any py py-func docutils literal notranslate"><span class="pre">compute_cross_matches</span></code></a> function. The following uses
+default arguments (the arguments to compute the standard cross-match described in
+<a class="reference internal" href="astromon.html#cross-matching-algorithms"><span class="std std-ref">Cross-Matching Algorithms</span></a>):</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">astromon</span> <span class="kn">import</span> <span class="n">cross_match</span>
+<span class="n">matches</span> <span class="o">=</span> <span class="n">cross_match</span><span class="o">.</span><span class="n">compute_cross_matches</span><span class="p">()</span>
+</pre></div>
+</div>
+<p>and this is an example of calling it with some custom arguments (see the notes and warnings for the
+<a class="reference internal" href="api.html#astromon.cross_match.compute_cross_matches" title="astromon.cross_match.compute_cross_matches"><code class="xref any py py-func docutils literal notranslate"><span class="pre">compute_cross_matches</span></code></a> and <a class="reference internal" href="api.html#astromon.cross_match.simple_cross_match" title="astromon.cross_match.simple_cross_match"><code class="xref any py py-func docutils literal notranslate"><span class="pre">simple_cross_match</span></code></a> functions):</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">astromon</span> <span class="kn">import</span> <span class="n">cross_match</span>
+<span class="n">matches</span> <span class="o">=</span> <span class="n">cross_match</span><span class="o">.</span><span class="n">compute_cross_matches</span><span class="p">(</span>
+    <span class="n">catalogs</span><span class="o">=</span><span class="p">(</span><span class="s1">&#39;USNO-B1.0&#39;</span><span class="p">),</span>
+    <span class="n">snr</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
+    <span class="n">r_angle</span><span class="o">=</span><span class="mf">60.</span><span class="p">,</span>
+    <span class="n">dr</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">r_angle_grating</span><span class="o">=</span><span class="mf">6.</span><span class="p">,</span>
+    <span class="n">near_neighbor_dist</span><span class="o">=</span><span class="mf">5.</span><span class="p">,</span>
+    <span class="n">start</span><span class="o">=</span><span class="s1">&#39;2022:001&#39;</span><span class="p">,</span>
+    <span class="n">exclude_regions</span><span class="o">=</span><span class="kc">True</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="filtering-the-list-of-cross-matches">
+<h2>Filtering the List of Cross-matches<a class="headerlink" href="#filtering-the-list-of-cross-matches" title="Permalink to this headline">¶</a></h2>
+<p>There are convenience methods to help filter x-ray sources within known problematic regions
+(<a class="reference internal" href="api.html#astromon.cross_match.get_excluded_regions_mask" title="astromon.cross_match.get_excluded_regions_mask"><code class="xref any py py-func docutils literal notranslate"><span class="pre">get_excluded_regions_mask</span></code></a>), in known difficult
+targets (<a class="reference internal" href="api.html#astromon.cross_match.get_bad_target_mask" title="astromon.cross_match.get_bad_target_mask"><code class="xref any py py-func docutils literal notranslate"><span class="pre">get_bad_target_mask</span></code></a>), or based on common criteria
+(<a class="reference internal" href="api.html#astromon.cross_match.filter_matches" title="astromon.cross_match.filter_matches"><code class="xref any py py-func docutils literal notranslate"><span class="pre">filter_matches</span></code></a>). These functions are used internally by
+<a class="reference internal" href="api.html#astromon.db.get_cross_matches" title="astromon.db.get_cross_matches"><code class="xref any py py-func docutils literal notranslate"><span class="pre">get_cross_matches</span></code></a>, but they can be used directly:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">astropy.table</span> <span class="kn">import</span> <span class="n">join</span>
+<span class="kn">from</span> <span class="nn">astromon</span> <span class="kn">import</span> <span class="n">cross_match</span><span class="p">,</span> <span class="n">db</span>
+
+<span class="n">matches</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get_cross_matches</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s1">&#39;astromon_21&#39;</span><span class="p">)</span>
+<span class="n">not_excluded</span> <span class="o">=</span> <span class="n">cross_match</span><span class="o">.</span><span class="n">get_excluded_regions_mask</span><span class="p">(</span><span class="n">matches</span><span class="p">)</span>
+<span class="n">selected</span> <span class="o">=</span> <span class="n">cross_match</span><span class="o">.</span><span class="n">filter_matches</span><span class="p">(</span><span class="n">matches</span><span class="p">,</span> <span class="n">snr</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">dr</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">catalog</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;Tycho2&#39;</span><span class="p">])</span>
+<span class="n">matches</span> <span class="o">=</span> <span class="n">matches</span><span class="p">[</span><span class="n">not_excluded</span> <span class="o">&amp;</span> <span class="n">selected</span><span class="p">]</span>
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Filtering on certain fields might not do what you expect. For example, filtering on <cite>catalog</cite>
+removes sources that might have been matched with your selected catalog if you had re-computed
+the cross-match.</p>
+</div>
+</section>
+<section id="astromon-file-location">
+<h2>Astromon File Location<a class="headerlink" href="#astromon-file-location" title="Permalink to this headline">¶</a></h2>
+<p>With all these functions, there are two ways one can specify a custom DB file location:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">astromon</span> <span class="kn">import</span> <span class="n">db</span>
 <span class="n">matches</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get_cross_matches</span><span class="p">(</span><span class="n">dbfile</span><span class="o">=</span><span class="s1">&#39;some_file.h5&#39;</span><span class="p">)</span>
 </pre></div>
@@ -102,6 +164,7 @@
 </pre></div>
 </div>
 </section>
+</section>
 
 
             <div class="clearer"></div>
@@ -111,7 +174,13 @@
       <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
         <div class="sphinxsidebarwrapper"><h3>Page Contents</h3>
 <ul>
-<li><a class="reference internal" href="#">Quick Start</a></li>
+<li><a class="reference internal" href="#">Quick Start</a><ul>
+<li><a class="reference internal" href="#pre-computed-queries">Pre-computed queries</a></li>
+<li><a class="reference internal" href="#custom-cross-matches">Custom cross-matches</a></li>
+<li><a class="reference internal" href="#filtering-the-list-of-cross-matches">Filtering the List of Cross-matches</a></li>
+<li><a class="reference internal" href="#astromon-file-location">Astromon File Location</a></li>
+</ul>
+</li>
 </ul>
 
 

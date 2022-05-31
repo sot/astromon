@@ -19,12 +19,6 @@ observation
 .. automodule:: astromon.observation
    :members:
 
-telemetry
----------
-
-.. automodule:: astromon.telemetry
-   :members:
-
 utils
 -----
 

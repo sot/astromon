@@ -5,7 +5,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>astromon.db &#8212; Astromon 0.2.dev29+ge077a63 documentation</title>
+    <title>astromon.db &#8212; Astromon 1.0.0a2.dev61+g84f1ae7.d20220531 documentation</title>
     <link rel="stylesheet" type="text/css" href="../../_static/pygments.css" />
     <link rel="stylesheet" type="text/css" href="../../_static/bootstrap-astropy.css" />
     
@@ -46,7 +46,7 @@
     <h3>Navigation</h3>
     <ul>
       <li>
-	<a href="../../index.html">Astromon 0.2.dev29+ge077a63 documentation</a>
+	<a href="../../index.html">Astromon 1.0.0a2.dev61+g84f1ae7.d20220531 documentation</a>
 	 &#187;
       </li>
       <li><a href="../index.html" accesskey="U">Module code</a> &#187;</li>
@@ -65,13 +65,15 @@
 <span></span><span class="kn">import</span> <span class="nn">contextlib</span>
 <span class="kn">import</span> <span class="nn">os</span>
 <span class="kn">import</span> <span class="nn">sqlite3</span>
+<span class="kn">import</span> <span class="nn">functools</span>
+<span class="kn">import</span> <span class="nn">re</span>
+<span class="kn">import</span> <span class="nn">logging</span>
 <span class="kn">from</span> <span class="nn">astropy.table.table</span> <span class="kn">import</span> <span class="n">Table</span>
 <span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
 <span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
 <span class="kn">from</span> <span class="nn">contextlib</span> <span class="kn">import</span> <span class="n">contextmanager</span>
 <span class="kn">import</span> <span class="nn">warnings</span>
 <span class="kn">from</span> <span class="nn">filelock</span> <span class="kn">import</span> <span class="n">FileLock</span>
-<span class="kn">from</span> <span class="nn">Ska.DBI</span> <span class="kn">import</span> <span class="n">DBI</span>
 
 <span class="kn">from</span> <span class="nn">cxotime</span> <span class="kn">import</span> <span class="n">CxoTime</span>
 <span class="kn">from</span> <span class="nn">astropy.coordinates</span> <span class="kn">import</span> <span class="n">SkyCoord</span>
@@ -81,41 +83,45 @@
 <span class="kn">from</span> <span class="nn">ska_helpers.retry</span> <span class="kn">import</span> <span class="n">tables_open_file</span>
 
 <span class="kn">from</span> <span class="nn">astromon</span> <span class="kn">import</span> <span class="n">observation</span>
+<span class="kn">from</span> <span class="nn">astromon.utils</span> <span class="kn">import</span> <span class="n">MissingTableException</span>
+
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;get_table&#39;</span><span class="p">,</span> <span class="s1">&#39;get_cross_matches&#39;</span><span class="p">,</span> <span class="s1">&#39;save&#39;</span><span class="p">,</span> <span class="s1">&#39;add_regions&#39;</span><span class="p">,</span> <span class="s1">&#39;remove_regions&#39;</span><span class="p">]</span>
 
 <span class="k">if</span> <span class="s1">&#39;ASTROMON_FILE&#39;</span> <span class="ow">in</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">:</span>
     <span class="n">FILE</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s1">&#39;ASTROMON_FILE&#39;</span><span class="p">])</span>
 <span class="k">elif</span> <span class="s1">&#39;NO_DEFAULT_ASTROMON&#39;</span> <span class="ow">in</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">:</span>
     <span class="n">FILE</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="k">else</span><span class="p">:</span>
-    <span class="n">FILE</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s1">&#39;SKA&#39;</span><span class="p">])</span> <span class="o">/</span> <span class="s1">&#39;data&#39;</span> <span class="o">/</span> <span class="s1">&#39;astromon&#39;</span> <span class="o">/</span> <span class="s1">&#39;astromon.db3&#39;</span>
+    <span class="n">FILE</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s1">&#39;SKA&#39;</span><span class="p">])</span> <span class="o">/</span> <span class="s1">&#39;data&#39;</span> <span class="o">/</span> <span class="s1">&#39;astromon&#39;</span> <span class="o">/</span> <span class="s1">&#39;astromon.h5&#39;</span>
 
 <span class="n">ASTROMON_XCORR_DTYPE</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">dtype</span><span class="p">([</span>
     <span class="p">(</span><span class="s1">&#39;select_name&#39;</span><span class="p">,</span> <span class="s1">&#39;S14&#39;</span><span class="p">),</span>
     <span class="p">(</span><span class="s1">&#39;obsid&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">int32</span><span class="p">),</span>
     <span class="p">(</span><span class="s1">&#39;c_id&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">int32</span><span class="p">),</span>
     <span class="p">(</span><span class="s1">&#39;x_id&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">int32</span><span class="p">),</span>
-    <span class="p">(</span><span class="s1">&#39;dy&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float</span><span class="p">),</span>
-    <span class="p">(</span><span class="s1">&#39;dz&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float</span><span class="p">),</span>
-    <span class="p">(</span><span class="s1">&#39;dr&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float</span><span class="p">)</span>
+    <span class="p">(</span><span class="s1">&#39;dy&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">),</span>
+    <span class="p">(</span><span class="s1">&#39;dz&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">),</span>
+    <span class="p">(</span><span class="s1">&#39;dr&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
 <span class="p">])</span>
 
 
 <span class="n">ASTROMON_XRAY_SRC_DTYPE</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">dtype</span><span class="p">([</span>
     <span class="p">(</span><span class="s1">&#39;obsid&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">int32</span><span class="p">),</span>
     <span class="p">(</span><span class="s1">&#39;id&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">int32</span><span class="p">),</span>
-    <span class="p">(</span><span class="s1">&#39;name&#39;</span><span class="p">,</span> <span class="s1">&#39;S20&#39;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s1">&#39;name&#39;</span><span class="p">,</span> <span class="s1">&#39;S22&#39;</span><span class="p">),</span>
     <span class="p">(</span><span class="s1">&#39;ra&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">),</span>
     <span class="p">(</span><span class="s1">&#39;dec&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">),</span>
-    <span class="p">(</span><span class="s1">&#39;net_counts&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float</span><span class="p">),</span>
-    <span class="p">(</span><span class="s1">&#39;y_angle&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float</span><span class="p">),</span>
-    <span class="p">(</span><span class="s1">&#39;z_angle&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float</span><span class="p">),</span>
-    <span class="p">(</span><span class="s1">&#39;r_angle&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float</span><span class="p">),</span>
-    <span class="p">(</span><span class="s1">&#39;snr&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float</span><span class="p">),</span>
-    <span class="p">(</span><span class="s1">&#39;near_neighbor_dist&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float</span><span class="p">),</span>
+    <span class="p">(</span><span class="s1">&#39;net_counts&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">),</span>
+    <span class="p">(</span><span class="s1">&#39;y_angle&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">),</span>
+    <span class="p">(</span><span class="s1">&#39;z_angle&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">),</span>
+    <span class="p">(</span><span class="s1">&#39;r_angle&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">),</span>
+    <span class="p">(</span><span class="s1">&#39;snr&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">),</span>
+    <span class="p">(</span><span class="s1">&#39;near_neighbor_dist&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">),</span>
     <span class="p">(</span><span class="s1">&#39;double_id&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">int32</span><span class="p">),</span>
     <span class="p">(</span><span class="s1">&#39;status_id&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">int32</span><span class="p">),</span>
-    <span class="p">(</span><span class="s1">&#39;pileup&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float</span><span class="p">),</span>
-    <span class="p">(</span><span class="s1">&#39;acis_streak&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">bool</span><span class="p">),</span>
+    <span class="p">(</span><span class="s1">&#39;pileup&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">),</span>
+    <span class="p">(</span><span class="s1">&#39;acis_streak&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">int32</span><span class="p">),</span>
 <span class="p">])</span>
 
 
@@ -123,49 +129,49 @@
     <span class="p">(</span><span class="s1">&#39;obsid&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">int32</span><span class="p">),</span>
     <span class="p">(</span><span class="s1">&#39;id&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">int32</span><span class="p">),</span>
     <span class="p">(</span><span class="s1">&#39;x_id&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">int32</span><span class="p">),</span>
-    <span class="p">(</span><span class="s1">&#39;catalog&#39;</span><span class="p">,</span> <span class="s1">&#39;S11&#39;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s1">&#39;catalog&#39;</span><span class="p">,</span> <span class="s1">&#39;S16&#39;</span><span class="p">),</span>
     <span class="p">(</span><span class="s1">&#39;name&#39;</span><span class="p">,</span> <span class="s1">&#39;S24&#39;</span><span class="p">),</span>
     <span class="p">(</span><span class="s1">&#39;ra&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">),</span>
     <span class="p">(</span><span class="s1">&#39;dec&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">),</span>
-    <span class="p">(</span><span class="s1">&#39;separation&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float</span><span class="p">),</span>
-    <span class="p">(</span><span class="s1">&#39;mag&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float</span><span class="p">),</span>
-    <span class="p">(</span><span class="s1">&#39;y_angle&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float</span><span class="p">),</span>
-    <span class="p">(</span><span class="s1">&#39;z_angle&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float</span><span class="p">)</span>
+    <span class="p">(</span><span class="s1">&#39;separation&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">),</span>
+    <span class="p">(</span><span class="s1">&#39;mag&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">),</span>
+    <span class="p">(</span><span class="s1">&#39;y_angle&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">),</span>
+    <span class="p">(</span><span class="s1">&#39;z_angle&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
 <span class="p">])</span>
 
 
 <span class="n">ASTROMON_OBS_DTYPE</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">dtype</span><span class="p">([</span>
     <span class="p">(</span><span class="s1">&#39;obsid&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">int32</span><span class="p">),</span>
-    <span class="p">(</span><span class="s1">&#39;version&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float</span><span class="p">),</span>
+    <span class="p">(</span><span class="s1">&#39;version&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">),</span>
     <span class="p">(</span><span class="s1">&#39;detector&#39;</span><span class="p">,</span> <span class="s1">&#39;S6&#39;</span><span class="p">),</span>
     <span class="p">(</span><span class="s1">&#39;target&#39;</span><span class="p">,</span> <span class="s1">&#39;S28&#39;</span><span class="p">),</span>
     <span class="p">(</span><span class="s1">&#39;grating&#39;</span><span class="p">,</span> <span class="s1">&#39;S4&#39;</span><span class="p">),</span>
-    <span class="p">(</span><span class="s1">&#39;sim_z&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float</span><span class="p">),</span>
+    <span class="p">(</span><span class="s1">&#39;sim_z&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">),</span>
     <span class="p">(</span><span class="s1">&#39;date_obs&#39;</span><span class="p">,</span> <span class="s1">&#39;S20&#39;</span><span class="p">),</span>
-    <span class="p">(</span><span class="s1">&#39;tstart&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float</span><span class="p">),</span>
+    <span class="p">(</span><span class="s1">&#39;tstart&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">),</span>
     <span class="p">(</span><span class="s1">&#39;fids&#39;</span><span class="p">,</span> <span class="s1">&#39;S20&#39;</span><span class="p">),</span>
     <span class="p">(</span><span class="s1">&#39;ascdsver&#39;</span><span class="p">,</span> <span class="s1">&#39;S32&#39;</span><span class="p">),</span>
     <span class="p">(</span><span class="s1">&#39;ra&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">),</span>
     <span class="p">(</span><span class="s1">&#39;dec&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">),</span>
     <span class="p">(</span><span class="s1">&#39;roll&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">),</span>
-    <span class="p">(</span><span class="s1">&#39;process_status&#39;</span><span class="p">,</span> <span class="s1">&#39;S229&#39;</span><span class="p">),</span>
-    <span class="p">(</span><span class="s1">&#39;category_id&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">int</span><span class="p">)</span>
+    <span class="p">(</span><span class="s1">&#39;process_status&#39;</span><span class="p">,</span> <span class="s1">&#39;S128&#39;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s1">&#39;category_id&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">int32</span><span class="p">)</span>
 <span class="p">])</span>
 
 
 <span class="n">ASTROMON_REGION_DTYPE</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">dtype</span><span class="p">([</span>
-    <span class="p">(</span><span class="s1">&#39;region_id&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">int</span><span class="p">),</span>
+    <span class="p">(</span><span class="s1">&#39;region_id&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">int32</span><span class="p">),</span>
     <span class="p">(</span><span class="s1">&#39;ra&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">),</span>
     <span class="p">(</span><span class="s1">&#39;dec&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">),</span>
-    <span class="p">(</span><span class="s1">&#39;radius&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">),</span>
-    <span class="p">(</span><span class="s1">&#39;obsid&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">int</span><span class="p">),</span>
+    <span class="p">(</span><span class="s1">&#39;radius&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">),</span>
+    <span class="p">(</span><span class="s1">&#39;obsid&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">int32</span><span class="p">),</span>
     <span class="p">(</span><span class="s1">&#39;user&#39;</span><span class="p">,</span> <span class="s1">&#39;S50&#39;</span><span class="p">),</span>
     <span class="p">(</span><span class="s1">&#39;comments&#39;</span><span class="p">,</span> <span class="s1">&#39;S200&#39;</span><span class="p">),</span>
 <span class="p">])</span>
 
 
 <span class="n">ASTROMON_META_DTYPE</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">dtype</span><span class="p">([</span>
-    <span class="p">(</span><span class="s1">&#39;last_region_id&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">int</span><span class="p">),</span>
+    <span class="p">(</span><span class="s1">&#39;last_region_id&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">int32</span><span class="p">),</span>
 <span class="p">])</span>
 
 
@@ -179,36 +185,126 @@
 <span class="p">}</span>
 
 
-<div class="viewcode-block" id="get"><a class="viewcode-back" href="../../api.html#astromon.db.get">[docs]</a><span class="k">def</span> <span class="nf">get</span><span class="p">(</span><span class="n">table_name</span><span class="p">,</span> <span class="n">dbfile</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="k">def</span> <span class="nf">_sqltype_to_dtype</span><span class="p">(</span><span class="n">t</span><span class="p">):</span>
+    <span class="kn">import</span> <span class="nn">re</span>
+    <span class="n">t</span> <span class="o">=</span> <span class="n">t</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+    <span class="n">types</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s1">&#39;integer&#39;</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">int32</span><span class="p">,</span>
+        <span class="s1">&#39;int&#39;</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">int32</span><span class="p">,</span>
+        <span class="s1">&#39;float&#39;</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span>
+        <span class="s1">&#39;double precision&#39;</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">,</span>
+    <span class="p">}</span>
+    <span class="k">if</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">types</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">types</span><span class="p">[</span><span class="n">t</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">m</span> <span class="o">:=</span> <span class="n">re</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="sa">r</span><span class="s1">&#39;varchar\((?P&lt;n&gt;[0-9]+)\)&#39;</span><span class="p">,</span> <span class="n">t</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">dtype</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;S</span><span class="si">{</span><span class="n">m</span><span class="o">.</span><span class="n">groupdict</span><span class="p">()[</span><span class="s2">&quot;n&quot;</span><span class="p">]</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">get_dtype</span><span class="p">(</span><span class="n">table_name</span><span class="p">,</span> <span class="n">dbfile</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="k">with</span> <span class="n">connect</span><span class="p">(</span><span class="n">dbfile</span><span class="p">)</span> <span class="k">as</span> <span class="n">con</span><span class="p">:</span>
+        <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">con</span><span class="p">)</span> <span class="ow">is</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">Connection</span><span class="p">:</span>
+            <span class="n">cur</span> <span class="o">=</span> <span class="n">con</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
+            <span class="n">columns</span> <span class="o">=</span> <span class="n">cur</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;PRAGMA table_info(&#39;</span><span class="si">{</span><span class="n">table_name</span><span class="si">}</span><span class="s2">&#39;)&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">fetchall</span><span class="p">()</span>
+            <span class="n">dtype</span> <span class="o">=</span> <span class="p">[(</span><span class="n">c</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">_sqltype_to_dtype</span><span class="p">(</span><span class="n">c</span><span class="p">[</span><span class="mi">2</span><span class="p">]))</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">columns</span><span class="p">]</span>
+            <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">dtype</span><span class="p">(</span><span class="n">dtype</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">type</span><span class="p">(</span><span class="n">con</span><span class="p">)</span> <span class="ow">is</span> <span class="n">tables</span><span class="o">.</span><span class="n">file</span><span class="o">.</span><span class="n">File</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span>
+
+
+<span class="k">def</span> <span class="nf">create_table</span><span class="p">(</span><span class="n">table_name</span><span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    Get an ENTIRE table.</span>
+<span class="sd">    Create an empty table using standard dtypes.</span>
+
+<span class="sd">    Known table names:</span>
+
+<span class="sd">    - astromon_xcorr</span>
+<span class="sd">    - astromon_xray_src</span>
+<span class="sd">    - astromon_cat_src</span>
+<span class="sd">    - astromon_obs</span>
+<span class="sd">    - astromon_regions</span>
+<span class="sd">    - astromon_meta</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    table_name: str</span>
+<span class="sd">        Name of the table to retrieve, which specifies the dtype.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    :any:`astropy.table.Table`</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="kn">import</span> <span class="nn">logging</span>
-    <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s1">&#39;astromon&#39;</span><span class="p">)</span>
-    <span class="k">if</span> <span class="n">dbfile</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">dbfile</span> <span class="o">=</span> <span class="n">FILE</span>
-    <span class="k">if</span> <span class="nb">str</span><span class="p">(</span><span class="n">dbfile</span><span class="p">)[</span><span class="o">-</span><span class="mi">4</span><span class="p">:]</span> <span class="o">==</span> <span class="s1">&#39;.db3&#39;</span><span class="p">:</span>
-        <span class="n">dbi</span> <span class="o">=</span> <span class="n">DBI</span><span class="p">(</span><span class="s1">&#39;sqlite&#39;</span><span class="p">,</span> <span class="n">dbfile</span><span class="p">)</span>
-        <span class="k">return</span> <span class="n">table</span><span class="o">.</span><span class="n">Table</span><span class="p">(</span><span class="n">dbi</span><span class="o">.</span><span class="n">fetchall</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;select * from </span><span class="si">{</span><span class="n">table_name</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">))</span>
-    <span class="k">elif</span> <span class="nb">str</span><span class="p">(</span><span class="n">dbfile</span><span class="p">)[</span><span class="o">-</span><span class="mi">3</span><span class="p">:]</span> <span class="o">==</span> <span class="s1">&#39;.h5&#39;</span><span class="p">:</span>
-        <span class="k">with</span> <span class="n">tables_open_file</span><span class="p">(</span><span class="n">dbfile</span><span class="p">)</span> <span class="k">as</span> <span class="n">h5</span><span class="p">:</span>
+    <span class="k">return</span> <span class="n">table</span><span class="o">.</span><span class="n">Table</span><span class="p">(</span><span class="n">names</span><span class="o">=</span><span class="n">DTYPES</span><span class="p">[</span><span class="n">table_name</span><span class="p">]</span><span class="o">.</span><span class="n">names</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">DTYPES</span><span class="p">[</span><span class="n">table_name</span><span class="p">])</span>
+
+
+<div class="viewcode-block" id="get_table"><a class="viewcode-back" href="../../api.html#astromon.db.get_table">[docs]</a><span class="k">def</span> <span class="nf">get_table</span><span class="p">(</span><span class="n">table_name</span><span class="p">,</span> <span class="n">dbfile</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Get an entire table from the DB file.</span>
+
+<span class="sd">    Known table names:</span>
+
+<span class="sd">    - astromon_xcorr</span>
+<span class="sd">    - astromon_xray_src</span>
+<span class="sd">    - astromon_cat_src</span>
+<span class="sd">    - astromon_obs</span>
+<span class="sd">    - astromon_regions</span>
+<span class="sd">    - astromon_meta</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    table_name: str</span>
+<span class="sd">        Name of the table to retrieve. If the requested table is not in the file,</span>
+<span class="sd">        an exception will be raised.</span>
+<span class="sd">    dbfile: :any:`pathlib.Path`</span>
+<span class="sd">        File where tables are stored.</span>
+<span class="sd">        The default is `$ASTROMON_FILE` or `$SKA/data/astromon/astromon.h5`</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    :any:`astropy.table.Table`</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># logger = logging.getLogger(&#39;astromon&#39;)</span>
+    <span class="c1"># if not Path(dbfile).exists():</span>
+    <span class="c1">#     raise RuntimeError(f&#39;Astromon DB file does not exist {dbfile}&#39;)</span>
+
+    <span class="k">with</span> <span class="n">connect</span><span class="p">(</span><span class="n">dbfile</span><span class="p">)</span> <span class="k">as</span> <span class="n">con</span><span class="p">:</span>
+        <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">con</span><span class="p">)</span> <span class="ow">is</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">Connection</span><span class="p">:</span>
             <span class="k">try</span><span class="p">:</span>
-                <span class="n">res</span> <span class="o">=</span> <span class="n">h5</span><span class="o">.</span><span class="n">get_node</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;/</span><span class="si">{</span><span class="n">table_name</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">)[:]</span>
+                <span class="n">cur</span> <span class="o">=</span> <span class="n">con</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
+                <span class="n">columns</span> <span class="o">=</span> <span class="n">cur</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;PRAGMA table_info(&#39;</span><span class="si">{</span><span class="n">table_name</span><span class="si">}</span><span class="s2">&#39;)&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">fetchall</span><span class="p">()</span>
+                <span class="n">table_dtype</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">dtype</span><span class="p">([(</span><span class="n">c</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">_sqltype_to_dtype</span><span class="p">(</span><span class="n">c</span><span class="p">[</span><span class="mi">2</span><span class="p">]))</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">columns</span><span class="p">])</span>
+                <span class="n">table_column_names</span> <span class="o">=</span> <span class="p">[</span><span class="n">row</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">columns</span><span class="p">]</span>
+                <span class="n">cur</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;select * from </span><span class="si">{</span><span class="n">table_name</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">)</span>
+                <span class="n">data</span> <span class="o">=</span> <span class="n">cur</span><span class="o">.</span><span class="n">fetchall</span><span class="p">()</span>
+                <span class="n">data</span> <span class="o">=</span> <span class="p">[[</span><span class="n">d</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">data</span><span class="p">]</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">table_column_names</span><span class="p">))]</span>
+                <span class="n">result</span> <span class="o">=</span> <span class="n">table</span><span class="o">.</span><span class="n">Table</span><span class="p">(</span>
+                    <span class="n">data</span> <span class="k">if</span> <span class="n">data</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+                    <span class="n">names</span><span class="o">=</span><span class="n">table_column_names</span><span class="p">,</span>
+                    <span class="n">dtype</span><span class="o">=</span><span class="n">table_dtype</span>
+                <span class="p">)</span>
+            <span class="k">except</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">OperationalError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                <span class="c1"># this converts the sqlite3.OperationalError into a more readable one for us.</span>
+                <span class="k">if</span> <span class="n">re</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="s1">&#39;no such table&#39;</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)):</span>
+                    <span class="k">raise</span> <span class="n">MissingTableException</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">table_name</span><span class="si">}</span><span class="s1"> is not in file.&#39;</span><span class="p">)</span> <span class="kn">from</span> <span class="bp">None</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="k">raise</span>
+
+        <span class="k">elif</span> <span class="nb">type</span><span class="p">(</span><span class="n">con</span><span class="p">)</span> <span class="ow">is</span> <span class="n">tables</span><span class="o">.</span><span class="n">file</span><span class="o">.</span><span class="n">File</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">res</span> <span class="o">=</span> <span class="n">con</span><span class="o">.</span><span class="n">get_node</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;/</span><span class="si">{</span><span class="n">table_name</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">)[:]</span>
                 <span class="k">if</span> <span class="n">table_name</span> <span class="ow">in</span> <span class="n">DTYPES</span><span class="p">:</span>
                     <span class="n">res</span> <span class="o">=</span> <span class="n">res</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">DTYPES</span><span class="p">[</span><span class="n">table_name</span><span class="p">])</span>
-                <span class="n">res</span> <span class="o">=</span> <span class="n">table</span><span class="o">.</span><span class="n">Table</span><span class="p">((</span><span class="n">res</span><span class="p">))</span>
-                <span class="n">res</span><span class="o">.</span><span class="n">convert_bytestring_to_unicode</span><span class="p">()</span>
-                <span class="k">return</span> <span class="n">res</span>
+                <span class="n">result</span> <span class="o">=</span> <span class="n">table</span><span class="o">.</span><span class="n">Table</span><span class="p">(</span><span class="n">res</span><span class="p">)</span>
+                <span class="n">result</span><span class="o">.</span><span class="n">convert_bytestring_to_unicode</span><span class="p">()</span>
             <span class="k">except</span> <span class="n">tables</span><span class="o">.</span><span class="n">NoSuchNodeError</span><span class="p">:</span>
-                <span class="k">if</span> <span class="n">table_name</span> <span class="ow">in</span> <span class="n">DTYPES</span><span class="p">:</span>
-                    <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">table_name</span><span class="si">}</span><span class="s1"> is not in file. Returning empty table.&#39;</span><span class="p">)</span>
-                    <span class="k">return</span> <span class="n">table</span><span class="o">.</span><span class="n">Table</span><span class="p">(</span><span class="n">names</span><span class="o">=</span><span class="n">DTYPES</span><span class="p">[</span><span class="n">table_name</span><span class="p">]</span><span class="o">.</span><span class="n">names</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">DTYPES</span><span class="p">[</span><span class="n">table_name</span><span class="p">])</span>
-                <span class="n">names</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="nb">set</span><span class="p">([</span><span class="n">n</span><span class="o">.</span><span class="n">name</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">h5</span><span class="o">.</span><span class="n">root</span><span class="p">]</span> <span class="o">+</span> <span class="nb">list</span><span class="p">(</span><span class="n">DTYPES</span><span class="o">.</span><span class="n">keys</span><span class="p">())))</span>
-                <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span>
-                    <span class="sa">f</span><span class="s1">&#39;Unknown table &quot;</span><span class="si">{</span><span class="n">table_name</span><span class="si">}</span><span class="s1">&quot;. Available tables: </span><span class="si">{</span><span class="n">names</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">)</span> <span class="kn">from</span> <span class="bp">None</span>
+                <span class="n">names</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="nb">set</span><span class="p">([</span><span class="n">n</span><span class="o">.</span><span class="n">name</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">con</span><span class="o">.</span><span class="n">root</span><span class="p">]</span> <span class="o">+</span> <span class="nb">list</span><span class="p">(</span><span class="n">DTYPES</span><span class="o">.</span><span class="n">keys</span><span class="p">())))</span>
+                <span class="k">raise</span> <span class="n">MissingTableException</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">table_name</span><span class="si">}</span><span class="s1"> not in file. Available tables: </span><span class="si">{</span><span class="n">names</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">)</span> <span class="kn">from</span> <span class="bp">None</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;Unknown DB type: </span><span class="si">{</span><span class="n">dbfile</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">)</span>
 
-    <span class="k">else</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;Unknown DB type: </span><span class="si">{</span><span class="n">dbfile</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">)</span></div>
+    <span class="n">set_formats</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>
+    <span class="n">result</span><span class="o">.</span><span class="n">add_index</span><span class="p">(</span><span class="s1">&#39;obsid&#39;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">result</span></div>
 
 
 <span class="k">def</span> <span class="nf">_save_sql</span><span class="p">(</span><span class="n">con</span><span class="p">,</span> <span class="n">table_name</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
@@ -236,17 +332,20 @@
             <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;Input data has no columns in common with table in DB&#39;</span><span class="p">)</span>
 
         <span class="n">values</span> <span class="o">=</span> <span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="nb">tuple</span><span class="p">(</span><span class="n">row</span><span class="p">))</span> <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">data</span><span class="p">[</span><span class="n">data_column_names</span><span class="p">]]</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">values</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span>
         <span class="n">insert_query</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;insert into </span><span class="si">{</span><span class="n">table_name</span><span class="si">}</span><span class="s2"> (</span><span class="si">{</span><span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">data_column_names</span><span class="p">)</span><span class="si">}</span><span class="s2">) values&quot;</span>
         <span class="n">insert_query</span> <span class="o">+=</span> <span class="s2">&quot;, &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">values</span><span class="p">)</span>
         <span class="n">insert_query</span> <span class="o">+=</span> <span class="s2">&quot;;&quot;</span>
         <span class="n">insert_query</span> <span class="o">=</span> <span class="n">insert_query</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s1">&#39;inf&#39;</span><span class="p">,</span> <span class="s1">&#39;1e30&#39;</span><span class="p">)</span>  <span class="c1"># HORRIBLE HACK</span>
         <span class="n">insert_query</span> <span class="o">=</span> <span class="n">insert_query</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s1">&#39;masked&#39;</span><span class="p">,</span> <span class="s1">&#39;NULL&#39;</span><span class="p">)</span>  <span class="c1"># HORRIBLE HACK</span>
+        <span class="n">insert_query</span> <span class="o">=</span> <span class="n">insert_query</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s1">&#39;nan&#39;</span><span class="p">,</span> <span class="s1">&#39;NULL&#39;</span><span class="p">)</span>  <span class="c1"># HORRIBLE HACK</span>
 
         <span class="k">if</span> <span class="s1">&#39;obsid&#39;</span> <span class="ow">in</span> <span class="n">data</span><span class="o">.</span><span class="n">colnames</span><span class="p">:</span>
             <span class="n">obsids</span> <span class="o">=</span> <span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">unique</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="s1">&#39;obsid&#39;</span><span class="p">])</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">str</span><span class="p">))</span>
             <span class="n">cur</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;DELETE FROM </span><span class="si">{</span><span class="n">table_name</span><span class="si">}</span><span class="s2"> WHERE OBSID IN (</span><span class="si">{</span><span class="n">obsids</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
-
         <span class="n">cur</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">insert_query</span><span class="p">)</span>
+        <span class="n">con</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
 
 
 <span class="k">def</span> <span class="nf">_save_hdf5</span><span class="p">(</span><span class="n">h5</span><span class="p">,</span> <span class="n">table_name</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
@@ -283,117 +382,218 @@
         <span class="n">h5</span><span class="o">.</span><span class="n">create_table</span><span class="p">(</span><span class="s1">&#39;/&#39;</span><span class="p">,</span> <span class="n">table_name</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
 
 
-<div class="viewcode-block" id="connect"><a class="viewcode-back" href="../../api.html#astromon.db.connect">[docs]</a><span class="nd">@contextmanager</span>
+<span class="nd">@contextmanager</span>
 <span class="k">def</span> <span class="nf">connect</span><span class="p">(</span><span class="n">dbfile</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Context manager that returns a DB connection (or an HDF5 file).</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    dbfile: :any:`pathlib.Path`</span>
+<span class="sd">        File where tables are stored.</span>
+<span class="sd">        The default is `$ASTROMON_FILE` or `$SKA/data/astromon/astromon.h5`</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    :any:`tables.File &lt;tables.file.File&gt;` or :any:`sqlite3.Connection`</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="kn">import</span> <span class="nn">logging</span>
-    <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s1">&#39;astromon&#39;</span><span class="p">)</span>
     <span class="k">if</span> <span class="n">dbfile</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="n">dbfile</span> <span class="o">=</span> <span class="n">FILE</span>
-    <span class="n">dbfile</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">dbfile</span><span class="p">))</span><span class="o">.</span><span class="n">absolute</span><span class="p">()</span>
-    <span class="k">if</span> <span class="nb">str</span><span class="p">(</span><span class="n">dbfile</span><span class="p">)[</span><span class="o">-</span><span class="mi">3</span><span class="p">:]</span> <span class="o">==</span> <span class="s1">&#39;.h5&#39;</span><span class="p">:</span>
-        <span class="n">lock</span> <span class="o">=</span> <span class="n">FileLock</span><span class="p">(</span><span class="n">dbfile</span><span class="o">.</span><span class="n">parent</span> <span class="o">/</span> <span class="sa">f</span><span class="s1">&#39;.</span><span class="si">{</span><span class="n">dbfile</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s1">.lock&#39;</span><span class="p">)</span>
-        <span class="k">try</span><span class="p">:</span>
-            <span class="k">with</span> <span class="n">lock</span><span class="p">:</span>
-                <span class="k">pass</span>
-        <span class="k">except</span> <span class="ne">PermissionError</span><span class="p">:</span>
-            <span class="n">lock</span> <span class="o">=</span> <span class="n">contextlib</span><span class="o">.</span><span class="n">nullcontext</span><span class="p">()</span>
-        <span class="k">with</span> <span class="n">lock</span><span class="p">:</span>
-            <span class="n">mode</span> <span class="o">=</span> <span class="s1">&#39;r+&#39;</span> <span class="k">if</span> <span class="n">dbfile</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span> <span class="k">else</span> <span class="s1">&#39;w&#39;</span>
-            <span class="n">h5</span> <span class="o">=</span> <span class="n">tables_open_file</span><span class="p">(</span><span class="n">dbfile</span><span class="p">,</span> <span class="n">mode</span><span class="p">)</span>
-            <span class="k">if</span> <span class="ow">not</span> <span class="n">h5</span><span class="o">.</span><span class="n">is_undo_enabled</span><span class="p">():</span>
-                <span class="n">h5</span><span class="o">.</span><span class="n">enable_undo</span><span class="p">()</span>
-            <span class="n">h5</span><span class="o">.</span><span class="n">mark</span><span class="p">()</span>
-            <span class="k">try</span><span class="p">:</span>
-                <span class="k">yield</span> <span class="n">h5</span>
-            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-                <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;Exception: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">)</span>
-                <span class="k">if</span> <span class="n">h5</span><span class="o">.</span><span class="n">isopen</span><span class="p">:</span>
-                    <span class="n">h5</span><span class="o">.</span><span class="n">undo</span><span class="p">()</span>
-                    <span class="n">h5</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
-                <span class="k">raise</span>
-            <span class="k">finally</span><span class="p">:</span>
-                <span class="k">if</span> <span class="n">h5</span><span class="o">.</span><span class="n">isopen</span><span class="p">:</span>
-                    <span class="n">h5</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">dbfile</span><span class="p">,</span> <span class="n">tables</span><span class="o">.</span><span class="n">file</span><span class="o">.</span><span class="n">File</span><span class="p">)</span> <span class="ow">or</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">dbfile</span><span class="p">,</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">Connection</span><span class="p">):</span>
+        <span class="k">yield</span> <span class="n">dbfile</span>
     <span class="k">else</span><span class="p">:</span>
-        <span class="k">yield</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="n">dbfile</span><span class="p">)</span></div>
+        <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s1">&#39;astromon&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">dbfile</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">dbfile</span> <span class="o">=</span> <span class="n">FILE</span>
+        <span class="n">dbfile</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">dbfile</span><span class="p">))</span><span class="o">.</span><span class="n">absolute</span><span class="p">()</span>
+        <span class="k">if</span> <span class="nb">str</span><span class="p">(</span><span class="n">dbfile</span><span class="p">)[</span><span class="o">-</span><span class="mi">3</span><span class="p">:]</span> <span class="o">==</span> <span class="s1">&#39;.h5&#39;</span><span class="p">:</span>
+            <span class="n">lock</span> <span class="o">=</span> <span class="n">FileLock</span><span class="p">(</span><span class="n">dbfile</span><span class="o">.</span><span class="n">parent</span> <span class="o">/</span> <span class="sa">f</span><span class="s1">&#39;.</span><span class="si">{</span><span class="n">dbfile</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s1">.lock&#39;</span><span class="p">)</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">with</span> <span class="n">lock</span><span class="p">:</span>
+                    <span class="k">pass</span>
+            <span class="k">except</span> <span class="ne">PermissionError</span><span class="p">:</span>
+                <span class="n">lock</span> <span class="o">=</span> <span class="n">contextlib</span><span class="o">.</span><span class="n">nullcontext</span><span class="p">()</span>
+            <span class="k">with</span> <span class="n">lock</span><span class="p">:</span>
+                <span class="n">mode</span> <span class="o">=</span> <span class="s1">&#39;r+&#39;</span> <span class="k">if</span> <span class="n">dbfile</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span> <span class="k">else</span> <span class="s1">&#39;w&#39;</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">dbfile</span><span class="si">}</span><span class="s1"> open&#39;</span><span class="p">)</span>
+                <span class="n">h5</span> <span class="o">=</span> <span class="n">tables_open_file</span><span class="p">(</span><span class="n">dbfile</span><span class="p">,</span> <span class="n">mode</span><span class="p">)</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">h5</span><span class="o">.</span><span class="n">is_undo_enabled</span><span class="p">():</span>
+                    <span class="n">h5</span><span class="o">.</span><span class="n">enable_undo</span><span class="p">()</span>
+                <span class="n">h5</span><span class="o">.</span><span class="n">mark</span><span class="p">()</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="k">yield</span> <span class="n">h5</span>
+                <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                    <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;Exception: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="n">h5</span><span class="o">.</span><span class="n">isopen</span><span class="p">:</span>
+                        <span class="n">h5</span><span class="o">.</span><span class="n">undo</span><span class="p">()</span>
+                        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">dbfile</span><span class="si">}</span><span class="s1"> undo&#39;</span><span class="p">)</span>
+                        <span class="n">h5</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+                        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">dbfile</span><span class="si">}</span><span class="s1"> closed (1)&#39;</span><span class="p">)</span>
+                    <span class="k">raise</span>
+                <span class="k">finally</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">h5</span><span class="o">.</span><span class="n">isopen</span><span class="p">:</span>
+                        <span class="n">h5</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+                        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">dbfile</span><span class="si">}</span><span class="s1"> closed (2)&#39;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">yield</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">dbfile</span><span class="p">))</span>
 
 
-<div class="viewcode-block" id="save"><a class="viewcode-back" href="../../api.html#astromon.db.save">[docs]</a><span class="k">def</span> <span class="nf">save</span><span class="p">(</span><span class="n">db</span><span class="p">,</span> <span class="n">table_name</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+<span class="k">def</span> <span class="nf">retry_operational_error</span><span class="p">(</span><span class="n">retries</span><span class="o">=</span><span class="mi">3</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">retry_operational_error_decorator</span><span class="p">(</span><span class="n">func</span><span class="p">):</span>
+        <span class="nd">@functools</span><span class="o">.</span><span class="n">wraps</span><span class="p">(</span><span class="n">func</span><span class="p">)</span>
+        <span class="k">def</span> <span class="nf">wrapper</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+            <span class="k">for</span> <span class="n">retry</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">retries</span><span class="p">):</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="k">return</span> <span class="n">func</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+                <span class="k">except</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">OperationalError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                    <span class="c1"># only OperationalError with msg=&#39;database is locked&#39; are ignored and retried</span>
+                    <span class="k">if</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span> <span class="o">!=</span> <span class="s1">&#39;database is locked&#39;</span><span class="p">:</span>
+                        <span class="k">raise</span>
+                    <span class="k">if</span> <span class="n">retry</span> <span class="o">==</span> <span class="n">retries</span> <span class="o">-</span> <span class="mi">1</span><span class="p">:</span>
+                        <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;Failed to save to DB after </span><span class="si">{</span><span class="n">retries</span><span class="si">}</span><span class="s1"> retries&#39;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">wrapper</span>
+    <span class="k">return</span> <span class="n">retry_operational_error_decorator</span>
+
+
+<div class="viewcode-block" id="save"><a class="viewcode-back" href="../../api.html#astromon.db.save">[docs]</a><span class="nd">@retry_operational_error</span><span class="p">()</span>
+<span class="k">def</span> <span class="nf">save</span><span class="p">(</span><span class="n">table_name</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="n">dbfile</span><span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Insert data into a table, deleting previous entries for the same OBSID.</span>
 
 <span class="sd">    If the table does not exist, it is created using pre-existing table definitions.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    table_name: str</span>
+<span class="sd">        The name of the table.</span>
+<span class="sd">    data: :any:`astropy.table.Table`</span>
+<span class="sd">    dbfile: :any:`pathlib.Path`</span>
+<span class="sd">        File where tables are stored.</span>
+<span class="sd">        The default is `$ASTROMON_FILE` or `$SKA/data/astromon/astromon.h5`</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">db</span><span class="p">)</span> <span class="ow">is</span> <span class="n">tables</span><span class="o">.</span><span class="n">file</span><span class="o">.</span><span class="n">File</span><span class="p">:</span>
-        <span class="n">_save_hdf5</span><span class="p">(</span><span class="n">db</span><span class="p">,</span> <span class="n">table_name</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
-    <span class="k">elif</span> <span class="nb">str</span><span class="p">(</span><span class="n">db</span><span class="p">)[</span><span class="o">-</span><span class="mi">3</span><span class="p">:]</span> <span class="o">==</span> <span class="s1">&#39;.h5&#39;</span><span class="p">:</span>
-        <span class="k">with</span> <span class="n">connect</span><span class="p">(</span><span class="n">db</span><span class="p">)</span> <span class="k">as</span> <span class="n">h5</span><span class="p">:</span>
-            <span class="n">_save_hdf5</span><span class="p">(</span><span class="n">h5</span><span class="p">,</span> <span class="n">table_name</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
-    <span class="k">elif</span> <span class="nb">type</span><span class="p">(</span><span class="n">db</span><span class="p">)</span> <span class="ow">is</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">Connection</span><span class="p">:</span>
-        <span class="k">return</span> <span class="n">_save_sql</span><span class="p">(</span><span class="n">db</span><span class="p">,</span> <span class="n">table_name</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
-    <span class="k">elif</span> <span class="nb">str</span><span class="p">(</span><span class="n">db</span><span class="p">)[</span><span class="o">-</span><span class="mi">4</span><span class="p">:]</span> <span class="o">==</span> <span class="s1">&#39;.db3&#39;</span><span class="p">:</span>
-        <span class="n">retries</span> <span class="o">=</span> <span class="mi">3</span>
-        <span class="k">for</span> <span class="n">retry</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">retries</span><span class="p">):</span>
-            <span class="k">try</span><span class="p">:</span>
-                <span class="k">with</span> <span class="n">connect</span><span class="p">(</span><span class="n">db</span><span class="p">)</span> <span class="k">as</span> <span class="n">con</span><span class="p">:</span>
-                    <span class="n">_save_sql</span><span class="p">(</span><span class="n">con</span><span class="p">,</span> <span class="n">table_name</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
-            <span class="k">except</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">OperationalError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-                <span class="c1"># only OperationalError with msg=&#39;database is locked&#39; are ignored</span>
-                <span class="k">if</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span> <span class="o">!=</span> <span class="s1">&#39;database is locked&#39;</span><span class="p">:</span>
-                    <span class="k">raise</span>
-                <span class="k">if</span> <span class="n">retry</span> <span class="o">==</span> <span class="n">retries</span> <span class="o">-</span> <span class="mi">1</span><span class="p">:</span>
-                    <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;Failed to save to DB after </span><span class="si">{</span><span class="n">retries</span><span class="si">}</span><span class="s1"> retries&#39;</span><span class="p">)</span>
-    <span class="k">else</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;Unknown DB type: </span><span class="si">{</span><span class="n">db</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">)</span></div>
+    <span class="k">with</span> <span class="n">connect</span><span class="p">(</span><span class="n">dbfile</span><span class="p">)</span> <span class="k">as</span> <span class="n">con</span><span class="p">:</span>
+        <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">con</span><span class="p">)</span> <span class="ow">is</span> <span class="n">tables</span><span class="o">.</span><span class="n">file</span><span class="o">.</span><span class="n">File</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">_save_hdf5</span><span class="p">(</span><span class="n">con</span><span class="p">,</span> <span class="n">table_name</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">type</span><span class="p">(</span><span class="n">con</span><span class="p">)</span> <span class="ow">is</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">Connection</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">_save_sql</span><span class="p">(</span><span class="n">con</span><span class="p">,</span> <span class="n">table_name</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;Unknown DB type: </span><span class="si">{</span><span class="n">dbfile</span><span class="si">}</span><span class="s1">/</span><span class="si">{</span><span class="n">con</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">)</span></div>
 
 
-<div class="viewcode-block" id="remove_regions"><a class="viewcode-back" href="../../api.html#astromon.db.remove_regions">[docs]</a><span class="k">def</span> <span class="nf">remove_regions</span><span class="p">(</span><span class="n">regions</span><span class="p">,</span> <span class="n">db_file</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<div class="viewcode-block" id="remove_regions"><a class="viewcode-back" href="../../api.html#astromon.db.remove_regions">[docs]</a><span class="k">def</span> <span class="nf">remove_regions</span><span class="p">(</span><span class="n">regions</span><span class="p">,</span> <span class="n">dbfile</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Remove exclusion regions (by ID) from the astromon_regions table.</span>
+
+<span class="sd">    Raises an exception if the astromon_regions table is not in the dbfile.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    regions: list</span>
+<span class="sd">        list of integer region ID.</span>
+<span class="sd">    dbfile: :any:`pathlib.Path`</span>
+<span class="sd">        File where tables are stored.</span>
+<span class="sd">        The default is `$ASTROMON_FILE` or `$SKA/data/astromon/astromon.h5`</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">all_regions</span> <span class="o">=</span> <span class="n">get</span><span class="p">(</span><span class="s1">&#39;astromon_regions&#39;</span><span class="p">)</span>
+    <span class="k">with</span> <span class="n">connect</span><span class="p">(</span><span class="n">dbfile</span><span class="p">)</span> <span class="k">as</span> <span class="n">con</span><span class="p">:</span>
+        <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">con</span><span class="p">)</span> <span class="ow">is</span> <span class="n">tables</span><span class="o">.</span><span class="n">file</span><span class="o">.</span><span class="n">File</span><span class="p">:</span>
+            <span class="n">_remove_regions_h5</span><span class="p">(</span><span class="n">con</span><span class="p">,</span> <span class="n">regions</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">type</span><span class="p">(</span><span class="n">con</span><span class="p">)</span> <span class="ow">is</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">Connection</span><span class="p">:</span>
+            <span class="n">_remove_regions_sql</span><span class="p">(</span><span class="n">con</span><span class="p">,</span> <span class="n">regions</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;Unknown DB type: </span><span class="si">{</span><span class="n">dbfile</span><span class="si">}</span><span class="s1">/</span><span class="si">{</span><span class="n">con</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">)</span></div>
+
+
+<span class="k">def</span> <span class="nf">_remove_regions_sql</span><span class="p">(</span><span class="n">con</span><span class="p">,</span> <span class="n">regions</span><span class="p">):</span>
+    <span class="n">cur</span> <span class="o">=</span> <span class="n">con</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
+    <span class="n">regions</span> <span class="o">=</span> <span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="nb">str</span><span class="p">(</span><span class="n">r</span><span class="p">)</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">regions</span><span class="p">])</span>
+    <span class="n">cur</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;delete from astromon_regions where region_id in (</span><span class="si">{</span><span class="n">regions</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+    <span class="n">con</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+
+
+<span class="k">def</span> <span class="nf">_remove_regions_h5</span><span class="p">(</span><span class="n">h5</span><span class="p">,</span> <span class="n">regions</span><span class="p">):</span>
+    <span class="n">all_regions</span> <span class="o">=</span> <span class="n">get_table</span><span class="p">(</span><span class="s1">&#39;astromon_regions&#39;</span><span class="p">,</span> <span class="n">h5</span><span class="p">)</span>
     <span class="n">all_regions</span> <span class="o">=</span> <span class="n">all_regions</span><span class="p">[</span><span class="o">~</span><span class="n">np</span><span class="o">.</span><span class="n">in1d</span><span class="p">(</span><span class="n">all_regions</span><span class="p">[</span><span class="s1">&#39;region_id&#39;</span><span class="p">],</span> <span class="n">regions</span><span class="p">)]</span>
-    <span class="k">with</span> <span class="n">connect</span><span class="p">(</span><span class="n">db_file</span><span class="p">)</span> <span class="k">as</span> <span class="n">h5</span><span class="p">:</span>  <span class="c1"># only works for hdf5, the save method only appends</span>
-        <span class="k">with</span> <span class="n">warnings</span><span class="o">.</span><span class="n">catch_warnings</span><span class="p">():</span>
-            <span class="n">warnings</span><span class="o">.</span><span class="n">simplefilter</span><span class="p">(</span><span class="s2">&quot;ignore&quot;</span><span class="p">)</span>
-            <span class="k">if</span> <span class="s1">&#39;astromon_regions&#39;</span> <span class="ow">in</span> <span class="n">h5</span><span class="o">.</span><span class="n">root</span><span class="p">:</span>
-                <span class="n">h5</span><span class="o">.</span><span class="n">remove_node</span><span class="p">(</span><span class="s1">&#39;/astromon_regions&#39;</span><span class="p">)</span>
-            <span class="n">h5</span><span class="o">.</span><span class="n">create_table</span><span class="p">(</span><span class="s1">&#39;/&#39;</span><span class="p">,</span> <span class="s1">&#39;astromon_regions&#39;</span><span class="p">,</span> <span class="n">all_regions</span><span class="o">.</span><span class="n">as_array</span><span class="p">())</span></div>
+    <span class="k">with</span> <span class="n">warnings</span><span class="o">.</span><span class="n">catch_warnings</span><span class="p">():</span>
+        <span class="n">warnings</span><span class="o">.</span><span class="n">simplefilter</span><span class="p">(</span><span class="s2">&quot;ignore&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="s1">&#39;astromon_regions&#39;</span> <span class="ow">in</span> <span class="n">h5</span><span class="o">.</span><span class="n">root</span><span class="p">:</span>
+            <span class="n">h5</span><span class="o">.</span><span class="n">remove_node</span><span class="p">(</span><span class="s1">&#39;/astromon_regions&#39;</span><span class="p">)</span>
+        <span class="n">h5</span><span class="o">.</span><span class="n">create_table</span><span class="p">(</span><span class="s1">&#39;/&#39;</span><span class="p">,</span> <span class="s1">&#39;astromon_regions&#39;</span><span class="p">,</span> <span class="n">all_regions</span><span class="o">.</span><span class="n">as_array</span><span class="p">())</span>
 
 
-<div class="viewcode-block" id="add_regions"><a class="viewcode-back" href="../../api.html#astromon.db.add_regions">[docs]</a><span class="k">def</span> <span class="nf">add_regions</span><span class="p">(</span><span class="n">regions</span><span class="p">,</span> <span class="n">db_file</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<div class="viewcode-block" id="add_regions"><a class="viewcode-back" href="../../api.html#astromon.db.add_regions">[docs]</a><span class="k">def</span> <span class="nf">add_regions</span><span class="p">(</span><span class="n">regions</span><span class="p">,</span> <span class="n">dbfile</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Add exclusion regions to the astromon_regions table.</span>
 
 <span class="sd">    A unique region ID is automatically generated.</span>
+<span class="sd">    Raises an exception if the astromon_regions table is not in the dbfile.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    regions: `astropy.table.Table`-compatible</span>
+<span class="sd">        This parameter gets converted to an `astropy.table.Table`.</span>
+<span class="sd">    dbfile: :any:`pathlib.Path`</span>
+<span class="sd">        File where tables are stored.</span>
+<span class="sd">        The default is `$ASTROMON_FILE` or `$SKA/data/astromon/astromon.h5`</span>
 <span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">with</span> <span class="n">connect</span><span class="p">(</span><span class="n">dbfile</span><span class="p">)</span> <span class="k">as</span> <span class="n">con</span><span class="p">:</span>
+        <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">con</span><span class="p">)</span> <span class="ow">is</span> <span class="n">tables</span><span class="o">.</span><span class="n">file</span><span class="o">.</span><span class="n">File</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">_add_regions_h5</span><span class="p">(</span><span class="n">con</span><span class="p">,</span> <span class="n">regions</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">type</span><span class="p">(</span><span class="n">con</span><span class="p">)</span> <span class="ow">is</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">Connection</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">_add_regions_sql</span><span class="p">(</span><span class="n">con</span><span class="p">,</span> <span class="n">regions</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;Unknown DB type: </span><span class="si">{</span><span class="n">dbfile</span><span class="si">}</span><span class="s1">/</span><span class="si">{</span><span class="n">con</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">)</span></div>
+
+
+<span class="k">def</span> <span class="nf">_add_regions_sql</span><span class="p">(</span><span class="n">con</span><span class="p">,</span> <span class="n">regions</span><span class="p">):</span>
+    <span class="n">cur</span> <span class="o">=</span> <span class="n">con</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
+    <span class="n">tables</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="n">row</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span>
+        <span class="n">cur</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;SELECT name FROM sqlite_master WHERE type=&#39;table&#39;;&quot;</span><span class="p">)</span>
+    <span class="p">]</span>
+    <span class="k">if</span> <span class="s1">&#39;astromon_regions&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">tables</span><span class="p">:</span>
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="vm">__file__</span><span class="p">)</span><span class="o">.</span><span class="n">parent</span> <span class="o">/</span> <span class="s1">&#39;sql&#39;</span> <span class="o">/</span> <span class="s1">&#39;tables&#39;</span> <span class="o">/</span> <span class="s1">&#39;astromon_regions.sql&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">fh</span><span class="p">:</span>
+            <span class="n">cur</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">fh</span><span class="o">.</span><span class="n">read</span><span class="p">())</span>
+    <span class="n">columns</span> <span class="o">=</span> <span class="n">cur</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;PRAGMA table_info(&#39;astromon_regions&#39;)&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">fetchall</span><span class="p">()</span>
+    <span class="n">table_column_names</span> <span class="o">=</span> <span class="p">[</span><span class="n">row</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">columns</span><span class="p">]</span>
+    <span class="n">names</span> <span class="o">=</span> <span class="p">[</span><span class="n">n</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">regions</span><span class="o">.</span><span class="n">dtype</span><span class="o">.</span><span class="n">names</span> <span class="k">if</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">table_column_names</span><span class="p">]</span>
+    <span class="n">values</span> <span class="o">=</span> <span class="s2">&quot;, &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="nb">str</span><span class="p">(</span><span class="nb">tuple</span><span class="p">(</span><span class="n">row</span><span class="p">))</span> <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">regions</span><span class="p">[</span><span class="n">names</span><span class="p">]])</span>
+    <span class="n">names</span> <span class="o">=</span> <span class="s2">&quot;, &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">names</span><span class="p">)</span>
+    <span class="n">insert_query</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;insert into astromon_regions (</span><span class="si">{</span><span class="n">names</span><span class="si">}</span><span class="s2">) values </span><span class="si">{</span><span class="n">values</span><span class="si">}</span><span class="s2">;&quot;</span>
+    <span class="n">cur</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">insert_query</span><span class="p">)</span>
+    <span class="n">con</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+
+
+<span class="k">def</span> <span class="nf">_add_regions_h5</span><span class="p">(</span><span class="n">h5</span><span class="p">,</span> <span class="n">regions</span><span class="p">):</span>
     <span class="kn">import</span> <span class="nn">logging</span>
     <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s1">&#39;astromon&#39;</span><span class="p">)</span>
     <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;Adding regions: </span><span class="si">{</span><span class="n">regions</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">)</span>
-    <span class="n">all_regions</span> <span class="o">=</span> <span class="n">get</span><span class="p">(</span><span class="s1">&#39;astromon_regions&#39;</span><span class="p">)</span>
-    <span class="n">meta</span> <span class="o">=</span> <span class="n">get</span><span class="p">(</span><span class="s1">&#39;astromon_meta&#39;</span><span class="p">)</span>
-    <span class="k">with</span> <span class="n">connect</span><span class="p">(</span><span class="n">db_file</span><span class="p">)</span> <span class="k">as</span> <span class="n">conn</span><span class="p">:</span>
-        <span class="n">rid</span> <span class="o">=</span> <span class="n">meta</span><span class="p">[</span><span class="s1">&#39;last_region_id&#39;</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span>
-        <span class="n">regions</span> <span class="o">=</span> <span class="n">Table</span><span class="p">(</span><span class="n">regions</span><span class="p">)</span>
-        <span class="n">names</span> <span class="o">=</span> <span class="p">[</span><span class="n">n</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">all_regions</span><span class="o">.</span><span class="n">dtype</span><span class="o">.</span><span class="n">names</span> <span class="k">if</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">regions</span><span class="o">.</span><span class="n">dtype</span><span class="o">.</span><span class="n">names</span><span class="p">]</span>
-        <span class="n">b</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">regions</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">all_regions</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
-        <span class="n">b</span><span class="p">[</span><span class="n">names</span><span class="p">]</span> <span class="o">=</span> <span class="n">regions</span><span class="p">[</span><span class="n">names</span><span class="p">]</span><span class="o">.</span><span class="n">as_array</span><span class="p">()</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">all_regions</span><span class="o">.</span><span class="n">dtype</span><span class="p">[</span><span class="n">names</span><span class="p">])</span>
-        <span class="n">b</span><span class="p">[</span><span class="s1">&#39;region_id&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">rid</span><span class="p">,</span> <span class="n">rid</span> <span class="o">+</span> <span class="nb">len</span><span class="p">(</span><span class="n">b</span><span class="p">))</span>
-        <span class="n">b</span> <span class="o">=</span> <span class="n">Table</span><span class="p">(</span><span class="n">b</span><span class="p">)</span>
-        <span class="n">b</span><span class="o">.</span><span class="n">pprint</span><span class="p">(</span><span class="n">max_lines</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span> <span class="n">max_width</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
-        <span class="n">all_regions</span> <span class="o">=</span> <span class="n">table</span><span class="o">.</span><span class="n">vstack</span><span class="p">([</span><span class="n">all_regions</span><span class="p">,</span> <span class="n">b</span><span class="p">])</span>
-        <span class="n">meta</span><span class="p">[</span><span class="s1">&#39;last_region_id&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">b</span><span class="p">[</span><span class="s1">&#39;region_id&#39;</span><span class="p">][</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
-        <span class="n">save</span><span class="p">(</span><span class="n">conn</span><span class="p">,</span> <span class="s1">&#39;astromon_regions&#39;</span><span class="p">,</span> <span class="n">all_regions</span><span class="p">)</span>
-        <span class="n">save</span><span class="p">(</span><span class="n">conn</span><span class="p">,</span> <span class="s1">&#39;astromon_meta&#39;</span><span class="p">,</span> <span class="n">meta</span><span class="p">)</span>
-        <span class="k">return</span> <span class="n">b</span></div>
+    <span class="n">all_regions</span> <span class="o">=</span> <span class="n">get_table</span><span class="p">(</span><span class="s1">&#39;astromon_regions&#39;</span><span class="p">,</span> <span class="n">h5</span><span class="p">)</span>
+    <span class="k">if</span> <span class="s1">&#39;astromon_meta&#39;</span> <span class="ow">in</span> <span class="n">h5</span><span class="o">.</span><span class="n">root</span><span class="p">:</span>
+        <span class="n">meta</span> <span class="o">=</span> <span class="n">Table</span><span class="p">(</span><span class="n">h5</span><span class="o">.</span><span class="n">root</span><span class="o">.</span><span class="n">astromon_meta</span><span class="p">[:],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">DTYPES</span><span class="p">[</span><span class="s1">&#39;astromon_meta&#39;</span><span class="p">])</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">meta</span> <span class="o">=</span> <span class="n">Table</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">DTYPES</span><span class="p">[</span><span class="s1">&#39;astromon_meta&#39;</span><span class="p">]))</span>
+    <span class="n">rid</span> <span class="o">=</span> <span class="n">meta</span><span class="p">[</span><span class="s1">&#39;last_region_id&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span>
+    <span class="n">regions</span> <span class="o">=</span> <span class="n">Table</span><span class="p">(</span><span class="n">regions</span><span class="p">)</span>
+    <span class="n">names</span> <span class="o">=</span> <span class="p">[</span><span class="n">n</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">all_regions</span><span class="o">.</span><span class="n">dtype</span><span class="o">.</span><span class="n">names</span> <span class="k">if</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">regions</span><span class="o">.</span><span class="n">dtype</span><span class="o">.</span><span class="n">names</span><span class="p">]</span>
+    <span class="n">b</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">regions</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">all_regions</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
+    <span class="n">b</span><span class="p">[</span><span class="n">names</span><span class="p">]</span> <span class="o">=</span> <span class="n">regions</span><span class="p">[</span><span class="n">names</span><span class="p">]</span><span class="o">.</span><span class="n">as_array</span><span class="p">()</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">all_regions</span><span class="o">.</span><span class="n">dtype</span><span class="p">[</span><span class="n">names</span><span class="p">])</span>
+    <span class="n">b</span><span class="p">[</span><span class="s1">&#39;region_id&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">rid</span><span class="p">,</span> <span class="n">rid</span> <span class="o">+</span> <span class="nb">len</span><span class="p">(</span><span class="n">b</span><span class="p">))</span>
+    <span class="n">b</span> <span class="o">=</span> <span class="n">Table</span><span class="p">(</span><span class="n">b</span><span class="p">)</span>
+    <span class="n">all_regions</span> <span class="o">=</span> <span class="n">table</span><span class="o">.</span><span class="n">vstack</span><span class="p">([</span><span class="n">all_regions</span><span class="p">,</span> <span class="n">b</span><span class="p">])</span>
+    <span class="n">meta</span><span class="p">[</span><span class="s1">&#39;last_region_id&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">b</span><span class="p">[</span><span class="s1">&#39;region_id&#39;</span><span class="p">][</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+    <span class="n">save</span><span class="p">(</span><span class="s1">&#39;astromon_regions&#39;</span><span class="p">,</span> <span class="n">all_regions</span><span class="p">,</span> <span class="n">h5</span><span class="p">)</span>
+    <span class="n">save</span><span class="p">(</span><span class="s1">&#39;astromon_meta&#39;</span><span class="p">,</span> <span class="n">meta</span><span class="p">,</span> <span class="n">h5</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">b</span>
 
 
-<div class="viewcode-block" id="set_formats"><a class="viewcode-back" href="../../api.html#astromon.db.set_formats">[docs]</a><span class="k">def</span> <span class="nf">set_formats</span><span class="p">(</span><span class="n">dat</span><span class="p">):</span>
+<span class="k">def</span> <span class="nf">set_formats</span><span class="p">(</span><span class="n">dat</span><span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Sets format of columns with float dtype to show 2 decimals, except ra/dec/pileup (4 decimals).</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    dat: `astropy.table.Table`</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">fmts</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;ra&#39;</span><span class="p">:</span> <span class="s1">&#39;.4f&#39;</span><span class="p">,</span>
             <span class="s1">&#39;x_ra&#39;</span><span class="p">:</span> <span class="s1">&#39;.4f&#39;</span><span class="p">,</span>
@@ -405,27 +605,69 @@
     <span class="k">for</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">dat</span><span class="o">.</span><span class="n">itercols</span><span class="p">():</span>
         <span class="k">if</span> <span class="p">(</span><span class="nb">hasattr</span><span class="p">(</span><span class="n">col</span><span class="p">,</span> <span class="s1">&#39;name&#39;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">col</span><span class="o">.</span><span class="n">name</span> <span class="ow">in</span> <span class="n">dat</span><span class="o">.</span><span class="n">colnames</span>
                 <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">dat</span><span class="p">[</span><span class="n">col</span><span class="o">.</span><span class="n">name</span><span class="p">],</span> <span class="s1">&#39;dtype&#39;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">col</span><span class="o">.</span><span class="n">dtype</span><span class="o">.</span><span class="n">kind</span> <span class="o">==</span> <span class="s1">&#39;f&#39;</span><span class="p">):</span>
-            <span class="n">dat</span><span class="p">[</span><span class="n">col</span><span class="o">.</span><span class="n">name</span><span class="p">]</span><span class="o">.</span><span class="n">info</span><span class="o">.</span><span class="n">format</span> <span class="o">=</span> <span class="n">fmts</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">col</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="s1">&#39;.2f&#39;</span><span class="p">)</span></div>
+            <span class="n">dat</span><span class="p">[</span><span class="n">col</span><span class="o">.</span><span class="n">name</span><span class="p">]</span><span class="o">.</span><span class="n">info</span><span class="o">.</span><span class="n">format</span> <span class="o">=</span> <span class="n">fmts</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">col</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="s1">&#39;.2f&#39;</span><span class="p">)</span>
 
 
-<div class="viewcode-block" id="get_cross_matches"><a class="viewcode-back" href="../../api.html#astromon.db.get_cross_matches">[docs]</a><span class="k">def</span> <span class="nf">get_cross_matches</span><span class="p">(</span><span class="n">dbfile</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<div class="viewcode-block" id="get_cross_matches"><a class="viewcode-back" href="../../api.html#astromon.db.get_cross_matches">[docs]</a><span class="k">def</span> <span class="nf">get_cross_matches</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s1">&#39;astromon_21&#39;</span><span class="p">,</span> <span class="n">dbfile</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    Make a standard join of observations, x-ray sources and catalog counterparts.</span>
+<span class="sd">    Get a standard cross-match of observations, x-ray sources and catalog counterparts in `dbfile`.</span>
 
-<span class="sd">    This function returns an astropy.table.Table indexed by OBSID and adds a few columns on the fly:</span>
+<span class="sd">    A *standard* cross-match is a pre-computed cross-match between x-ray sources and catalog</span>
+<span class="sd">    counterparts. The name of the standard cross-match specifies the algorithm and the set of</span>
+<span class="sd">    parameters that have been used to cross-match.</span>
+
+<span class="sd">    If you want *non-standard* cross-match, with your own set of parameters, refer to the</span>
+<span class="sd">    :any:`compute_cross_matches &lt;cross_match.compute_cross_matches&gt;` function.</span>
+
+<span class="sd">    This function returns a :any:`Table &lt;astropy:astropy.table.Table&gt;` indexed by OBSID and adds a</span>
+<span class="sd">    few columns on the fly:</span>
+
 <span class="sd">    - time</span>
 <span class="sd">    - c_loc</span>
 <span class="sd">    - x_loc</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">matches</span> <span class="o">=</span> <span class="n">get</span><span class="p">(</span><span class="s1">&#39;astromon_xcorr&#39;</span><span class="p">,</span> <span class="n">dbfile</span><span class="p">)</span>
-    <span class="n">astromon_cat_src</span> <span class="o">=</span> <span class="n">get</span><span class="p">(</span><span class="s1">&#39;astromon_cat_src&#39;</span><span class="p">,</span> <span class="n">dbfile</span><span class="p">)</span>
-    <span class="n">astromon_xray_src</span> <span class="o">=</span> <span class="n">get</span><span class="p">(</span><span class="s1">&#39;astromon_xray_src&#39;</span><span class="p">,</span> <span class="n">dbfile</span><span class="p">)</span>
-    <span class="n">astromon_obs</span> <span class="o">=</span> <span class="n">get</span><span class="p">(</span><span class="s1">&#39;astromon_obs&#39;</span><span class="p">,</span> <span class="n">dbfile</span><span class="p">)</span>
 
-    <span class="n">categories</span> <span class="o">=</span> <span class="p">{</span><span class="n">cat_id</span><span class="p">:</span> <span class="n">cat_name</span> <span class="k">for</span> <span class="n">cat_name</span><span class="p">,</span> <span class="n">cat_id</span> <span class="ow">in</span> <span class="n">observation</span><span class="o">.</span><span class="n">CATEGORY_ID_MAP</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
-    <span class="n">categories</span><span class="p">[</span><span class="mi">200</span><span class="p">]</span> <span class="o">=</span> <span class="s1">&#39;Unknown&#39;</span>
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    name: str</span>
+<span class="sd">        name of the standard cross-match.</span>
+<span class="sd">    dbfile: :any:`pathlib.Path`</span>
+<span class="sd">        File where tables are stored.</span>
+<span class="sd">        The default is `$ASTROMON_FILE` or `$SKA/data/astromon/astromon.h5`</span>
+<span class="sd">    kwargs: dict</span>
+<span class="sd">        All extra arguments are passed directly to :any:`cross_match.filter_matches`. These are</span>
+<span class="sd">        some of the allowed arguments:</span>
+
+<span class="sd">        - snr</span>
+<span class="sd">        - dr</span>
+<span class="sd">        - r_angle</span>
+<span class="sd">        - start</span>
+<span class="sd">        - stop</span>
+<span class="sd">        - r_angle_grating</span>
+<span class="sd">        - near_neighbor_dist</span>
+<span class="sd">        - exclude_regions</span>
+<span class="sd">        - exclude_bad_targets</span>
+
+<span class="sd">        Other extra arguments can be passed. In these cases, the argument name determines on which</span>
+<span class="sd">        column to filter. Each argument is interpreted according to the type of value passed:</span>
+
+<span class="sd">        - list values cause a row to be selected if the value at that row and column is in the list.</span>
+<span class="sd">        - other values cause a row to be selected if the value at that row and column is equal to</span>
+<span class="sd">          the argument value</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    :any:`astropy.table.Table`</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="kn">from</span> <span class="nn">astromon.cross_match</span> <span class="kn">import</span> <span class="n">filter_matches</span>
+
+    <span class="n">matches</span> <span class="o">=</span> <span class="n">get_table</span><span class="p">(</span><span class="s1">&#39;astromon_xcorr&#39;</span><span class="p">,</span> <span class="n">dbfile</span><span class="p">)</span>
+    <span class="n">matches</span> <span class="o">=</span> <span class="n">matches</span><span class="p">[</span><span class="n">matches</span><span class="p">[</span><span class="s1">&#39;select_name&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="n">name</span><span class="p">]</span>
+    <span class="n">astromon_cat_src</span> <span class="o">=</span> <span class="n">get_table</span><span class="p">(</span><span class="s1">&#39;astromon_cat_src&#39;</span><span class="p">,</span> <span class="n">dbfile</span><span class="p">)</span>
+    <span class="n">astromon_xray_src</span> <span class="o">=</span> <span class="n">get_table</span><span class="p">(</span><span class="s1">&#39;astromon_xray_src&#39;</span><span class="p">,</span> <span class="n">dbfile</span><span class="p">)</span>
+    <span class="n">astromon_obs</span> <span class="o">=</span> <span class="n">get_table</span><span class="p">(</span><span class="s1">&#39;astromon_obs&#39;</span><span class="p">,</span> <span class="n">dbfile</span><span class="p">)</span>
+
     <span class="n">astromon_obs</span><span class="p">[</span><span class="s1">&#39;category&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span>
-        <span class="n">categories</span><span class="p">[</span><span class="n">cat</span><span class="p">]</span> <span class="k">for</span> <span class="n">cat</span> <span class="ow">in</span> <span class="n">astromon_obs</span><span class="p">[</span><span class="s1">&#39;category_id&#39;</span><span class="p">]</span>
+        <span class="n">observation</span><span class="o">.</span><span class="n">ID_CATEGORY_MAP</span><span class="p">[</span><span class="n">cat</span><span class="p">]</span> <span class="k">for</span> <span class="n">cat</span> <span class="ow">in</span> <span class="n">astromon_obs</span><span class="p">[</span><span class="s1">&#39;category_id&#39;</span><span class="p">]</span>
     <span class="p">]</span>
 
     <span class="n">astromon_cat_src</span><span class="o">.</span><span class="n">remove_column</span><span class="p">(</span><span class="s1">&#39;x_id&#39;</span><span class="p">)</span>
@@ -447,6 +689,9 @@
     <span class="n">matches</span><span class="p">[</span><span class="s1">&#39;x_loc&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">SkyCoord</span><span class="p">(</span><span class="n">matches</span><span class="p">[</span><span class="s1">&#39;x_ra&#39;</span><span class="p">]</span> <span class="o">*</span> <span class="n">u</span><span class="o">.</span><span class="n">deg</span><span class="p">,</span> <span class="n">matches</span><span class="p">[</span><span class="s1">&#39;x_dec&#39;</span><span class="p">]</span> <span class="o">*</span> <span class="n">u</span><span class="o">.</span><span class="n">deg</span><span class="p">)</span>
 
     <span class="n">set_formats</span><span class="p">(</span><span class="n">matches</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">kwargs</span><span class="p">:</span>
+        <span class="n">ok</span> <span class="o">=</span> <span class="n">filter_matches</span><span class="p">(</span><span class="n">matches</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="n">matches</span> <span class="o">=</span> <span class="n">matches</span><span class="p">[</span><span class="n">ok</span><span class="p">]</span>
     <span class="n">matches</span><span class="o">.</span><span class="n">add_index</span><span class="p">(</span><span class="s1">&#39;obsid&#39;</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">matches</span></div>
 </pre></div>

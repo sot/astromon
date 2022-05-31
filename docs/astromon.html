@@ -6,7 +6,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
 
-    <title>Astromon Components &#8212; Astromon 0.2.dev29+ge077a63 documentation</title>
+    <title>Astromon Components &#8212; Astromon 1.0.0a2.dev61+g84f1ae7.d20220531 documentation</title>
     <link rel="stylesheet" type="text/css" href="_static/pygments.css" />
     <link rel="stylesheet" type="text/css" href="_static/bootstrap-astropy.css" />
     
@@ -60,7 +60,7 @@
 	 |
       </li>
       <li>
-	<a href="index.html">Astromon 0.2.dev29+ge077a63 documentation</a>
+	<a href="index.html">Astromon 1.0.0a2.dev61+g84f1ae7.d20220531 documentation</a>
 	 &#187;
       </li>
       
@@ -76,7 +76,41 @@
             
   <section id="astromon-components">
 <h1>Astromon Components<a class="headerlink" href="#astromon-components" title="Permalink to this headline">¶</a></h1>
-<p>Astromon is a package to monitor the astrometric accuracy of the Chandra X-ray observatory.</p>
+<section id="cross-matching-algorithms">
+<span id="id1"></span><h2>Cross-Matching Algorithms<a class="headerlink" href="#cross-matching-algorithms" title="Permalink to this headline">¶</a></h2>
+<p>The process of finding counterparts for detected x-ray sources proceeds in two major steps:</p>
+<ul class="simple">
+<li><p>Rough match: Find all counterparts within a radius around the x-ray sources. These <em>rough</em> matches
+constitute a superset of all <em>reasonable</em> cross-matches. This is done by
+<a class="reference internal" href="api.html#astromon.cross_match.rough_match" title="astromon.cross_match.rough_match"><code class="xref any py py-func docutils literal notranslate"><span class="pre">rough_match</span></code></a>, which encapsulates all queries to various
+catalogs</p></li>
+<li><p>Cross-match. Pair each x-ray source with at most one counterpart from the rough matches. This is
+done by the <a class="reference internal" href="api.html#astromon.cross_match.compute_cross_matches" title="astromon.cross_match.compute_cross_matches"><code class="xref any py py-func docutils literal notranslate"><span class="pre">compute_cross_matches</span></code></a> function,
+which in turn delegates to specific implementation functions.</p></li>
+</ul>
+<p>The default cross-match set is identified as <code class="docutils literal notranslate"><span class="pre">&quot;astromon_21&quot;</span></code>. This set is produced using the
+<cite>“simple”</cite> matching algorithm implemented in <a class="reference internal" href="api.html#astromon.cross_match.simple_cross_match" title="astromon.cross_match.simple_cross_match"><code class="xref any py py-func docutils literal notranslate"><span class="pre">simple_cross_match</span></code></a>.</p>
+<section id="available-catalogs">
+<span id="catalog-list"></span><h3>Available catalogs<a class="headerlink" href="#available-catalogs" title="Permalink to this headline">¶</a></h3>
+<p>These are the catalogs available for rough matches:</p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://vizier.u-strasbg.fr/viz-bin/VizieR-3?-source=I/259/tyc2">Tycho2</a>. Reference catalog of
+2.5 million stars observed by the Tycho instrument abord the ESA Hipparcos satellite.
+Astrometric accuracy ~25 mas with stars down to ~11.5 mag. More information available in the
+<a class="reference external" href="http://www.astro.ku.dk/~cf/CD/docs/guide.pdf">Guide to the Tycho2 catalog (PDF)</a>.</p></li>
+<li><p><a class="reference external" href="https://vizier.u-strasbg.fr/viz-bin/VizieR?-source=I/323">ICRF2</a>.
+Sources from The Second Realization of the International Celestial Reference Frame by Very
+Long Baseline Interferometry <a class="reference external" href="http://cdsarc.u-strasbg.fr/ftp/cats/I/323/tn35.pdf">Ma et al. 2009, IERS Technical Note No. 35 (pdf)</a></p></li>
+<li><p><a class="reference external" href="https://vizier.u-strasbg.fr/viz-bin/VizieR?-source=I/284">USNO-B1.0</a>.
+Monet, D.G. et al. (2003), “The USNO-B Catalog”, The Astronomical Journal, vol. 125, no. 2,
+pp. 984-993.</p></li>
+<li><p><a class="reference external" href="https://vizier.u-strasbg.fr/viz-bin/VizieR?-source=II/246">2MASS</a>.
+Two micron all-sky survey: 162,213,354 million point sources from 19,600 square degrees of sky.</p></li>
+<li><p><a class="reference external" href="https://vizier.u-strasbg.fr/viz-bin/VizieR?-source=II/294">SDSS</a>. The SDSS Photometric Catalog,
+Release 7</p></li>
+</ul>
+</section>
+</section>
 <section id="database">
 <h2>Database<a class="headerlink" href="#database" title="Permalink to this headline">¶</a></h2>
 <p>The main data product of Astromon is a database that contains the following tables:</p>
@@ -87,48 +121,31 @@
 sources</p></li>
 <li><p>Cross-matches (astromon_xcorr). Pairs of X-ray and catalog sources, where there is at most one
 catalog source associated with a given detected X-ray source.</p></li>
+<li><p>Excluded regions (astromon_regions). Circular regions within which all x-ray sources are excluded
+from analysis.</p></li>
 </ul>
-<p>Astromon data can be accessed through the astromon.db module using convenience functions that
-return the tables as an astropy.table.Table:</p>
+<p>Astromon data can be accessed through the <a class="reference internal" href="api.html#module-astromon.db" title="astromon.db"><code class="xref any py py-mod docutils literal notranslate"><span class="pre">astromon.db</span></code></a> module using convenience functions that
+return the tables as an <a class="reference external" href="https://docs.astropy.org/en/stable/table/index.html#astropy-table" title="(in Astropy v5.1)"><span class="xref std std-ref">Astropy Table</span></a></p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">astromon</span> <span class="kn">import</span> <span class="n">db</span>
 <span class="n">matches</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get_cross_matches</span><span class="p">()</span>
-<span class="n">observations</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;astromon_obs&#39;</span><span class="p">)</span>
-<span class="n">xray_src</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;astromon_xray_src&#39;</span><span class="p">)</span>
-<span class="n">cat_src</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;astromon_cat_src&#39;</span><span class="p">)</span>
-<span class="n">xcorr</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;astromon_xcorr&#39;</span><span class="p">)</span>
+<span class="n">observations</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get_table</span><span class="p">(</span><span class="s1">&#39;astromon_obs&#39;</span><span class="p">)</span>
+<span class="n">xray_src</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get_table</span><span class="p">(</span><span class="s1">&#39;astromon_xray_src&#39;</span><span class="p">)</span>
+<span class="n">cat_src</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get_table</span><span class="p">(</span><span class="s1">&#39;astromon_cat_src&#39;</span><span class="p">)</span>
+<span class="n">xcorr</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get_table</span><span class="p">(</span><span class="s1">&#39;astromon_xcorr&#39;</span><span class="p">)</span>
+<span class="n">regions</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get_table</span><span class="p">(</span><span class="s1">&#39;astromon_regions&#39;</span><span class="p">)</span>
 </pre></div>
 </div>
-<p>NOTE: One can modify the behavior of astromon.db and specify a different database file by defining
-the ASTROMON_FILE environmental variable.</p>
-<p>A more elaborate example to do some analysis, correlating several MSIDs with astromon data, and
-excluding observations of some specific targets:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">os</span>
-<span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s1">&#39;ASTROMON_FILE&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s1">&#39;/Users/javierg/SAO/ska/data/astromon/ASTROMON_table.h5&#39;</span>
-
-<span class="kn">from</span> <span class="nn">astropy.table</span> <span class="kn">import</span> <span class="n">join</span>
-<span class="kn">from</span> <span class="nn">astromon</span> <span class="kn">import</span> <span class="n">db</span><span class="p">,</span> <span class="n">telemetry</span>
-
-<span class="n">matches</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get_cross_matches</span><span class="p">()</span>
-<span class="n">matches</span> <span class="o">=</span> <span class="n">join</span><span class="p">(</span><span class="n">matches</span><span class="p">,</span> <span class="n">telemetry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">matches</span><span class="p">[</span><span class="s1">&#39;obsid&#39;</span><span class="p">],</span> <span class="s1">&#39;2013:001&#39;</span><span class="p">,</span> <span class="s1">&#39;2022:001&#39;</span><span class="p">),</span> <span class="n">keys</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;obsid&#39;</span><span class="p">])</span>
-<span class="n">matches</span><span class="o">.</span><span class="n">add_index</span><span class="p">(</span><span class="s1">&#39;obsid&#39;</span><span class="p">)</span>
-
-<span class="n">ok</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">matches</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">bool</span><span class="p">)</span>
-<span class="n">excl_targets</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;RW Aur&#39;</span><span class="p">,</span> <span class="s1">&#39;Tau Boo&#39;</span><span class="p">,</span> <span class="s1">&#39;70 OPH&#39;</span><span class="p">,</span> <span class="s1">&#39;16 Cyg&#39;</span><span class="p">,</span> <span class="s1">&#39;M87&#39;</span><span class="p">,</span> <span class="s1">&#39;Orion&#39;</span><span class="p">,</span> <span class="s1">&#39;HD 97950&#39;</span> <span class="s1">&#39;HD4915&#39;</span><span class="p">]</span>
-<span class="n">excl_targets</span> <span class="o">=</span> <span class="p">[</span><span class="n">x</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s1">&#39; &#39;</span><span class="p">,</span> <span class="s1">&#39;&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">excl_targets</span><span class="p">]</span>
-<span class="k">for</span> <span class="n">ii</span><span class="p">,</span> <span class="n">target</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">matches</span><span class="p">[</span><span class="s1">&#39;target&#39;</span><span class="p">]):</span>
-    <span class="n">target</span> <span class="o">=</span> <span class="n">target</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s1">&#39; &#39;</span><span class="p">,</span> <span class="s1">&#39;&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
-    <span class="k">for</span> <span class="n">bad_target</span> <span class="ow">in</span> <span class="n">excl_targets</span><span class="p">:</span>
-        <span class="k">if</span> <span class="n">target</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="n">bad_target</span><span class="p">):</span>
-            <span class="n">ok</span><span class="p">[</span><span class="n">ii</span><span class="p">]</span> <span class="o">=</span> <span class="kc">False</span>
-<span class="n">matches</span><span class="p">[</span><span class="s1">&#39;ok&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">ok</span>
-</pre></div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>One can modify the behavior of <a class="reference internal" href="api.html#module-astromon.db" title="astromon.db"><code class="xref any py py-mod docutils literal notranslate"><span class="pre">astromon.db</span></code></a> and specify a different database file by
+defining the ASTROMON_FILE environmental variable.</p>
 </div>
 </section>
 <section id="observations">
 <h2>Observations<a class="headerlink" href="#observations" title="Permalink to this headline">¶</a></h2>
 <p>The access to proprietary information related to observations is encapsulated in the
-astromon.observation module. The main component is the Observation class, which encapsulates all
-calls to arc5gl, CIAO scripts, etc</p>
+<a class="reference internal" href="api.html#module-astromon.observation" title="astromon.observation"><code class="xref any py py-mod docutils literal notranslate"><span class="pre">astromon.observation</span></code></a> module. The main component is the Observation class, which encapsulates
+all calls to arc5gl, CIAO scripts, etc</p>
 <p>The following statement instanciates an observation:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">astromon.observation</span> <span class="kn">import</span> <span class="n">Observation</span>
 <span class="n">obs</span> <span class="o">=</span> <span class="n">Observation</span><span class="p">(</span><span class="mi">8008</span><span class="p">)</span>
@@ -138,7 +155,7 @@ calls to arc5gl, CIAO scripts, etc</p>
 arc5gl to download them. The files are stored locally in a temporary directory unless a working
 directory is given to the constructor:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">astromon.observation</span> <span class="kn">import</span> <span class="n">Observation</span>
-<span class="n">obs</span> <span class="o">=</span> <span class="n">Observation</span><span class="p">(</span><span class="mi">8008</span><span class="p">,</span> <span class="n">workdir</span><span class="o">=</span><span class="s1">&#39;/Users/javierg/SAO/ska/data/astromon&#39;</span><span class="p">)</span>
+<span class="n">obs</span> <span class="o">=</span> <span class="n">Observation</span><span class="p">(</span><span class="mi">8008</span><span class="p">,</span> <span class="n">workdir</span><span class="o">=</span><span class="s1">&#39;./astromon/work&#39;</span><span class="p">)</span>
 </pre></div>
 </div>
 <p>in which case the files will persist after the observation instance is deleted.</p>
@@ -147,30 +164,6 @@ prescribed sequence of commands that should result in the creation of files with
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">obs</span><span class="o">.</span><span class="n">process</span><span class="p">()</span>
 </pre></div>
 </div>
-</section>
-<section id="cross-matching-algorithms">
-<h2>Cross-Matching Algorithms<a class="headerlink" href="#cross-matching-algorithms" title="Permalink to this headline">¶</a></h2>
-<p>The very first step in the matching process is to find all counterparts within a radius around the
-x-ray source. This is what we call a “rough match” and is done by astromon.cross_match.rough_match,
-which encapsulates all queries to various standard catalogs.</p>
-<p>The actual cross-match, which yields at most one catalog source per x-ray source is performed by
-astromon.cross_match.rough_match.cross_match. This in turn delegates to specific implementation
-functions.</p>
-<section id="simple">
-<h3>Simple<a class="headerlink" href="#simple" title="Permalink to this headline">¶</a></h3>
-<p>The algorithm currently used is a simple algorithm where:</p>
-<blockquote>
-<div><ul class="simple">
-<li><p>x-ray sources with SNR below a given value are discarded</p></li>
-<li><p>observations are filtered based on date</p></li>
-<li><p>x-ray sources with other x-ray sources within a given radius are discarded</p></li>
-<li><p>observations, x-ray sources and catalog sources are joined on OBSID and x-ray source ID.</p></li>
-<li><p>matches with source-counterpart separation larger than a given value are discarded</p></li>
-<li><p>catalog sources are selected from specific catalogs in a prescribed precedence. The first
-counterpart found is taken to be the match.</p></li>
-</ul>
-</div></blockquote>
-</section>
 </section>
 </section>
 
@@ -183,12 +176,12 @@ counterpart found is taken to be the match.</p></li>
         <div class="sphinxsidebarwrapper"><h3>Page Contents</h3>
 <ul>
 <li><a class="reference internal" href="#">Astromon Components</a><ul>
-<li><a class="reference internal" href="#database">Database</a></li>
-<li><a class="reference internal" href="#observations">Observations</a></li>
 <li><a class="reference internal" href="#cross-matching-algorithms">Cross-Matching Algorithms</a><ul>
-<li><a class="reference internal" href="#simple">Simple</a></li>
+<li><a class="reference internal" href="#available-catalogs">Available catalogs</a></li>
 </ul>
 </li>
+<li><a class="reference internal" href="#database">Database</a></li>
+<li><a class="reference internal" href="#observations">Observations</a></li>
 </ul>
 </li>
 </ul>

@@ -1,20 +1,84 @@
 Quick Start
 ===========
 
-The most common usage of the astromon data products is the list of cross-matches::
+Pre-computed queries
+--------------------
 
-    from astromon import db
-    matches = db.get_cross_matches()
+A common usage of the astromon data products is to get the *standard* pre-computed cross-matches
+using :any:`db.get_cross_matches`. This function takes a ``name`` argument that specifies the
+algorithm that was used to cross-match and the arguments passed to the cross-matching
+function. It returns a table that results from joining a few underlying tables. If the name is not
+provided, the default set described in :ref:`cross_matching_algorithms` is returned::
 
-This table is the result of joining a few underlying tables. One can easily get those tables too::
+    from astromon import get_cross_matches
+    matches = get_cross_matches()
 
-    from astromon import db
-    observations = db.get('astromon_obs')
-    xray_src = db.get('astromon_xray_src')
-    cat_src = db.get('astromon_cat_src')
-    xcorr = db.get('astromon_xcorr')
+Here is a more elaborate example to do some analysis, filtering on some columns,
+and excluding x-ray sources in known problematic regions::
 
-With all these functions, there are two ways one can optionally specify the DB file to use::
+    from astromon import get_cross_matches
+    matches = get_cross_matches(
+        name='astromon_21',
+        exclude_regions=True,
+        snr=10,
+        dr=2,
+        catalog=['Tycho2']
+    )
+
+Custom cross-matches
+--------------------
+
+It is possible to re-compute cross-matches using the
+:any:`compute_cross_matches <cross_match.compute_cross_matches>` function. The following uses
+default arguments (the arguments to compute the standard cross-match described in
+:ref:`cross_matching_algorithms`)::
+
+    from astromon import cross_match
+    matches = cross_match.compute_cross_matches()
+
+and this is an example of calling it with some custom arguments (see the notes and warnings for the
+:any:`compute_cross_matches <cross_match.compute_cross_matches>` and :any:`simple_cross_match
+<cross_match.simple_cross_match>` functions)::
+
+    from astromon import cross_match
+    matches = cross_match.compute_cross_matches(
+        catalogs=('USNO-B1.0'),
+        snr=5,
+        r_angle=60.,
+        dr=2,
+        r_angle_grating=6.,
+        near_neighbor_dist=5.,
+        start='2022:001',
+        exclude_regions=True
+    )
+
+Filtering the List of Cross-matches
+-----------------------------------
+
+There are convenience methods to help filter x-ray sources within known problematic regions
+(:any:`get_excluded_regions_mask <cross_match.get_excluded_regions_mask>`), in known difficult
+targets (:any:`get_bad_target_mask <cross_match.get_bad_target_mask>`), or based on common criteria
+(:any:`filter_matches <cross_match.filter_matches>`). These functions are used internally by
+:any:`get_cross_matches <db.get_cross_matches>`, but they can be used directly::
+
+    from astropy.table import join
+    from astromon import cross_match, db
+
+    matches = db.get_cross_matches(name='astromon_21')
+    not_excluded = cross_match.get_excluded_regions_mask(matches)
+    selected = cross_match.filter_matches(matches, snr=10, dr=2, catalog=['Tycho2'])
+    matches = matches[not_excluded & selected]
+
+.. Note::
+    Filtering on certain fields might not do what you expect. For example, filtering on `catalog`
+    removes sources that might have been matched with your selected catalog if you had re-computed
+    the cross-match.
+
+
+Astromon File Location
+----------------------
+
+With all these functions, there are two ways one can specify a custom DB file location::
 
     from astromon import db
     matches = db.get_cross_matches(dbfile='some_file.h5')
