@@ -257,9 +257,9 @@ def main():
 
     if not args.db_file.exists():
         logger.info(f'File does not exist: {args.db_file}. Will create')
-        # add empty astromon_regions to file, otherwise there will be an exception later on
-        regions = db.create_table('astromon_regions')
-        db.save('astromon_regions', regions, dbfile=args.db_file)
+        for name in db.DTYPES:
+            tab = db.create_table(name)
+            db.save(name, tab, dbfile=args.db_file)
 
     args.db_file.parent.mkdir(exist_ok=True, parents=True)
 
