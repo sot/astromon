@@ -677,15 +677,9 @@ class Observation:
         sources['pileup'] = self._pileup_value(sources)
         sources['acis_streak'] = self._on_acis_streak(sources)
 
-        # SNR is there only in the celldetect case, and this is how it should be calculated
-        # (https://cxc.harvard.edu/ciao/download/doc/detect_manual/cell_theory.html)
-        # but this gives a slightly different result from what celldetect actually gives
-        # wavdetect does not calculate this.
-        C = sources['NET_COUNTS']
-        B = sources['BKG_COUNTS']
-        sigma_c = sources['NET_COUNTS_ERR']
-        sigma_b = sources['BKG_COUNTS_ERR']
-        sources['SNR'] = (C - B) / np.sqrt(sigma_c**2 + sigma_b**2)
+        if 'SNR' not in sources.colnames:
+            logger.debug(f'{self} adding masked column for SNR.')
+            sources['SNR'] = table.MaskedColumn(length=len(sources), mask=np.ones(len(sources)))
 
         columns = [
             c for c in zip(
