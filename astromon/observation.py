@@ -704,7 +704,6 @@ class Observation:
         cols = [
             'obsid',
             'id',
-            # 'name',  # not setting it for now. Is it used?
             'ra',
             'dec',
             'net_counts',
@@ -713,8 +712,6 @@ class Observation:
             'r_angle',
             'snr',
             'near_neighbor_dist',
-            # 'double_id',  # does not seem to be set in current astromon
-            # 'status_id',  # does not seem to be set in current astromon
             'psfratio',
             'pileup',
             'acis_streak',

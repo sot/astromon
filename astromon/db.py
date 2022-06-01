@@ -40,7 +40,6 @@ ASTROMON_XCORR_DTYPE = np.dtype([
 ASTROMON_XRAY_SRC_DTYPE = np.dtype([
     ('obsid', np.int32),
     ('id', np.int32),
-    ('name', 'S22'),
     ('ra', np.float64),
     ('dec', np.float64),
     ('net_counts', np.float32),
@@ -49,8 +48,6 @@ ASTROMON_XRAY_SRC_DTYPE = np.dtype([
     ('r_angle', np.float32),
     ('snr', np.float32),
     ('near_neighbor_dist', np.float32),
-    ('double_id', np.int32),
-    ('status_id', np.int32),
     ('pileup', np.float32),
     ('acis_streak', np.int32),
 ])
@@ -80,12 +77,10 @@ ASTROMON_OBS_DTYPE = np.dtype([
     ('sim_z', np.float32),
     ('date_obs', 'S20'),
     ('tstart', np.float32),
-    ('fids', 'S20'),
     ('ascdsver', 'S32'),
     ('ra', np.float64),
     ('dec', np.float64),
     ('roll', np.float64),
-    ('process_status', 'S128'),
     ('category_id', np.int32)
 ])
 
@@ -266,6 +261,11 @@ def save(table_name, data, dbfile):
             names = [n for n in dtype.names if n in data.dtype.names]
             if len(names) == 0:
                 raise Exception('Input data has no columns in common with table in DB')
+            missing = [name for name in dtype.names if name not in data.dtype.names]
+            if missing:
+                raise Exception(
+                    f'Saving table {table_name} with missing columns: {", ".join(missing)}'
+                )
             b = np.zeros(len(data), dtype=dtype)
             b[names] = data[names].as_array().astype(dtype[names])
             data = b
@@ -433,7 +433,6 @@ def get_cross_matches(name='astromon_21', dbfile=None, **kwargs):
     ]
 
     astromon_cat_src.remove_column('x_id')
-    astromon_xray_src.remove_column('name')
     astromon_cat_src.rename_columns(
         ['id', 'ra', 'dec', 'y_angle', 'z_angle'],
         ['c_id', 'c_ra', 'c_dec', 'c_y_angle', 'c_z_angle']
