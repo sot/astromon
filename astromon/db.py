@@ -190,7 +190,7 @@ def get_table(table_name, dbfile=None):
 
 
 @contextmanager
-def connect(dbfile=None):
+def connect(dbfile=None, mode='r'):
     """
     Context manager that returns a DB connection (or an HDF5 file).
 
@@ -215,18 +215,21 @@ def connect(dbfile=None):
             dbfile = FILE
         dbfile = Path(str(dbfile)).absolute()
 
-        mode = 'r+' if dbfile.exists() else 'w'
+        if mode == 'r+' and not dbfile.exists():
+            mode = 'w'
         logger.debug(f'{dbfile} open')
-        h5 = tables_open_file(dbfile, mode)
-        if not h5.is_undo_enabled():
-            h5.enable_undo()
-        h5.mark()
+        h5 = tables_open_file(dbfile, mode, delay=1, tries=10)
+        if mode != 'r':
+            if not h5.is_undo_enabled():
+                h5.enable_undo()
+            h5.mark()
         try:
             yield h5
         except Exception as e:
             logger.warning(f'Exception: {e}')
             if h5.isopen:
-                h5.undo()
+                if h5.is_undo_enabled():
+                    h5.undo()
                 logger.debug(f'{dbfile} undo')
                 h5.close()
                 logger.debug(f'{dbfile} closed (1)')
@@ -252,7 +255,7 @@ def save(table_name, data, dbfile):
         File where tables are stored.
         The default is `$ASTROMON_FILE` or `$SKA/data/astromon/astromon.h5`
     """
-    with connect(dbfile) as h5:
+    with connect(dbfile, mode='r+') as h5:
         # sanity checks: assert that file is open for writing
         assert h5.isopen, f'{h5.filename} is not open'
         assert h5.mode in ['r+', 'w'], f'{h5.filename} is not open for writing'
@@ -299,7 +302,7 @@ def remove_regions(regions, dbfile=None):
         File where tables are stored.
         The default is `$ASTROMON_FILE` or `$SKA/data/astromon/astromon.h5`
     """
-    with connect(dbfile) as h5:
+    with connect(dbfile, mode='r+') as h5:
         all_regions = get_table('astromon_regions', h5)
         all_regions = all_regions[~np.in1d(all_regions['region_id'], regions)]
         with warnings.catch_warnings():
@@ -324,7 +327,7 @@ def add_regions(regions, dbfile=None):
         File where tables are stored.
         The default is `$ASTROMON_FILE` or `$SKA/data/astromon/astromon.h5`
     """
-    with connect(dbfile) as h5:
+    with connect(dbfile, mode='r+') as h5:
         logger = logging.getLogger('astromon')
         logger.info(f'Adding regions: {regions}')
         all_regions = get_table('astromon_regions', h5)

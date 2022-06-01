@@ -87,7 +87,7 @@ def save(data, db_file):
             data[name] = vstack(data[name], metadata_conflicts='silent')
 
     logger.debug(f'About to write {len(data["astromon_obs"])} observations to {db_file}')
-    with db.connect(db_file) as con:
+    with db.connect(db_file, mode='r+') as con:
         for name in names:
             if len(data[name]):
                 db.save(name, data[name], con)
