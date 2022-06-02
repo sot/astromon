@@ -173,14 +173,14 @@ def get_table(table_name, dbfile=None):
                 res = res.astype(DTYPES[table_name])
             result = table.Table(res)
             result.convert_bytestring_to_unicode()
+            set_formats(result)
+            if 'obsid' in result.colnames:
+                result.add_index('obsid')
         except tables.NoSuchNodeError:
             names = sorted(set([n.name for n in con.root] + list(DTYPES.keys())))
             raise MissingTableException(
                 f'{table_name} not in file. Available tables: {names}') from None
 
-    set_formats(result)
-    if 'obsid' in result.colnames:
-        result.add_index('obsid')
     return result
 
 
@@ -214,18 +214,10 @@ def connect(dbfile=None, mode='r'):
             mode = 'w'
         logger.debug(f'{dbfile} open')
         h5 = tables_open_file(dbfile, mode, delay=1, tries=10)
-        if mode != 'r':
-            if not h5.is_undo_enabled():
-                h5.enable_undo()
-            h5.mark()
         try:
             yield h5
-        except Exception as e:
-            logger.warning(f'Exception: {e}')
+        except Exception:
             if h5.isopen:
-                if h5.is_undo_enabled():
-                    h5.undo()
-                logger.debug(f'{dbfile} undo')
                 h5.close()
                 logger.debug(f'{dbfile} closed (1)')
             raise
