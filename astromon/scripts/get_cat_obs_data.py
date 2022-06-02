@@ -255,13 +255,13 @@ def main():
 
     logger = pyyaks.logger.get_logger(name='astromon', level=args.log_level.upper())
 
+    args.db_file.parent.mkdir(exist_ok=True, parents=True)
+
     if not args.db_file.exists():
         logger.info(f'File does not exist: {args.db_file}. Will create')
         for name in db.DTYPES:
             tab = db.create_table(name)
             db.save(name, tab, dbfile=args.db_file)
-
-    args.db_file.parent.mkdir(exist_ok=True, parents=True)
 
     if args.workdir:
         Path(args.workdir).mkdir(exist_ok=True, parents=True)
