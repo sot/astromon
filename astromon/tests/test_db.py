@@ -12,6 +12,15 @@ from astromon import utils
 DATA_DIR = Path(__file__).parent / 'data'
 
 
+def test_get():
+    table_names = [
+        'astromon_cat_src', 'astromon_meta', 'astromon_obs',
+        'astromon_regions', 'astromon_xcorr', 'astromon_xray_src'
+    ]
+    for name in table_names:
+        db.get_table(name)
+
+
 @pytest.mark.filterwarnings("error")
 @pytest.mark.parametrize('dbfile_ext', ['h5', 'db3'])
 def test_dtypes(dbfile_ext):
