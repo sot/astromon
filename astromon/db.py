@@ -239,7 +239,8 @@ def get_table(table_name, dbfile=None):
             raise Exception(f'Unknown DB type: {dbfile}')
 
     set_formats(result)
-    result.add_index('obsid')
+    if 'obsid' in result.colnames:
+        result.add_index('obsid')
     return result
 
 
