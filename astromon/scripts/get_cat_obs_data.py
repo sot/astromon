@@ -11,6 +11,7 @@ import tempfile
 import logging
 import traceback
 from pathlib import Path
+import shutil
 
 from multiprocessing import Pool, set_start_method
 import numpy as np
@@ -255,16 +256,25 @@ def main():
 
     logger = pyyaks.logger.get_logger(name='astromon', level=args.log_level.upper())
 
-    args.db_file.parent.mkdir(exist_ok=True, parents=True)
+    if args.workdir:
+        workdir = Path(args.workdir)
+        workdir.mkdir(exist_ok=True, parents=True)
+    else:
+        # if args.workdir is not given, create one for the result file
+        # do not pass this downstream, because it can fill the tmp directory
+        tmpdir = tempfile.TemporaryDirectory()  # this variable should live until the end
+        workdir = Path(tmpdir)
 
-    if not args.db_file.exists():
+    # all changes go in this file which is copied back to its final destination at the end.
+    db_file = workdir / args.db_file.name
+    db_file.parent.mkdir(exist_ok=True, parents=True)
+    if args.db_file.exists():
+        shutil.copy(args.db_file, db_file)
+    else:
         logger.info(f'File does not exist: {args.db_file}. Will create')
         for name in db.DTYPES:
             tab = db.create_table(name)
-            db.save(name, tab, dbfile=args.db_file)
-
-    if args.workdir:
-        Path(args.workdir).mkdir(exist_ok=True, parents=True)
+            db.save(name, tab, dbfile=db_file)
 
     if args.obsid is not None:
         if os.path.exists(args.obsid) and os.path.isfile(args.obsid):
@@ -281,10 +291,12 @@ def main():
         logger.info('No OBSIDs found as specified')
         return
 
-    if args.db_file.exists() and not args.no_exception:
+    if db_file.exists() and not args.no_exception:
+        # "no_exception" means all OBSIDs are processes,
+        # not no_exception means we need to look for existing OBSIDs and skip them
         obsids = np.array(obsids, dtype=int)
         try:
-            astromon_obs = db.get_table('astromon_obs', dbfile=args.db_file)
+            astromon_obs = db.get_table('astromon_obs', dbfile=db_file)
             exceptions = np.in1d(obsids, astromon_obs['obsid'])
             n_exceptions = np.sum(exceptions)
             if n_exceptions:
@@ -310,7 +322,10 @@ def main():
     with Pool(processes=args.threads) as pool:
         results = pool.starmap(process, task_args)
 
-    save(results, args.db_file)
+    save(results, db_file)
+
+    args.db_file.parent.mkdir(exist_ok=True, parents=True)
+    shutil.copy(db_file, args.db_file)
 
 
 if __name__ == '__main__':
