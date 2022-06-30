@@ -12,10 +12,19 @@ from astromon import utils
 DATA_DIR = Path(__file__).parent / 'data'
 
 
+def test_get():
+    table_names = [
+        'astromon_cat_src', 'astromon_meta', 'astromon_obs',
+        'astromon_regions', 'astromon_xcorr', 'astromon_xray_src'
+    ]
+    for name in table_names:
+        db.get_table(name)
+
+
 @pytest.mark.filterwarnings("error")
-@pytest.mark.parametrize('dbfile_ext', ['h5', 'db3'])
-def test_dtypes(dbfile_ext):
-    # this checks that the dtypes in db.DTYPES, the ones from astromon/sql/tables/*sql,
+def test_dtypes():
+    dbfile_ext = 'h5'
+    # this checks that the dtypes in db.DTYPES
     # and those of the returned tables match
     names = [
         'astromon_xcorr', 'astromon_cat_src', 'astromon_xray_src', 'astromon_obs',
@@ -41,7 +50,6 @@ def test_dtypes(dbfile_ext):
 def test_save_and_get():
     tables = {}
     tables_h5 = {}
-    tables_sql = {}
     names = ['astromon_xcorr', 'astromon_cat_src', 'astromon_xray_src', 'astromon_obs']
     for name in names:
         tables[name] = Table.read(DATA_DIR / f'{name}.ecsv')
@@ -54,27 +62,21 @@ def test_save_and_get():
             db.save(name, tables[name], dbfile)
             tables_h5[name] = db.get_table(name, dbfile)
 
-        print('SQLite format')
-        dbfile = Path(tmpdir) / 'test_save_and_read.db3'
         for name in names:
-            db.save(name, tables[name], dbfile)
-            tables_sql[name] = db.get_table(name, dbfile)
-
-        for name in names:
-            assert len(tables_sql[name]) == len(tables_h5[name]), \
+            assert len(tables[name]) == len(tables_h5[name]), \
                 f'{name} table has different lengths'
             # string types are different
-            for colname in tables_sql[name].colnames:
-                if tables_sql[name][colname].dtype.char != 'S':
+            for colname in tables[name].colnames:
+                if tables[name][colname].dtype.char not in ['U', 'S']:
                     assert (np.all(
-                        (tables_sql[name][colname] == tables_h5[name][colname])
-                        | (np.isnan(tables_sql[name][colname]) & np.isnan(tables_h5[name][colname]))
+                        (tables[name][colname] == tables_h5[name][colname])
+                        | (np.isnan(tables[name][colname]) & np.isnan(tables_h5[name][colname]))
                     )), f'{name} {colname} column differs'
 
 
 @pytest.mark.filterwarnings("error")
-@pytest.mark.parametrize('dbfile_ext', ['h5', 'db3'])
-def test_regions(dbfile_ext):
+def test_regions():
+    dbfile_ext = 'h5'
     tables = {}
     names = ['astromon_xcorr', 'astromon_cat_src', 'astromon_xray_src', 'astromon_obs']
 
