@@ -4,6 +4,7 @@
 import os
 import re
 import collections
+import warnings
 # import sys
 import logging
 import argparse
@@ -21,7 +22,7 @@ from astropy.io import fits, ascii
 
 from astromon.utils import logging_call_decorator, chdir, Ciao, FlowException
 
-from astropy.wcs import WCS
+from astropy.wcs import WCS, FITSFixedWarning
 from astropy import units as u
 from astropy.coordinates import SkyCoord
 import regions
@@ -723,7 +724,13 @@ class Observation:
         if not pileup_file.exists():
             return np.zeros(len(src))
         hdus = fits.open(pileup_file)
-        wcs = WCS(hdus[0].header)
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                'ignore',
+                message="'datfix' made the change 'Set DATEREF",
+                category=FITSFixedWarning
+            )
+            wcs = WCS(hdus[0].header)
         loc = SkyCoord(src['RA'] * u.deg, src['DEC'] * u.deg)
         pix = np.round(wcs.world_to_pixel(loc)).astype(int)
         return hdus[0].data[(pix[1], pix[0])]
