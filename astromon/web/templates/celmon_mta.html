@@ -140,15 +140,15 @@
 			Only observations with the following characteristics are considered:
 			<ul>
 				<li> Single-OBI observation </li>
-				<li> SIM-Z at the nominal detector value. (?) </li>
+				<li> SIM-Z at the nominal detector value. </li>
 				<li> <code>obs_mode==POINTING</code> </li>
 				<li> If it is an ACIS observation: <code> readmode==TIMED</code> and <code> dtycycle==0. </code> </li>
+				<li> Not an observation of targets known to confound the source detection. </li>
 				<li> Not in any of the following science categories: "SN, SNR, and isolated NS", "Clusters of
 					Galaxies", or "Solar System and Misc". Observations in these categories
 					are likely to confound <tt>celldetect</tt> and produce too many spurious
-					sources. (?)
+					sources.
 				</li>
-				<li> Not an observation of targets known to confound the source detection. </li>
 			</ul>
 		</p>
 	
@@ -229,21 +229,6 @@
 				<a href="http://www.astro.ku.dk/~cf/CD/docs/guide.pdf">Guide to the Tycho2 catalog
 				(PDF)</a>.
 				<a href="https://vizier.u-strasbg.fr/viz-bin/VizieR-3?-source=I/259/tyc2">VizieR</a>.
-			</li>
-			<li>
-				<a href="https://ui.adsabs.harvard.edu/abs/2003yCat.2246....0C/abstract">2MASS</a> -
-				<font class="text-danger"> Not actually used yet. </font>
-				Two micron all-sky survey: 162,213,354 million point sources from 19,600 square degrees of sky.
-				<a href="http://www.ipac.caltech.edu/2mass/releases/second/doc/sec2_2.html#pscastrprop">
-				Astrometric accuracy</a> is better than 0.2 arcsec.
-				<a href="https://vizier.u-strasbg.fr/viz-bin/VizieR?-source=II/246"> VizieR </a>.
-			</li>
-			<li>
-				<a href="https://ui.adsabs.harvard.edu/abs/2003AJ....125..984M/abstract">USNO-B1.0</a> - 
-				<font class="text-danger">Not actually used yet. </font>
-				Monet, D.G. et al. (2003), "The USNO-B Catalog", The Astronomical Journal, vol. 125, no. 2,
-				pp. 984-993.
-				<a href="https://vizier.u-strasbg.fr/viz-bin/VizieR?-source=I/284"> VizieR </a>
 			</li>
 		</ul>
 
