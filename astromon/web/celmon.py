@@ -28,14 +28,6 @@ JINJA2 = jinja2.Environment(
 )
 
 
-SIM_Z = {
-    'ACIS-I': -233.587,
-    'ACIS-S': -190.143,
-    'HRC-I': 126.983,
-    'HRC-S': 250.466
-}
-
-
 def plot_offsets_history(
         matches,
         title='Offsets History',
