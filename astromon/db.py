@@ -398,8 +398,10 @@ def get_cross_matches(name='astromon_21', dbfile=None, **kwargs):
         - stop
         - r_angle_grating
         - near_neighbor_dist
+        - sim_z
         - exclude_regions
         - exclude_bad_targets
+        - exclude_categories
 
         Other extra arguments can be passed. In these cases, the argument name determines on which
         column to filter. Each argument is interpreted according to the type of value passed:

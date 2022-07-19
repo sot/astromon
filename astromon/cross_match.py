@@ -22,6 +22,14 @@ from astromon import db, utils, observation
 logger = logging.getLogger('astromon')
 
 
+SIM_Z = {
+    'ACIS-I': -233.587,
+    'ACIS-S': -190.143,
+    'HRC-I': 126.983,
+    'HRC-S': 250.466
+}
+
+
 def _get_vizier(source, ra, dec, time, radius):
     """
     This fetches the vizier url, but it doesn't parse the result.
@@ -386,8 +394,10 @@ def filter_matches(
     stop=None,
     r_angle_grating=None,
     near_neighbor_dist=None,
+    sim_z=None,
     exclude_regions=False,
     exclude_bad_targets=False,
+    exclude_categories=(),
     **kwargs
 ):
     """
@@ -414,10 +424,14 @@ def filter_matches(
     near_neighbor_dist: float
         Filter matches based on distance to closest neighbor.
         Selects matches['near_neighbor_dist'] <= near_neighbor_dist.
+    sim_z: float
+        Maximum allowed SIM-Z in mm.
     exclude_bad_targets: bool
         Default is False.
     exclude_regions: bool
         Default is False.
+    exclude_categories: tuple
+        A list of observation categories to exclude. Default is empty.
     kwargs: dict
         The keys in kwargs determine on which columns to filter. The values of kwargs are used
         according to their type:
@@ -446,6 +460,16 @@ def filter_matches(
 
     if near_neighbor_dist is not None:
         ok &= matches['near_neighbor_dist'] <= near_neighbor_dist
+
+    if sim_z is not None:
+        sim_z_offset = np.zeros(len(matches))
+        for det in SIM_Z:
+            msk = matches['detector'] == det
+            sim_z_offset[msk] = matches['sim_z'][msk] - SIM_Z[det]
+        ok &= np.abs(sim_z_offset) <= sim_z
+
+    if exclude_categories:
+        ok &= ~np.in1d(matches['category'], exclude_categories)
 
     for key, val in kwargs.items():
         if isinstance(val, list):
