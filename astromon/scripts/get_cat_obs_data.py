@@ -263,7 +263,7 @@ def main():
         # if args.workdir is not given, create one for the result file
         # do not pass this downstream, because it can fill the tmp directory
         tmpdir = tempfile.TemporaryDirectory()  # this variable should live until the end
-        workdir = Path(str(tmpdir))
+        workdir = Path(tmpdir.name)
 
     # all changes go in this file which is copied back to its final destination at the end.
     db_file = workdir / args.db_file.name
