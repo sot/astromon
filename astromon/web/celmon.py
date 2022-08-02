@@ -28,57 +28,6 @@ JINJA2 = jinja2.Environment(
 )
 
 
-def good_obs(matches):
-    """
-    Discard some observations that are known to give large offsets.
-    """
-    ok = np.ones(len(matches), dtype=bool)
-    bad_targets = ['RW Aur', 'Tau Boo', '70 OPH', '16 Cyg', 'M87', 'Orion', 'HD 97950', 'HD4915']
-    bad_targets = [x.replace(' ', '').lower() for x in bad_targets]
-    for ii, target in enumerate(matches['target']):
-        target = target.replace(' ', '').lower()
-        for bad_target in bad_targets:
-            if target.startswith(bad_target):
-                ok[ii] = False
-    return ok
-
-
-def filter_xcorr(xcorr, *,
-                 snr=None, r_angle=None,
-                 start=None, stop=None,
-                 **kwargs):
-    """Filter the matched X-ray and catalog sources table.
-
-    Any additional keyword arguments are used to filter the table like:
-    - xcorr[key] == val  # scalar values
-    - np.isin(xcorr[key], val)  # list values
-
-    Returns the filtered Table.
-    """
-
-    ok = np.ones(len(xcorr), dtype=bool)
-
-    if snr is not None:
-        ok &= xcorr['snr'] >= snr
-
-    if r_angle is not None:
-        ok &= xcorr['r_angle'] <= r_angle
-
-    if start is not None:
-        ok &= xcorr['tstart'] >= CxoTime(start).secs
-
-    if stop is not None:
-        ok &= xcorr['tstart'] <= CxoTime(stop).secs
-
-    for key, val in kwargs.items():
-        if isinstance(val, list):
-            ok &= np.isin(xcorr[key], val)
-        else:
-            ok &= xcorr[key] == val
-
-    return ok
-
-
 def plot_offsets_history(
         matches,
         title='Offsets History',
@@ -320,18 +269,6 @@ def binned_median(time, vals, bins_per_year=2):
     return tga
 
 
-def get_matches(snr=3):
-    all_matches = db.get_cross_matches()
-    all_matches['year'] = all_matches['time'].frac_year
-    year_bin_2 = year_bins(all_matches['time'], 2)
-    all_matches['year_bin_2'] = np.digitize(all_matches['year'], year_bin_2)
-    all_matches.meta['year_bin_2_edges'] = year_bin_2
-    ok = good_obs(all_matches)
-    ok = filter_xcorr(all_matches, snr=snr)
-    all_matches = all_matches[ok]
-    return all_matches
-
-
 def plot_cdf_2(
     all_matches,
     col,
@@ -391,20 +328,25 @@ def create_figures_mta(outdir):
 
     n_years = 5
     snr = 3
+    sim_z = 4    # max sim-z
     draw_median = True
 
     # result = {'snr': snr, 'n_years': n_years}
     result = {}
 
-    all_matches = db.get_cross_matches()
+    all_matches = db.get_cross_matches(
+        snr=snr,
+        exclude_bad_targets=True,
+        sim_z=sim_z,
+        exclude_categories=[
+            'SN, SNR, and Isolated NS', 'Solar System and Misc', 'Clusters of Galaxies'
+        ]
+    )
+
     all_matches['year'] = all_matches['time'].frac_year
     year_bin_2 = year_bins(all_matches['time'], 2)
     all_matches['year_bin_2'] = np.digitize(all_matches['year'], year_bin_2)
     all_matches.meta['year_bin_2_edges'] = year_bin_2
-
-    ok = good_obs(all_matches)
-    ok = filter_xcorr(all_matches, snr=snr)
-    all_matches = all_matches[ok]
 
     matches = all_matches[all_matches['time'] > CxoTime() - n_years * u.year]
 
@@ -493,12 +435,20 @@ def create_figures_mta(outdir):
 def create_figures_cal(outdir, snr=5, n_years=5, draw_median=True):
     outdir = Path(outdir)
 
+    sim_z = 4  # max sim-z
+
     end = CxoTime()
     start = end - n_years * u.year
-    matches = db.get_cross_matches()
-    ok = good_obs(matches)
-    ok = filter_xcorr(matches, snr=snr)
-    ok &= matches['time'] > start
+    matches = db.get_cross_matches(
+        snr=snr,
+        exclude_bad_targets=True,
+        sim_z=sim_z,
+        exclude_categories=[
+            'SN, SNR, and Isolated NS', 'Solar System and Misc', 'Clusters of Galaxies'
+        ]
+    )
+
+    ok = matches['time'] > start
     matches = matches[ok]
 
     dy_median = binned_median(

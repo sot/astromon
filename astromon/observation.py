@@ -242,7 +242,7 @@ class Observation:
         else:
             self._obsid_info['version'] = 0.0
 
-        return(self._obsid_info)
+        return (self._obsid_info)
 
     @logging_call_decorator
     def _download_archive(self, ftypes):
