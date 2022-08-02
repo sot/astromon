@@ -76,9 +76,8 @@ def get_vizier(pos, catalog, cat_identifier, name_cols, columns,
                 f'_RA(J2000,{pos.obstime.frac_year:8.3f})',
                 f'_DE(J2000,{pos.obstime.frac_year:8.3f})'
             ],
-            cache=False,
         )
-        vizier_result = vizier.query_region(pos, radius=radius, catalog=cat_identifier)
+        vizier_result = vizier.query_region(pos, radius=radius, catalog=cat_identifier, cache=False)
         vizier_result = [r for r in vizier_result]
     else:
         vizier_result = [
