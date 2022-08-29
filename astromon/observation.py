@@ -531,7 +531,7 @@ class Observation:
         try:
             evt = list((self.workdir / 'primary').glob('*evt2.fits*'))[0]
         except Exception:
-            raise Exception(f'evt2 file not found   ') from None
+            raise SkippedWithWarning(f'evt2 file not found') from None
 
         evt2 = str(evt).replace('evt2', 'evt2_filtered')
 
