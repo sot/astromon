@@ -747,6 +747,7 @@ def simple_cross_match(
     matches['dz'] = matches['x_z_angle'] - matches['c_z_angle']
     matches['dy'] = matches['x_y_angle'] - matches['c_y_angle']
     matches['dr'] = np.sqrt(matches['dy']**2 + matches['dz']**2)
+    matches['cat_order'] = table.Column(length=len(matches), dtype=int)
     matches['cat_order'] = 200
     for i, k in enumerate(catalogs):
         matches['cat_order'][matches['catalog'] == k] = i
