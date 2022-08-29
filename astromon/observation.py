@@ -447,16 +447,20 @@ class Observation:
                 clobber='yes',
                 logging_tag=str(self)
             )
-            self.ciao(
-                'acis_streak_map',
-                infile=str(evt).replace('_filtered', ''),
-                fovfile=fov_file,
-                bkgroot=outdir / (self.obsid + "_acis_streaks_bkg.fits"),
-                regfile=outdir / (self.obsid + "_acis_streaks.txt"),
-                msigma='4',
-                clobber='yes',
-                logging_tag=str(self)
-            )
+            try:
+                self.ciao(
+                    'acis_streak_map',
+                    infile=str(evt).replace('_filtered', ''),
+                    fovfile=fov_file,
+                    bkgroot=outdir / (self.obsid + "_acis_streaks_bkg.fits"),
+                    regfile=outdir / (self.obsid + "_acis_streaks.txt"),
+                    msigma='4',
+                    clobber='yes',
+                    logging_tag=str(self)
+                )
+            except Exception:
+                logger.warning(f'{self}   acis_streak_map failed')
+
 
     @logging_call_decorator
     def run_wavdetect(self, edition, skip_exist=False, scales="1.4 2 4 8 16 32"):
