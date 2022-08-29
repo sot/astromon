@@ -479,19 +479,28 @@ class Observation:
         if outfile.exists() and skip_exist:
             return
 
-        self.ciao(
-            "wavdetect",
-            infile=imgdir / (self.obsid + "_" + band + "_thresh.img"),
-            expfile=imgdir / (self.obsid + "_" + band + "_thresh.expmap"),  # exposure map
-            psffile=imgdir / (self.obsid + "_" + band + "_thresh.psfmap"),  # PSF
-            outfile=outfile,
-            scellfile=detdir / (root + ".cell"),
-            imagefile=detdir / (root + ".img"),
-            defnbkgfile=detdir / (root + ".nbkg"),
-            scales=scales,
-            clobber='yes',
-            logging_tag=str(self)
-        )
+        scales = scales.split()
+        # if wavdetect fails, it tries again removing the largest two scales
+        for i in range(2):
+            try:
+                self.ciao(
+                    "wavdetect",
+                    infile=imgdir / (self.obsid + "_" + band + "_thresh.img"),
+                    expfile=imgdir / (self.obsid + "_" + band + "_thresh.expmap"),  # exposure map
+                    psffile=imgdir / (self.obsid + "_" + band + "_thresh.psfmap"),  # PSF
+                    outfile=outfile,
+                    scellfile=detdir / (root + ".cell"),
+                    imagefile=detdir / (root + ".img"),
+                    defnbkgfile=detdir / (root + ".nbkg"),
+                    scales=' '.join(scales),
+                    clobber='yes',
+                    logging_tag=str(self)
+                )
+            except:
+                scales = scales[:-1]
+                if len(scales) < 3:
+                    raise
+
 
     @logging_call_decorator
     def run_celldetect(self, snr=3):
