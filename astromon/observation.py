@@ -495,7 +495,7 @@ class Observation:
                     clobber='yes',
                     logging_tag=str(self)
                 )
-            except:
+            except Exception:
                 scales = scales[:-1]
                 if len(scales) < 3:
                     raise
