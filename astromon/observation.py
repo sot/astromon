@@ -461,7 +461,6 @@ class Observation:
             except Exception:
                 logger.warning(f'{self}   acis_streak_map failed')
 
-
     @logging_call_decorator
     def run_wavdetect(self, edition, skip_exist=False, scales="1.4 2 4 8 16 32"):
         """
@@ -500,7 +499,6 @@ class Observation:
                 scales = scales[:-1]
                 if len(scales) < 3:
                     raise
-
 
     @logging_call_decorator
     def run_celldetect(self, snr=3):
