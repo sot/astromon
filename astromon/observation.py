@@ -447,16 +447,19 @@ class Observation:
                 clobber='yes',
                 logging_tag=str(self)
             )
-            self.ciao(
-                'acis_streak_map',
-                infile=str(evt).replace('_filtered', ''),
-                fovfile=fov_file,
-                bkgroot=outdir / (self.obsid + "_acis_streaks_bkg.fits"),
-                regfile=outdir / (self.obsid + "_acis_streaks.txt"),
-                msigma='4',
-                clobber='yes',
-                logging_tag=str(self)
-            )
+            try:
+                self.ciao(
+                    'acis_streak_map',
+                    infile=str(evt).replace('_filtered', ''),
+                    fovfile=fov_file,
+                    bkgroot=outdir / (self.obsid + "_acis_streaks_bkg.fits"),
+                    regfile=outdir / (self.obsid + "_acis_streaks.txt"),
+                    msigma='4',
+                    clobber='yes',
+                    logging_tag=str(self)
+                )
+            except Exception:
+                logger.warning(f'{self}   acis_streak_map failed')
 
     @logging_call_decorator
     def run_wavdetect(self, edition, skip_exist=False, scales="1.4 2 4 8 16 32"):
@@ -475,19 +478,27 @@ class Observation:
         if outfile.exists() and skip_exist:
             return
 
-        self.ciao(
-            "wavdetect",
-            infile=imgdir / (self.obsid + "_" + band + "_thresh.img"),
-            expfile=imgdir / (self.obsid + "_" + band + "_thresh.expmap"),  # exposure map
-            psffile=imgdir / (self.obsid + "_" + band + "_thresh.psfmap"),  # PSF
-            outfile=outfile,
-            scellfile=detdir / (root + ".cell"),
-            imagefile=detdir / (root + ".img"),
-            defnbkgfile=detdir / (root + ".nbkg"),
-            scales=scales,
-            clobber='yes',
-            logging_tag=str(self)
-        )
+        scales = scales.split()
+        # if wavdetect fails, it tries again removing the largest two scales
+        for i in range(2):
+            try:
+                self.ciao(
+                    "wavdetect",
+                    infile=imgdir / (self.obsid + "_" + band + "_thresh.img"),
+                    expfile=imgdir / (self.obsid + "_" + band + "_thresh.expmap"),  # exposure map
+                    psffile=imgdir / (self.obsid + "_" + band + "_thresh.psfmap"),  # PSF
+                    outfile=outfile,
+                    scellfile=detdir / (root + ".cell"),
+                    imagefile=detdir / (root + ".img"),
+                    defnbkgfile=detdir / (root + ".nbkg"),
+                    scales=' '.join(scales),
+                    clobber='yes',
+                    logging_tag=str(self)
+                )
+            except Exception:
+                scales = scales[:-1]
+                if len(scales) < 3:
+                    raise
 
     @logging_call_decorator
     def run_celldetect(self, snr=3):
@@ -520,7 +531,7 @@ class Observation:
         try:
             evt = list((self.workdir / 'primary').glob('*evt2.fits*'))[0]
         except Exception:
-            raise Exception(f'evt2 file not found   ') from None
+            raise SkippedWithWarning(f'evt2 file not found') from None
 
         evt2 = str(evt).replace('evt2', 'evt2_filtered')
 

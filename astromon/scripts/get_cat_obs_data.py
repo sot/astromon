@@ -145,6 +145,8 @@ def process(obsid, workdir, log_level, archive_dir):
         }
 
         (observation.workdir / 'results').mkdir(exist_ok=True)
+        # this is because of unicode characters in observer names and other fields
+        result['astromon_obs'].convert_unicode_to_bytestring()
         for name in ['astromon_obs', 'astromon_xray_src', 'astromon_cat_src', 'astromon_xcorr']:
             fn = observation.workdir / 'results' / f'{name}.fits'
             fn.unlink(missing_ok=True)
