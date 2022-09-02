@@ -5,7 +5,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>astromon.cross_match &#8212; Astromon 1.0.0a2.dev61+g84f1ae7.d20220531 documentation</title>
+    <title>astromon.cross_match &#8212; Astromon 1.0.1 documentation</title>
     <link rel="stylesheet" type="text/css" href="../../_static/pygments.css" />
     <link rel="stylesheet" type="text/css" href="../../_static/bootstrap-astropy.css" />
     
@@ -46,7 +46,7 @@
     <h3>Navigation</h3>
     <ul>
       <li>
-	<a href="../../index.html">Astromon 1.0.0a2.dev61+g84f1ae7.d20220531 documentation</a>
+	<a href="../../index.html">Astromon 1.0.1 documentation</a>
 	 &#187;
       </li>
       <li><a href="../index.html" accesskey="U">Module code</a> &#187;</li>
@@ -84,6 +84,14 @@
 <span class="kn">from</span> <span class="nn">astromon</span> <span class="kn">import</span> <span class="n">db</span><span class="p">,</span> <span class="n">utils</span><span class="p">,</span> <span class="n">observation</span>
 
 <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s1">&#39;astromon&#39;</span><span class="p">)</span>
+
+
+<span class="n">SIM_Z</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s1">&#39;ACIS-I&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">233.587</span><span class="p">,</span>
+    <span class="s1">&#39;ACIS-S&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">190.143</span><span class="p">,</span>
+    <span class="s1">&#39;HRC-I&#39;</span><span class="p">:</span> <span class="mf">126.983</span><span class="p">,</span>
+    <span class="s1">&#39;HRC-S&#39;</span><span class="p">:</span> <span class="mf">250.466</span>
+<span class="p">}</span>
 
 
 <span class="k">def</span> <span class="nf">_get_vizier</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="n">ra</span><span class="p">,</span> <span class="n">dec</span><span class="p">,</span> <span class="n">time</span><span class="p">,</span> <span class="n">radius</span><span class="p">):</span>
@@ -131,9 +139,9 @@
             <span class="n">columns</span><span class="o">=</span><span class="p">[</span>
                 <span class="sa">f</span><span class="s1">&#39;_RA(J2000,</span><span class="si">{</span><span class="n">pos</span><span class="o">.</span><span class="n">obstime</span><span class="o">.</span><span class="n">frac_year</span><span class="si">:</span><span class="s1">8.3f</span><span class="si">}</span><span class="s1">)&#39;</span><span class="p">,</span>
                 <span class="sa">f</span><span class="s1">&#39;_DE(J2000,</span><span class="si">{</span><span class="n">pos</span><span class="o">.</span><span class="n">obstime</span><span class="o">.</span><span class="n">frac_year</span><span class="si">:</span><span class="s1">8.3f</span><span class="si">}</span><span class="s1">)&#39;</span>
-            <span class="p">]</span>
+            <span class="p">],</span>
         <span class="p">)</span>
-        <span class="n">vizier_result</span> <span class="o">=</span> <span class="n">vizier</span><span class="o">.</span><span class="n">query_region</span><span class="p">(</span><span class="n">pos</span><span class="p">,</span> <span class="n">radius</span><span class="o">=</span><span class="n">radius</span><span class="p">,</span> <span class="n">catalog</span><span class="o">=</span><span class="n">cat_identifier</span><span class="p">)</span>
+        <span class="n">vizier_result</span> <span class="o">=</span> <span class="n">vizier</span><span class="o">.</span><span class="n">query_region</span><span class="p">(</span><span class="n">pos</span><span class="p">,</span> <span class="n">radius</span><span class="o">=</span><span class="n">radius</span><span class="p">,</span> <span class="n">catalog</span><span class="o">=</span><span class="n">cat_identifier</span><span class="p">,</span> <span class="n">cache</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
         <span class="n">vizier_result</span> <span class="o">=</span> <span class="p">[</span><span class="n">r</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">vizier_result</span><span class="p">]</span>
     <span class="k">else</span><span class="p">:</span>
         <span class="n">vizier_result</span> <span class="o">=</span> <span class="p">[</span>
@@ -371,6 +379,12 @@
         <span class="n">res</span><span class="o">.</span><span class="n">remove_columns</span><span class="p">([</span><span class="s1">&#39;coord_xray&#39;</span><span class="p">,</span> <span class="s1">&#39;coord_cat&#39;</span><span class="p">])</span>
         <span class="n">res</span> <span class="o">=</span> <span class="n">res</span><span class="p">[</span><span class="n">sep</span> <span class="o">&lt;</span> <span class="n">radius</span><span class="p">]</span>
         <span class="n">res</span><span class="o">.</span><span class="n">rename_column</span><span class="p">(</span><span class="s1">&#39;id&#39;</span><span class="p">,</span> <span class="s1">&#39;x_id&#39;</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">dtype</span> <span class="o">=</span> <span class="n">_join_dtype</span><span class="p">(</span><span class="n">res</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="n">sources</span><span class="p">[[</span><span class="s1">&#39;id&#39;</span><span class="p">]]</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="p">[])</span>
+        <span class="n">res</span> <span class="o">=</span> <span class="n">table</span><span class="o">.</span><span class="n">Table</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+        <span class="n">res</span><span class="o">.</span><span class="n">rename_column</span><span class="p">(</span><span class="s1">&#39;id&#39;</span><span class="p">,</span> <span class="s1">&#39;x_id&#39;</span><span class="p">)</span>
+        <span class="n">res</span><span class="p">[</span><span class="s1">&#39;separation&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">table</span><span class="o">.</span><span class="n">Column</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+
     <span class="k">return</span> <span class="n">res</span></div>
 
 
@@ -444,8 +458,10 @@
     <span class="n">stop</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
     <span class="n">r_angle_grating</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
     <span class="n">near_neighbor_dist</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">sim_z</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
     <span class="n">exclude_regions</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
     <span class="n">exclude_bad_targets</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="n">exclude_categories</span><span class="o">=</span><span class="p">(),</span>
     <span class="o">**</span><span class="n">kwargs</span>
 <span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;</span>
@@ -472,10 +488,14 @@
 <span class="sd">    near_neighbor_dist: float</span>
 <span class="sd">        Filter matches based on distance to closest neighbor.</span>
 <span class="sd">        Selects matches[&#39;near_neighbor_dist&#39;] &lt;= near_neighbor_dist.</span>
+<span class="sd">    sim_z: float</span>
+<span class="sd">        Maximum allowed SIM-Z in mm.</span>
 <span class="sd">    exclude_bad_targets: bool</span>
 <span class="sd">        Default is False.</span>
 <span class="sd">    exclude_regions: bool</span>
 <span class="sd">        Default is False.</span>
+<span class="sd">    exclude_categories: tuple</span>
+<span class="sd">        A list of observation categories to exclude. Default is empty.</span>
 <span class="sd">    kwargs: dict</span>
 <span class="sd">        The keys in kwargs determine on which columns to filter. The values of kwargs are used</span>
 <span class="sd">        according to their type:</span>
@@ -504,6 +524,16 @@
 
     <span class="k">if</span> <span class="n">near_neighbor_dist</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
         <span class="n">ok</span> <span class="o">&amp;=</span> <span class="n">matches</span><span class="p">[</span><span class="s1">&#39;near_neighbor_dist&#39;</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="n">near_neighbor_dist</span>
+
+    <span class="k">if</span> <span class="n">sim_z</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">sim_z_offset</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">matches</span><span class="p">))</span>
+        <span class="k">for</span> <span class="n">det</span> <span class="ow">in</span> <span class="n">SIM_Z</span><span class="p">:</span>
+            <span class="n">msk</span> <span class="o">=</span> <span class="n">matches</span><span class="p">[</span><span class="s1">&#39;detector&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="n">det</span>
+            <span class="n">sim_z_offset</span><span class="p">[</span><span class="n">msk</span><span class="p">]</span> <span class="o">=</span> <span class="n">matches</span><span class="p">[</span><span class="s1">&#39;sim_z&#39;</span><span class="p">][</span><span class="n">msk</span><span class="p">]</span> <span class="o">-</span> <span class="n">SIM_Z</span><span class="p">[</span><span class="n">det</span><span class="p">]</span>
+        <span class="n">ok</span> <span class="o">&amp;=</span> <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">sim_z_offset</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="n">sim_z</span>
+
+    <span class="k">if</span> <span class="n">exclude_categories</span><span class="p">:</span>
+        <span class="n">ok</span> <span class="o">&amp;=</span> <span class="o">~</span><span class="n">np</span><span class="o">.</span><span class="n">in1d</span><span class="p">(</span><span class="n">matches</span><span class="p">[</span><span class="s1">&#39;category&#39;</span><span class="p">],</span> <span class="n">exclude_categories</span><span class="p">)</span>
 
     <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">val</span> <span class="ow">in</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">val</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
@@ -781,7 +811,7 @@
     <span class="n">matches</span><span class="p">[</span><span class="s1">&#39;dz&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">matches</span><span class="p">[</span><span class="s1">&#39;x_z_angle&#39;</span><span class="p">]</span> <span class="o">-</span> <span class="n">matches</span><span class="p">[</span><span class="s1">&#39;c_z_angle&#39;</span><span class="p">]</span>
     <span class="n">matches</span><span class="p">[</span><span class="s1">&#39;dy&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">matches</span><span class="p">[</span><span class="s1">&#39;x_y_angle&#39;</span><span class="p">]</span> <span class="o">-</span> <span class="n">matches</span><span class="p">[</span><span class="s1">&#39;c_y_angle&#39;</span><span class="p">]</span>
     <span class="n">matches</span><span class="p">[</span><span class="s1">&#39;dr&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">matches</span><span class="p">[</span><span class="s1">&#39;dy&#39;</span><span class="p">]</span><span class="o">**</span><span class="mi">2</span> <span class="o">+</span> <span class="n">matches</span><span class="p">[</span><span class="s1">&#39;dz&#39;</span><span class="p">]</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span>
-    <span class="n">matches</span><span class="p">[</span><span class="s1">&#39;cat_order&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="mi">200</span>
+    <span class="n">matches</span><span class="p">[</span><span class="s1">&#39;cat_order&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">matches</span><span class="p">),</span> <span class="mi">200</span><span class="p">)</span>
     <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">k</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">catalogs</span><span class="p">):</span>
         <span class="n">matches</span><span class="p">[</span><span class="s1">&#39;cat_order&#39;</span><span class="p">][</span><span class="n">matches</span><span class="p">[</span><span class="s1">&#39;catalog&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="n">k</span><span class="p">]</span> <span class="o">=</span> <span class="n">i</span>
 
@@ -815,7 +845,7 @@
         <span class="s1">&#39;snr&#39;</span><span class="p">:</span> <span class="mi">3</span><span class="p">,</span>
         <span class="s1">&#39;r_angle&#39;</span><span class="p">:</span> <span class="mf">120.</span><span class="p">,</span>
         <span class="s1">&#39;r_angle_grating&#39;</span><span class="p">:</span> <span class="mf">120.</span><span class="p">,</span>
-        <span class="s1">&#39;near_neighbor_dist&#39;</span><span class="p">:</span> <span class="mf">0.</span><span class="p">,</span>
+        <span class="s1">&#39;near_neighbor_dist&#39;</span><span class="p">:</span> <span class="mf">6.</span><span class="p">,</span>
         <span class="s1">&#39;dr&#39;</span><span class="p">:</span> <span class="mf">3.</span><span class="p">,</span>
     <span class="p">},</span>
     <span class="s1">&#39;astromon_22&#39;</span><span class="p">:</span> <span class="p">{</span>

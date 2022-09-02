@@ -6,7 +6,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
 
-    <title>Astromon Components &#8212; Astromon 1.0.0a2.dev61+g84f1ae7.d20220531 documentation</title>
+    <title>Astromon Components &#8212; Astromon 1.0.1 documentation</title>
     <link rel="stylesheet" type="text/css" href="_static/pygments.css" />
     <link rel="stylesheet" type="text/css" href="_static/bootstrap-astropy.css" />
     
@@ -60,7 +60,7 @@
 	 |
       </li>
       <li>
-	<a href="index.html">Astromon 1.0.0a2.dev61+g84f1ae7.d20220531 documentation</a>
+	<a href="index.html">Astromon 1.0.1 documentation</a>
 	 &#187;
       </li>
       
@@ -82,14 +82,15 @@
 <ul class="simple">
 <li><p>Rough match: Find all counterparts within a radius around the x-ray sources. These <em>rough</em> matches
 constitute a superset of all <em>reasonable</em> cross-matches. This is done by
-<a class="reference internal" href="api.html#astromon.cross_match.rough_match" title="astromon.cross_match.rough_match"><code class="xref any py py-func docutils literal notranslate"><span class="pre">rough_match</span></code></a>, which encapsulates all queries to various
-catalogs</p></li>
+<a class="reference internal" href="api.html#astromon.cross_match.rough_match" title="astromon.cross_match.rough_match"><code class="xref any py py-func docutils literal notranslate"><span class="pre">rough_match</span></code></a>, which encapsulates all queries to the
+Tycho2, ICRS, USNO-B1.0, 2MASS, SDSS catalogs and selects matches within 3 arcsec.</p></li>
 <li><p>Cross-match. Pair each x-ray source with at most one counterpart from the rough matches. This is
 done by the <a class="reference internal" href="api.html#astromon.cross_match.compute_cross_matches" title="astromon.cross_match.compute_cross_matches"><code class="xref any py py-func docutils literal notranslate"><span class="pre">compute_cross_matches</span></code></a> function,
 which in turn delegates to specific implementation functions.</p></li>
 </ul>
-<p>The default cross-match set is identified as <code class="docutils literal notranslate"><span class="pre">&quot;astromon_21&quot;</span></code>. This set is produced using the
-<cite>“simple”</cite> matching algorithm implemented in <a class="reference internal" href="api.html#astromon.cross_match.simple_cross_match" title="astromon.cross_match.simple_cross_match"><code class="xref any py py-func docutils literal notranslate"><span class="pre">simple_cross_match</span></code></a>.</p>
+<p>The default cross-match set is identified as <code class="docutils literal notranslate"><span class="pre">&quot;astromon_21&quot;</span></code> (see
+<a class="reference internal" href="quick.html#pre-computed-queries"><span class="std std-ref">Pre-computed queries</span></a>). This set is produced using the <cite>“simple”</cite> matching
+algorithm implemented in <a class="reference internal" href="api.html#astromon.cross_match.simple_cross_match" title="astromon.cross_match.simple_cross_match"><code class="xref any py py-func docutils literal notranslate"><span class="pre">simple_cross_match</span></code></a>.</p>
 <section id="available-catalogs">
 <span id="catalog-list"></span><h3>Available catalogs<a class="headerlink" href="#available-catalogs" title="Permalink to this headline">¶</a></h3>
 <p>These are the catalogs available for rough matches:</p>

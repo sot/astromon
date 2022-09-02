@@ -1,6 +1,8 @@
 Quick Start
 ===========
 
+.. _pre-computed-queries:
+
 Pre-computed queries
 --------------------
 
@@ -11,7 +13,30 @@ function. It returns a table that results from joining a few underlying tables. 
 provided, the default set described in :ref:`cross_matching_algorithms` is returned::
 
     from astromon import get_cross_matches
-    matches = get_cross_matches()
+    matches = get_cross_matches()  # Get default astromon_21 cross-matches
+
+Available pre-computed queries include ``"astromon_21"`` and ``"astromon_22"``::
+
+    'astromon_21': {
+        'name': 'astromon_21',
+        'method': 'simple',
+        'catalogs': ['ICRS', 'Tycho2'],
+        'snr': 3,
+        'r_angle': 120.,
+        'r_angle_grating': 120.,
+        'near_neighbor_dist': 0.,
+        'dr': 3.,
+    },
+    'astromon_22': {
+        'name': 'astromon_22',
+        'method': 'simple',
+        'catalogs': ['ICRS', 'Tycho2'],
+        'snr': 3,
+        'r_angle': 120.,
+        'r_angle_grating': 24.,
+        'near_neighbor_dist': 6.,
+        'dr': 3.,
+    }
 
 Here is a more elaborate example to do some analysis, filtering on some columns,
 and excluding x-ray sources in known problematic regions::
@@ -24,6 +49,12 @@ and excluding x-ray sources in known problematic regions::
         dr=2,
         catalog=['Tycho2']
     )
+
+.. Warning::
+    Supplying additional filter arguments to ``get_cross_matches`` requires attention to
+    ensure that the filter arguments are a *strict subset* of the pre-computed
+    filter arguments. In most cases you should use a custom cross-match as
+    shown in the next section.
 
 Custom cross-matches
 --------------------

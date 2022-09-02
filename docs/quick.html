@@ -6,7 +6,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
 
-    <title>Quick Start &#8212; Astromon 1.0.0a2.dev61+g84f1ae7.d20220531 documentation</title>
+    <title>Quick Start &#8212; Astromon 1.0.1 documentation</title>
     <link rel="stylesheet" type="text/css" href="_static/pygments.css" />
     <link rel="stylesheet" type="text/css" href="_static/bootstrap-astropy.css" />
     
@@ -60,7 +60,7 @@
 	 |
       </li>
       <li>
-	<a href="index.html">Astromon 1.0.0a2.dev61+g84f1ae7.d20220531 documentation</a>
+	<a href="index.html">Astromon 1.0.1 documentation</a>
 	 &#187;
       </li>
       
@@ -77,14 +77,37 @@
   <section id="quick-start">
 <h1>Quick Start<a class="headerlink" href="#quick-start" title="Permalink to this headline">¶</a></h1>
 <section id="pre-computed-queries">
-<h2>Pre-computed queries<a class="headerlink" href="#pre-computed-queries" title="Permalink to this headline">¶</a></h2>
+<span id="id1"></span><h2>Pre-computed queries<a class="headerlink" href="#pre-computed-queries" title="Permalink to this headline">¶</a></h2>
 <p>A common usage of the astromon data products is to get the <em>standard</em> pre-computed cross-matches
 using <a class="reference internal" href="api.html#astromon.db.get_cross_matches" title="astromon.db.get_cross_matches"><code class="xref any py py-func docutils literal notranslate"><span class="pre">db.get_cross_matches</span></code></a>. This function takes a <code class="docutils literal notranslate"><span class="pre">name</span></code> argument that specifies the
 algorithm that was used to cross-match and the arguments passed to the cross-matching
 function. It returns a table that results from joining a few underlying tables. If the name is not
 provided, the default set described in <a class="reference internal" href="astromon.html#cross-matching-algorithms"><span class="std std-ref">Cross-Matching Algorithms</span></a> is returned:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">astromon</span> <span class="kn">import</span> <span class="n">get_cross_matches</span>
-<span class="n">matches</span> <span class="o">=</span> <span class="n">get_cross_matches</span><span class="p">()</span>
+<span class="n">matches</span> <span class="o">=</span> <span class="n">get_cross_matches</span><span class="p">()</span>  <span class="c1"># Get default astromon_21 cross-matches</span>
+</pre></div>
+</div>
+<p>Available pre-computed queries include <code class="docutils literal notranslate"><span class="pre">&quot;astromon_21&quot;</span></code> and <code class="docutils literal notranslate"><span class="pre">&quot;astromon_22&quot;</span></code>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="s1">&#39;astromon_21&#39;</span><span class="p">:</span> <span class="p">{</span>
+    <span class="s1">&#39;name&#39;</span><span class="p">:</span> <span class="s1">&#39;astromon_21&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;method&#39;</span><span class="p">:</span> <span class="s1">&#39;simple&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;catalogs&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s1">&#39;ICRS&#39;</span><span class="p">,</span> <span class="s1">&#39;Tycho2&#39;</span><span class="p">],</span>
+    <span class="s1">&#39;snr&#39;</span><span class="p">:</span> <span class="mi">3</span><span class="p">,</span>
+    <span class="s1">&#39;r_angle&#39;</span><span class="p">:</span> <span class="mf">120.</span><span class="p">,</span>
+    <span class="s1">&#39;r_angle_grating&#39;</span><span class="p">:</span> <span class="mf">120.</span><span class="p">,</span>
+    <span class="s1">&#39;near_neighbor_dist&#39;</span><span class="p">:</span> <span class="mf">0.</span><span class="p">,</span>
+    <span class="s1">&#39;dr&#39;</span><span class="p">:</span> <span class="mf">3.</span><span class="p">,</span>
+<span class="p">},</span>
+<span class="s1">&#39;astromon_22&#39;</span><span class="p">:</span> <span class="p">{</span>
+    <span class="s1">&#39;name&#39;</span><span class="p">:</span> <span class="s1">&#39;astromon_22&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;method&#39;</span><span class="p">:</span> <span class="s1">&#39;simple&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;catalogs&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s1">&#39;ICRS&#39;</span><span class="p">,</span> <span class="s1">&#39;Tycho2&#39;</span><span class="p">],</span>
+    <span class="s1">&#39;snr&#39;</span><span class="p">:</span> <span class="mi">3</span><span class="p">,</span>
+    <span class="s1">&#39;r_angle&#39;</span><span class="p">:</span> <span class="mf">120.</span><span class="p">,</span>
+    <span class="s1">&#39;r_angle_grating&#39;</span><span class="p">:</span> <span class="mf">24.</span><span class="p">,</span>
+    <span class="s1">&#39;near_neighbor_dist&#39;</span><span class="p">:</span> <span class="mf">6.</span><span class="p">,</span>
+    <span class="s1">&#39;dr&#39;</span><span class="p">:</span> <span class="mf">3.</span><span class="p">,</span>
+<span class="p">}</span>
 </pre></div>
 </div>
 <p>Here is a more elaborate example to do some analysis, filtering on some columns,
@@ -98,6 +121,13 @@ and excluding x-ray sources in known problematic regions:</p>
     <span class="n">catalog</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;Tycho2&#39;</span><span class="p">]</span>
 <span class="p">)</span>
 </pre></div>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>Supplying additional filter arguments to <code class="docutils literal notranslate"><span class="pre">get_cross_matches</span></code> requires attention to
+ensure that the filter arguments are a <em>strict subset</em> of the pre-computed
+filter arguments. In most cases you should use a custom cross-match as
+shown in the next section.</p>
 </div>
 </section>
 <section id="custom-cross-matches">

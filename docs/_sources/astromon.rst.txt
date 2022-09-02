@@ -10,14 +10,15 @@ The process of finding counterparts for detected x-ray sources proceeds in two m
 
 - Rough match: Find all counterparts within a radius around the x-ray sources. These *rough* matches
   constitute a superset of all *reasonable* cross-matches. This is done by
-  :any:`rough_match <astromon.cross_match.rough_match>`, which encapsulates all queries to various
-  catalogs
+  :any:`rough_match <astromon.cross_match.rough_match>`, which encapsulates all queries to the
+  Tycho2, ICRS, USNO-B1.0, 2MASS, SDSS catalogs and selects matches within 3 arcsec.
 - Cross-match. Pair each x-ray source with at most one counterpart from the rough matches. This is
   done by the :any:`compute_cross_matches  <astromon.cross_match.compute_cross_matches>` function,
   which in turn delegates to specific implementation functions.
 
-The default cross-match set is identified as ``"astromon_21"``. This set is produced using the
-`"simple"` matching algorithm implemented in :any:`simple_cross_match 
+The default cross-match set is identified as ``"astromon_21"`` (see
+:ref:`pre-computed-queries`). This set is produced using the `"simple"` matching
+algorithm implemented in :any:`simple_cross_match
 <astromon.cross_match.simple_cross_match>`.
 
 .. _catalog-list:
