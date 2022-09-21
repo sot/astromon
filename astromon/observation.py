@@ -1,33 +1,32 @@
 #!/usr/bin/env python
 
 
-import os
-import re
+import argparse
 import collections
-import warnings
+import json
 
 # import sys
 import logging
-import argparse
-import tempfile
-import subprocess
-import requests
-import chardet
-import bs4
-import json
+import os
+import re
 import shutil
+import subprocess
+import tempfile
+import warnings
 from pathlib import Path
+
+import bs4
+import chardet
 import numpy as np
+import regions
+import requests
 from astropy import table
-from astropy.io import fits, ascii
-
-from astromon.utils import logging_call_decorator, chdir, Ciao, FlowException
-
-from astropy.wcs import WCS, FITSFixedWarning
 from astropy import units as u
 from astropy.coordinates import SkyCoord
-import regions
+from astropy.io import ascii, fits
+from astropy.wcs import WCS, FITSFixedWarning
 
+from astromon.utils import Ciao, FlowException, chdir, logging_call_decorator
 
 __all__ = ["Observation"]
 
@@ -715,8 +714,8 @@ class Observation:
         """
         Returns a table of sources formatted for the astromon_xray_source SQL table
         """
-        from Quaternion import Quat
         from chandra_aca.transform import radec_to_yagzag
+        from Quaternion import Quat
 
         obspar = self.get_obspar()
         q = Quat(equatorial=(obspar["ra_pnt"], obspar["dec_pnt"], obspar["roll_pnt"]))
@@ -869,9 +868,10 @@ def main():
     """
     Main routine to process a set of observations.
     """
-    import pyyaks.logger
-    from multiprocessing import Pool
     from functools import partial
+    from multiprocessing import Pool
+
+    import pyyaks.logger
 
     args = get_parser().parse_args()
 

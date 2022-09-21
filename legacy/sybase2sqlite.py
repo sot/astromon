@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 
-import Ska.DBI
 import argparse
+
+import Ska.DBI
 
 parser = argparse.ArgumentParser(description="Convert sybase table to sqlite")
 parser.add_argument("--table", default="timelines", help="Table name")

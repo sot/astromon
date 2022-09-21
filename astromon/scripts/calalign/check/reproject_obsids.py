@@ -1,18 +1,17 @@
 #!/usr/bin/env python
 
-import sys
 import subprocess
+import sys
 import traceback
 from pathlib import Path
 
-from astropy.io import ascii
-
-from Ska.File import chdir
-import Ska.arc5gl
 import obsids_to_check
+import pyyaks.logger
+import Ska.arc5gl
+from astropy.io import ascii
+from Ska.File import chdir
 
 from astromon.utils import Ciao
-import pyyaks.logger
 
 
 def celldetect(evt, src, si, asol):

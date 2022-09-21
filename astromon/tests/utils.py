@@ -1,4 +1,5 @@
 from pathlib import Path
+
 from astropy.table import Table
 
 from astromon import db

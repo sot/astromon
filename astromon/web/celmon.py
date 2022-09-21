@@ -1,24 +1,24 @@
 #!/usr/bin/env python
 
 # import re
-import os
-
-from pathlib import Path
 import argparse
-import jinja2
 import functools
+import os
+from pathlib import Path
 
-import numpy as np
-from scipy.interpolate import interp1d
+import jinja2
 import matplotlib.pyplot as plt
+import numpy as np
 from astropy.table import Table
-
-from astromon import db
+from cxotime import CxoTime
+from cxotime import units as u
+from scipy.interpolate import interp1d
 
 # from astromon import cross_match
 # from astropy.table import join
-from Ska.Matplotlib import plot_cxctime, cxctime2plotdate
-from cxotime import CxoTime, units as u
+from Ska.Matplotlib import cxctime2plotdate, plot_cxctime
+
+from astromon import db
 
 plt.rcParams["font.size"] = "16"
 plt.rcParams["figure.max_open_warning"] = 100

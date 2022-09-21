@@ -3,8 +3,8 @@ Compute the Celestial location radius RMS corresponding to the PRD requirement
 of 1.0 arcsec.
 """
 
-import numpy as np
 import asciitable
+import numpy as np
 from Chandra.Time import DateTime
 
 # Read using Tab instead of Rdb because the RDB 2nd-line header is wrong.

@@ -1,21 +1,20 @@
-import os
 import logging
-from astropy.table.table import Table
-import numpy as np
-from pathlib import Path
-from contextlib import contextmanager
+import os
 import warnings
+from contextlib import contextmanager
+from pathlib import Path
 
-from cxotime import CxoTime
-from astropy.coordinates import SkyCoord
-from astropy import table, units as u
-
+import numpy as np
 import tables
+from astropy import table
+from astropy import units as u
+from astropy.coordinates import SkyCoord
+from astropy.table.table import Table
+from cxotime import CxoTime
 from ska_helpers.retry import tables_open_file
 
 from astromon import observation
 from astromon.utils import MissingTableException
-
 
 __all__ = ["get_table", "get_cross_matches", "save", "add_regions", "remove_regions"]
 

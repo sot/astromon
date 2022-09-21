@@ -1,23 +1,21 @@
 """
 """
 
-import re
 import logging
-import requests
+import re
 from pathlib import Path
 
 import numpy as np
-
-from astropy import table
-from astropy import coordinates as coords, units as u
-from astropy import io
-
+import requests
+from astropy import coordinates as coords
+from astropy import io, table
+from astropy import units as u
 from astroquery.vizier import Vizier
-
-from Ska.DBI import DBI
 from cxotime import CxoTime
+from Ska.DBI import DBI
+
 import astromon
-from astromon import db, utils, observation
+from astromon import db, observation, utils
 
 logger = logging.getLogger("astromon")
 

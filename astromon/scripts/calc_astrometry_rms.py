@@ -5,15 +5,15 @@ Compute the Celestial location radius RMS corresponding to the PRD requirement
 of 1.0 arcsec.
 """
 
-import numpy as np
-import json
 import argparse
+import json
 from pathlib import Path
 
+import numpy as np
 from astropy import units as u
-
 from cxotime import CxoTime
-from astromon import db, cross_match
+
+from astromon import cross_match, db
 
 
 def get_parser():

@@ -2,23 +2,18 @@
 
 
 from pathlib import Path
+
 import numpy as np
-from tqdm import tqdm
-
-
-from astropy.table import Table, vstack, join, join_skycoord
-from astropy.io import fits, ascii
-from astropy.coordinates import SkyCoord
 from astropy import units as u
-
+from astropy.coordinates import SkyCoord
+from astropy.io import ascii, fits
+from astropy.table import Table, join, join_skycoord, vstack
 from chandra_aca.transform import radec_to_yagzag
 from Quaternion import Quat
+from tqdm import tqdm
 
 from astromon import db
-
-
 from astromon.utils import Ciao
-
 
 DBFILE = "/proj/sot/ska/jgonzalez/aca_cal_align/update_2022-feb/check/ASTROMON_table.h5"
 

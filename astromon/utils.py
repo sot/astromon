@@ -1,13 +1,12 @@
-import os
 import functools
 import logging
-from pathlib import Path
-from contextlib import AbstractContextManager
-
-import Ska.Shell
+import os
 import subprocess
 import tempfile
+from contextlib import AbstractContextManager
+from pathlib import Path
 
+import Ska.Shell
 
 __all__ = [
     "communicate",

@@ -1,16 +1,14 @@
 #!/usr/bin/env python
 
-import re
-from pathlib import Path
-import os
 import argparse
 import json
+import os
+import re
+from pathlib import Path
 
 import numpy as np
 from astropy.io import fits
-
 from cxotime import CxoTime
-
 
 A2R = np.pi / 180 / 3600  # conversion from arcsec to rad
 

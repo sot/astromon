@@ -1,6 +1,7 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
-from setuptools import setup
 import os
+
+from setuptools import setup
 
 try:
     from testr.setup_helper import cmdclass

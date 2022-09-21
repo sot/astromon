@@ -4,18 +4,17 @@
 Calculate median offset in regular time bins.
 """
 
-import json
 import argparse
+import json
 from pathlib import Path
-import numpy as np
-from matplotlib import pyplot as plt
-import matplotlib.style
-from astropy.table import Table
 
+import matplotlib.style
+import numpy as np
+from astropy.table import Table
 from cxotime import CxoTime
+from matplotlib import pyplot as plt
 
 from astromon import db
-
 
 matplotlib.style.use("bmh")
 

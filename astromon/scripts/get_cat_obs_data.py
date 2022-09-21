@@ -3,32 +3,30 @@
 Script to find x-ray sources in observations, and a tentative set of optical/radio counterparts.
 """
 
-import sys
+import argparse
+import logging
 import os
 import re
-import argparse
-import tempfile
-import logging
-import traceback
-from pathlib import Path
 import shutil
-
+import sys
+import tempfile
+import traceback
 from multiprocessing import Pool, set_start_method
+from pathlib import Path
+
 import numpy as np
-
-from cxotime import CxoTime, units as u
-
-from astropy.table import Table, Column, vstack
-
+import pyyaks.logger
 import stk
-
+from astropy.table import Column, Table, vstack
 from chandra_aca.transform import radec_to_yagzag
+from cxotime import CxoTime
+from cxotime import units as u
 from Quaternion import Quat
 from Ska.arc5gl import Arc5gl
-from astromon.observation import Observation, Skipped, SkippedWithWarning
-from astromon.cross_match import rough_match, compute_cross_matches
+
 from astromon import db, utils
-import pyyaks.logger
+from astromon.cross_match import compute_cross_matches, rough_match
+from astromon.observation import Observation, Skipped, SkippedWithWarning
 
 
 def get_obsids(tstart, tstop):

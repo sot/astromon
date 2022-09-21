@@ -1,9 +1,9 @@
 from pathlib import Path
-import numpy as np
 
+import numpy as np
 from astropy.table import Table
 
-from astromon import db, cross_match
+from astromon import cross_match, db
 
 DATA_DIR = Path(__file__).parent / "data"
 

@@ -1,13 +1,11 @@
-from pathlib import Path
 import tempfile
+from pathlib import Path
+
 import numpy as np
 import pytest
-
 from astropy.table import Table
 
-from astromon import db
-from astromon import utils
-
+from astromon import db, utils
 
 DATA_DIR = Path(__file__).parent / "data"
 

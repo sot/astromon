@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 
 import json
-import matplotlib.pyplot as plt
 
-from Ska.Matplotlib import plot_cxctime
+import matplotlib.pyplot as plt
 from astropy.table import Table
+from Ska.Matplotlib import plot_cxctime
 
 
 def plot_offset_change():
