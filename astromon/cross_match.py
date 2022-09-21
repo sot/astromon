@@ -19,15 +19,10 @@ from cxotime import CxoTime
 import astromon
 from astromon import db, utils, observation
 
-logger = logging.getLogger('astromon')
+logger = logging.getLogger("astromon")
 
 
-SIM_Z = {
-    'ACIS-I': -233.587,
-    'ACIS-S': -190.143,
-    'HRC-I': 126.983,
-    'HRC-S': 250.466
-}
+SIM_Z = {"ACIS-I": -233.587, "ACIS-S": -190.143, "HRC-I": 126.983, "HRC-S": 250.466}
 
 
 def _get_vizier(source, ra, dec, time, radius):
@@ -36,52 +31,77 @@ def _get_vizier(source, ra, dec, time, radius):
     """
     time = CxoTime(time)
     url = (
-        'http://vizier.cfa.harvard.edu/viz-bin/asu-tsv?'
-        '-source={source}'
-        '&-sort=_r'
-        '&-c={ra:.5f}+{dec:.4f}'
-        '&-out.add=_RA(J2000,J{year})'
-        '&-c.rs={radius}'
+        "http://vizier.cfa.harvard.edu/viz-bin/asu-tsv?"
+        "-source={source}"
+        "&-sort=_r"
+        "&-c={ra:.5f}+{dec:.4f}"
+        "&-out.add=_RA(J2000,J{year})"
+        "&-c.rs={radius}"
     )
     opts = {
-        'source': source,
-        'ra': float(ra),
-        'dec': float(dec),
-        'year': time.frac_year,
-        'radius': float(radius)
+        "source": source,
+        "ra": float(ra),
+        "dec": float(dec),
+        "year": time.frac_year,
+        "radius": float(radius),
     }
     rc = requests.get(url.format(**opts))
     output = rc.content.decode()
-    n_rows = len([line for line in output.split('\n') if not re.match('#', line) and line.strip()])
+    n_rows = len(
+        [
+            line
+            for line in output.split("\n")
+            if not re.match("#", line) and line.strip()
+        ]
+    )
     if n_rows:
         return io.ascii.read(output, data_start=3)
 
 
-CROSS_MATCH_DTYPE = np.dtype([
-    # ('obsid', 'int'),
-    # ('id', 'int'),
-    ('catalog', '<U24'),
-    ('name', '<U16'),
-    ('ra', float),
-    ('dec', float),
-    ('mag', float)
-])
+CROSS_MATCH_DTYPE = np.dtype(
+    [
+        # ('obsid', 'int'),
+        # ('id', 'int'),
+        ("catalog", "<U24"),
+        ("name", "<U16"),
+        ("ra", float),
+        ("dec", float),
+        ("mag", float),
+    ]
+)
 
 
-def get_vizier(pos, catalog, cat_identifier, name_cols, columns,
-               radius=3 * u.arcsec, logging_tag='', use_astroquery=True, raw=False):
+def get_vizier(
+    pos,
+    catalog,
+    cat_identifier,
+    name_cols,
+    columns,
+    radius=3 * u.arcsec,
+    logging_tag="",
+    use_astroquery=True,
+    raw=False,
+):
     if use_astroquery:
         vizier = Vizier(
             columns=[
-                f'_RA(J2000,{pos.obstime.frac_year:8.3f})',
-                f'_DE(J2000,{pos.obstime.frac_year:8.3f})'
+                f"_RA(J2000,{pos.obstime.frac_year:8.3f})",
+                f"_DE(J2000,{pos.obstime.frac_year:8.3f})",
             ],
         )
-        vizier_result = vizier.query_region(pos, radius=radius, catalog=cat_identifier, cache=False)
+        vizier_result = vizier.query_region(
+            pos, radius=radius, catalog=cat_identifier, cache=False
+        )
         vizier_result = [r for r in vizier_result]
     else:
         vizier_result = [
-            _get_vizier(cat_identifier, p.ra / u.deg, p.dec / u.deg, pos.obstime, radius / u.arcsec)
+            _get_vizier(
+                cat_identifier,
+                p.ra / u.deg,
+                p.dec / u.deg,
+                pos.obstime,
+                radius / u.arcsec,
+            )
             for p in pos
         ]
         vizier_result = [r for r in vizier_result if r is not None]
@@ -90,14 +110,16 @@ def get_vizier(pos, catalog, cat_identifier, name_cols, columns,
         return vizier_result
 
     if len(vizier_result) == 0:
-        logger.debug(f'{logging_tag} {catalog:>24s} has no results')
+        logger.debug(f"{logging_tag} {catalog:>24s} has no results")
         return table.Table(dtype=CROSS_MATCH_DTYPE)
 
-    vizier_result = table.vstack(vizier_result, metadata_conflicts='silent')
+    vizier_result = table.vstack(vizier_result, metadata_conflicts="silent")
 
-    vizier_result['catalog'] = catalog
+    vizier_result["catalog"] = catalog
 
-    vizier_result['name'] = ['-'.join([str(row[n]) for n in name_cols]) for row in vizier_result]
+    vizier_result["name"] = [
+        "-".join([str(row[n]) for n in name_cols]) for row in vizier_result
+    ]
 
     result = table.Table(data=np.zeros(len(vizier_result), dtype=CROSS_MATCH_DTYPE))
     for col in CROSS_MATCH_DTYPE.names:
@@ -108,142 +130,119 @@ def get_vizier(pos, catalog, cat_identifier, name_cols, columns,
             result[col] = table.MaskedColumn(
                 dtype=CROSS_MATCH_DTYPE[col],
                 length=len(vizier_result),
-                mask=np.ones(len(vizier_result))
+                mask=np.ones(len(vizier_result)),
             )
-    logger.debug(f'{logging_tag} {catalog:>24s} has {len(vizier_result)} results')
+    logger.debug(f"{logging_tag} {catalog:>24s} has {len(vizier_result)} results")
     return result
 
 
 VIZIER_CATALOGS = {
-    'Tycho2': dict(
-        catalog='Tycho2',
-        cat_identifier='I/259/tyc2',
-        name_cols=['TYC1', 'TYC2', 'TYC3'],
+    "Tycho2": dict(
+        catalog="Tycho2",
+        cat_identifier="I/259/tyc2",
+        name_cols=["TYC1", "TYC2", "TYC3"],
         columns={
-            'ra': '_RAJ2000_{time.frac_year:.3f}',
-            'dec': '_DEJ2000_{time.frac_year:.3f}',
-            'mag': 'VTmag'
+            "ra": "_RAJ2000_{time.frac_year:.3f}",
+            "dec": "_DEJ2000_{time.frac_year:.3f}",
+            "mag": "VTmag",
         },
     ),
     # https://vizier.u-strasbg.fr/viz-bin/VizieR?-source=I/323
-    'ICRS': dict(
-        catalog='ICRS',
-        cat_identifier='I/323',
-        name_cols=['ICRF'],
-        columns={
-            'ra': '_RAJ2000',
-            'dec': '_DEJ2000'
-        },
+    "ICRS": dict(
+        catalog="ICRS",
+        cat_identifier="I/323",
+        name_cols=["ICRF"],
+        columns={"ra": "_RAJ2000", "dec": "_DEJ2000"},
     ),
     # https://vizier.u-strasbg.fr/viz-bin/VizieR?-source=I/284
-    'USNO-B1.0': dict(
-        catalog='USNO-B1.0',
-        cat_identifier='USNO-B1.0',
-        name_cols=['USNO-B1.0'],
-        columns={
-            'ra': '_RAJ2000',
-            'dec': '_DEJ2000',
-            'mag': 'R1mag'
-        },
+    "USNO-B1.0": dict(
+        catalog="USNO-B1.0",
+        cat_identifier="USNO-B1.0",
+        name_cols=["USNO-B1.0"],
+        columns={"ra": "_RAJ2000", "dec": "_DEJ2000", "mag": "R1mag"},
     ),
     # http://vizier.u-strasbg.fr/viz-bin/VizieR?-source=I/239
-    'HIP': dict(
-        catalog='HIP',
-        cat_identifier='I/239/hip_main',
-        name_cols=['HIP'],
-        columns={
-            'ra': '_RAJ2000',
-            'dec': '_DEJ2000',
-            'mag': 'Vmag'
-        },
+    "HIP": dict(
+        catalog="HIP",
+        cat_identifier="I/239/hip_main",
+        name_cols=["HIP"],
+        columns={"ra": "_RAJ2000", "dec": "_DEJ2000", "mag": "Vmag"},
     ),
     # http://vizier.u-strasbg.fr/viz-bin/VizieR?-source=I/311
     # https://heasarc.gsfc.nasa.gov/W3Browse/all/hipnewcat.html
-    'HIP2': dict(
-        catalog='HIP',
-        cat_identifier='I/311/hip2',
-        name_cols=['HIP'],
+    "HIP2": dict(
+        catalog="HIP",
+        cat_identifier="I/311/hip2",
+        name_cols=["HIP"],
         columns={
-            'ra': '_RAJ2000',
-            'dec': '_DEJ2000',
-            'mag': 'Vmag',
-        }
-    ),
-    # http://vizier.u-strasbg.fr/viz-bin/VizieR?-source=I/322
-    'UCAC4': dict(
-        catalog='UCAC4',
-        cat_identifier='I/322',
-        name_cols=['UCAC4'],
-        columns={
-            'ra': '_RAJ2000',
-            'dec': '_DEJ2000',
-            'mag': 'f.mag'
+            "ra": "_RAJ2000",
+            "dec": "_DEJ2000",
+            "mag": "Vmag",
         },
     ),
-    '2MASS': dict(
-        catalog='2MASS',
-        cat_identifier='II/246/out',
-        name_cols=['_2MASS'],
-        columns={
-            'ra': '_RAJ2000',
-            'dec': '_DEJ2000',
-            'mag': 'Kmag'},
+    # http://vizier.u-strasbg.fr/viz-bin/VizieR?-source=I/322
+    "UCAC4": dict(
+        catalog="UCAC4",
+        cat_identifier="I/322",
+        name_cols=["UCAC4"],
+        columns={"ra": "_RAJ2000", "dec": "_DEJ2000", "mag": "f.mag"},
     ),
-    'SDSS': dict(
-        catalog='SDSS',
-        cat_identifier='II/294',
-        name_cols=['SDSS'],
+    "2MASS": dict(
+        catalog="2MASS",
+        cat_identifier="II/246/out",
+        name_cols=["_2MASS"],
+        columns={"ra": "_RAJ2000", "dec": "_DEJ2000", "mag": "Kmag"},
+    ),
+    "SDSS": dict(
+        catalog="SDSS",
+        cat_identifier="II/294",
+        name_cols=["SDSS"],
         columns={
-            'ra': '_RAJ2000_{time.frac_year:.3f}',
-            'dec': '_DEJ2000_{time.frac_year:.3f}',
-            'mag': 'rmag'
+            "ra": "_RAJ2000_{time.frac_year:.3f}",
+            "dec": "_DEJ2000_{time.frac_year:.3f}",
+            "mag": "rmag",
         },
     ),
     # https://vizier.u-strasbg.fr/viz-bin/VizieR-3?-source=I/345/gaia2
-    'Gaia2': dict(
-        catalog='Gaia2',
-        cat_identifier='I/345/gaia2',
-        name_cols=['Source'],
-        columns={
-            'ra': '_RA_ICRS',
-            'dec': '_DE_ICRS',
-            'mag': 'Gmag'
-        },
+    "Gaia2": dict(
+        catalog="Gaia2",
+        cat_identifier="I/345/gaia2",
+        name_cols=["Source"],
+        columns={"ra": "_RA_ICRS", "dec": "_DE_ICRS", "mag": "Gmag"},
     ),
 }
 
 
 def _get(
-    catalog, time, pos=None, ra=None, dec=None,
-    radius=3 * u.arcsec, logging_tag='', raw=False
+    catalog,
+    time,
+    pos=None,
+    ra=None,
+    dec=None,
+    radius=3 * u.arcsec,
+    logging_tag="",
+    raw=False,
 ):
-    assert (ra is not None and dec is not None) or pos is not None, 'pos or ra/dec required'
+    assert (
+        ra is not None and dec is not None
+    ) or pos is not None, "pos or ra/dec required"
     if pos is None:
-        pos = coords.SkyCoord(
-            ra=ra, dec=dec,
-            unit='deg',
-            frame='icrs',
-            obstime=time
-        )
+        pos = coords.SkyCoord(ra=ra, dec=dec, unit="deg", frame="icrs", obstime=time)
     else:
-        assert ra is None and dec is None, 'ra/dec not required if giving pos'
+        assert ra is None and dec is None, "ra/dec not required if giving pos"
     params = VIZIER_CATALOGS[catalog].copy()
     columns = {}
-    for name, col in params['columns'].items():
+    for name, col in params["columns"].items():
         columns[name] = col.format(time=time)
-    params['columns'] = columns
-    return get_vizier(
-        pos,
-        radius=radius,
-        logging_tag=logging_tag,
-        **params,
-        raw=raw
-    )
+    params["columns"] = columns
+    return get_vizier(pos, radius=radius, logging_tag=logging_tag, **params, raw=raw)
 
 
 def rough_match(
-    sources, time, radius=3 * u.arcsec,
-    catalogs=('Tycho2', 'ICRS', 'USNO-B1.0', '2MASS', 'SDSS')
+    sources,
+    time,
+    radius=3 * u.arcsec,
+    catalogs=("Tycho2", "ICRS", "USNO-B1.0", "2MASS", "SDSS"),
 ):
     """
     Find sources in a set of :ref:`catalogs <catalog-list>` around the x-ray sources given
@@ -282,63 +281,62 @@ def rough_match(
     if len(sources) == 0:
         return []
 
-    if 'obsid' in sources.dtype.names:
-        assert len(np.unique(sources['obsid'])) <= 1, 'rough_match only handles one OBSID at a time'
+    if "obsid" in sources.dtype.names:
+        assert (
+            len(np.unique(sources["obsid"])) <= 1
+        ), "rough_match only handles one OBSID at a time"
         logging_tag = f'OBSID={sources["obsid"][0]} '
     else:
-        logging_tag = ''
+        logging_tag = ""
 
-    logger.debug(f'{logging_tag} rough_match started')
+    logger.debug(f"{logging_tag} rough_match started")
     pos = coords.SkyCoord(
-        ra=sources['ra'], dec=sources['dec'],
-        unit='deg',
-        frame='icrs',
-        obstime=time
+        ra=sources["ra"], dec=sources["dec"], unit="deg", frame="icrs", obstime=time
     )
 
     res = [
-        _get(
-            pos=pos,
-            time=time,
-            radius=radius,
-            catalog=name,
-            logging_tag=logging_tag
-        ) for name in catalogs]
-    res = table.vstack([r for r in res], metadata_conflicts='silent')
+        _get(pos=pos, time=time, radius=radius, catalog=name, logging_tag=logging_tag)
+        for name in catalogs
+    ]
+    res = table.vstack([r for r in res], metadata_conflicts="silent")
 
     if len(sources) and len(res):
-        sources['coord_xray'] = coords.SkyCoord(sources['ra'], sources['dec'], unit='deg')
-        res['coord_cat'] = coords.SkyCoord(res['ra'], res['dec'], unit='deg')
-        res = table.join(res, sources[['coord_xray', 'id']], join_type='cartesian')
-        sep = res['coord_xray'].separation(res['coord_cat'])
-        res['separation'] = sep.to_value(unit='arcsec')
-        res.remove_columns(['coord_xray', 'coord_cat'])
+        sources["coord_xray"] = coords.SkyCoord(
+            sources["ra"], sources["dec"], unit="deg"
+        )
+        res["coord_cat"] = coords.SkyCoord(res["ra"], res["dec"], unit="deg")
+        res = table.join(res, sources[["coord_xray", "id"]], join_type="cartesian")
+        sep = res["coord_xray"].separation(res["coord_cat"])
+        res["separation"] = sep.to_value(unit="arcsec")
+        res.remove_columns(["coord_xray", "coord_cat"])
         res = res[sep < radius]
-        res.rename_column('id', 'x_id')
+        res.rename_column("id", "x_id")
     else:
-        dtype = _join_dtype(res.dtype, sources[['id']].dtype, [])
+        dtype = _join_dtype(res.dtype, sources[["id"]].dtype, [])
         res = table.Table(dtype=dtype)
-        res.rename_column('id', 'x_id')
-        res['separation'] = table.Column(dtype=np.float32)
+        res.rename_column("id", "x_id")
+        res["separation"] = table.Column(dtype=np.float32)
 
     return res
 
 
 @utils.logging_call_decorator
 def do_sql_cross_match(selection_name):
-    sql_script = Path(astromon.__file__).parent / 'sql' / 'x-corr' / f'{selection_name}.sql'
+    sql_script = (
+        Path(astromon.__file__).parent / "sql" / "x-corr" / f"{selection_name}.sql"
+    )
     if not sql_script.exists():
-        logging.error(f'File {sql_script} does not exist')
+        logging.error(f"File {sql_script} does not exist")
         sql_script = Path(selection_name)
     if not sql_script.exists():
-        logging.error(f'File {sql_script} does not exist')
-        msg = f'{selection_name} is not a known selection'
+        logging.error(f"File {sql_script} does not exist")
+        msg = f"{selection_name} is not a known selection"
         logging.error(msg)
         raise Exception(msg)
 
     with open(sql_script) as fh:
         sql_query = fh.read()
-        dbi = DBI('sqlite', db.FILE, numpy=False)
+        dbi = DBI("sqlite", db.FILE, numpy=False)
         return table.Table(dbi.fetchall(sql_query))
 
 
@@ -355,10 +353,19 @@ def get_bad_target_mask(matches):
         :any:`db.get_cross_matches`. Required.
     """
     ok = np.ones(len(matches), dtype=bool)
-    bad_targets = ['RW Aur', 'Tau Boo', '70 OPH', '16 Cyg', 'M87', 'Orion', 'HD 97950', 'HD4915']
-    bad_targets = [x.replace(' ', '').lower() for x in bad_targets]
-    for ii, target in enumerate(matches['target']):
-        target = target.replace(' ', '').lower()
+    bad_targets = [
+        "RW Aur",
+        "Tau Boo",
+        "70 OPH",
+        "16 Cyg",
+        "M87",
+        "Orion",
+        "HD 97950",
+        "HD4915",
+    ]
+    bad_targets = [x.replace(" ", "").lower() for x in bad_targets]
+    for ii, target in enumerate(matches["target"]):
+        target = target.replace(" ", "").lower()
         for bad_target in bad_targets:
             if target.startswith(bad_target):
                 ok[ii] = False
@@ -376,11 +383,16 @@ def get_excluded_regions_mask(matches, regions=None):
         :any:`db.get_cross_matches`. Required.
     """
     if regions is None:
-        regions = db.get_table('astromon_regions')
-    ii, jj = np.broadcast_arrays(np.arange(len(matches))[None, :], np.arange(len(regions))[:, None])
+        regions = db.get_table("astromon_regions")
+    ii, jj = np.broadcast_arrays(
+        np.arange(len(matches))[None, :], np.arange(len(regions))[:, None]
+    )
     i, j = ii.flatten(), jj.flatten()
-    regions['loc'] = coords.SkyCoord(regions['ra'] * u.deg, regions['dec'] * u.deg)
-    in_region = matches['x_loc'][i].separation(regions['loc'][j]) < regions['radius'][j] * u.arcsec
+    regions["loc"] = coords.SkyCoord(regions["ra"] * u.deg, regions["dec"] * u.deg)
+    in_region = (
+        matches["x_loc"][i].separation(regions["loc"][j])
+        < regions["radius"][j] * u.arcsec
+    )
     in_region = in_region.reshape(ii.shape)
     return np.any(in_region, axis=0)
 
@@ -398,7 +410,7 @@ def filter_matches(
     exclude_regions=False,
     exclude_bad_targets=False,
     exclude_categories=(),
-    **kwargs
+    **kwargs,
 ):
     """
     Return a mask to filter out cross-matches based on some common criteria.
@@ -441,35 +453,35 @@ def filter_matches(
     ok = np.ones(len(matches), dtype=bool)
 
     if dr is not None:
-        ok &= matches['dr'] <= dr
+        ok &= matches["dr"] <= dr
 
     if snr is not None:
-        ok &= matches['snr'] >= snr
+        ok &= matches["snr"] >= snr
 
     if r_angle is not None:
-        ok &= matches['r_angle'] <= r_angle
+        ok &= matches["r_angle"] <= r_angle
 
     if start is not None:
-        ok &= matches['tstart'] >= CxoTime(start).secs
+        ok &= matches["tstart"] >= CxoTime(start).secs
 
     if stop is not None:
-        ok &= matches['tstart'] <= CxoTime(stop).secs
+        ok &= matches["tstart"] <= CxoTime(stop).secs
 
     if r_angle_grating is not None:
-        ok &= matches['r_angle_grating'] <= r_angle_grating
+        ok &= matches["r_angle_grating"] <= r_angle_grating
 
     if near_neighbor_dist is not None:
-        ok &= matches['near_neighbor_dist'] <= near_neighbor_dist
+        ok &= matches["near_neighbor_dist"] <= near_neighbor_dist
 
     if sim_z is not None:
         sim_z_offset = np.zeros(len(matches))
         for det in SIM_Z:
-            msk = matches['detector'] == det
-            sim_z_offset[msk] = matches['sim_z'][msk] - SIM_Z[det]
+            msk = matches["detector"] == det
+            sim_z_offset[msk] = matches["sim_z"][msk] - SIM_Z[det]
         ok &= np.abs(sim_z_offset) <= sim_z
 
     if exclude_categories:
-        ok &= ~np.in1d(matches['category'], exclude_categories)
+        ok &= ~np.in1d(matches["category"], exclude_categories)
 
     for key, val in kwargs.items():
         if isinstance(val, list):
@@ -494,8 +506,8 @@ def compute_cross_matches(
     dbfile=None,
     exclude_regions=False,
     exclude_bad_targets=False,
-    logging_tag='',
-    **kwargs
+    logging_tag="",
+    **kwargs,
 ):
     """
     Cross-match x-ray sources with catalog counterparts.
@@ -549,26 +561,25 @@ def compute_cross_matches(
               Default is to consider all.
     """
     if astromon_xray_src is None:
-        astromon_xray_src = db.get_table('astromon_xray_src', dbfile)
+        astromon_xray_src = db.get_table("astromon_xray_src", dbfile)
     if astromon_cat_src is None:
-        astromon_cat_src = db.get_table('astromon_cat_src', dbfile)
+        astromon_cat_src = db.get_table("astromon_cat_src", dbfile)
     if astromon_obs is None:
-        astromon_obs = db.get_table('astromon_obs', dbfile)
+        astromon_obs = db.get_table("astromon_obs", dbfile)
 
     if name is None:
-        name = 'default' if not kwargs else 'simple'
+        name = "default" if not kwargs else "simple"
 
     if name in CROSS_MATCHES_ARGS:
         if kwargs:
-            logger.warning(f'calling astromon.cross_match with {name=}. kwargs are ignored.')
+            logger.warning(
+                f"calling astromon.cross_match with {name=}. kwargs are ignored."
+            )
         args = CROSS_MATCHES_ARGS[name].copy()
-        method = CROSS_MATCH_METHODS[args.pop('method')]
+        method = CROSS_MATCH_METHODS[args.pop("method")]
     elif name in CROSS_MATCH_METHODS:
         method = CROSS_MATCH_METHODS[name]
-        args = dict(
-            name=name,
-            **kwargs
-        )
+        args = dict(name=name, **kwargs)
     else:
         raise Exception(f'Unknown x-matching name: "{name}"')
 
@@ -577,24 +588,24 @@ def compute_cross_matches(
         astromon_xray_src,
         astromon_cat_src,
         logging_tag=logging_tag,
-        **args
+        **args,
     )
 
-    result['time'] = CxoTime(result['date_obs'])
-    result['c_loc'] = coords.SkyCoord(result['c_ra'], result['c_dec'], unit='deg')
-    result['x_loc'] = coords.SkyCoord(result['x_ra'], result['x_dec'], unit='deg')
+    result["time"] = CxoTime(result["date_obs"])
+    result["c_loc"] = coords.SkyCoord(result["c_ra"], result["c_dec"], unit="deg")
+    result["x_loc"] = coords.SkyCoord(result["x_ra"], result["x_dec"], unit="deg")
 
-    result['category'] = [
-        observation.ID_CATEGORY_MAP[cat] for cat in result['category_id']
+    result["category"] = [
+        observation.ID_CATEGORY_MAP[cat] for cat in result["category_id"]
     ]
 
     if exclude_bad_targets:
         result = result[~get_bad_target_mask(result)]
     if exclude_regions:
-        regions = db.get_table('astromon_regions', dbfile=dbfile)
+        regions = db.get_table("astromon_regions", dbfile=dbfile)
         result = result[~get_excluded_regions_mask(result, regions=regions)]
 
-    result.add_index('obsid')
+    result.add_index("obsid")
     _set_formats(result)
 
     return result
@@ -616,16 +627,16 @@ def simple_cross_match(
     astromon_obs,
     astromon_xray_src,
     astromon_cat_src,
-    name='',
-    catalogs=('ICRS', 'Tycho2'),
+    name="",
+    catalogs=("ICRS", "Tycho2"),
     snr=3,
-    r_angle=120.,
+    r_angle=120.0,
     dr=3,
-    r_angle_grating=24.,
+    r_angle_grating=24.0,
     near_neighbor_dist=6.0,
     start=None,
     stop=None,
-    logging_tag='',
+    logging_tag="",
 ):
     """
     The simplest cross-match of x-ray sources with catalog counterparts.
@@ -701,104 +712,101 @@ def simple_cross_match(
     """
 
     astromon_xray_src = astromon_xray_src[
-        (astromon_xray_src['snr'] > snr)
-        & (astromon_xray_src['near_neighbor_dist'] > near_neighbor_dist)
+        (astromon_xray_src["snr"] > snr)
+        & (astromon_xray_src["near_neighbor_dist"] > near_neighbor_dist)
     ]
-    astromon_cat_src = astromon_cat_src[np.in1d(astromon_cat_src['catalog'], catalogs)]
+    astromon_cat_src = astromon_cat_src[np.in1d(astromon_cat_src["catalog"], catalogs)]
 
     # I can rename and drop these to match the standard in astromon.db because I just made copies
     astromon_cat_src.rename_columns(
-        ['id', 'ra', 'dec', 'y_angle', 'z_angle'],
-        ['c_id', 'c_ra', 'c_dec', 'c_y_angle', 'c_z_angle']
+        ["id", "ra", "dec", "y_angle", "z_angle"],
+        ["c_id", "c_ra", "c_dec", "c_y_angle", "c_z_angle"],
     )
     astromon_xray_src.rename_columns(
-        ['id', 'ra', 'dec', 'y_angle', 'z_angle'],
-        ['x_id', 'x_ra', 'x_dec', 'x_y_angle', 'x_z_angle']
+        ["id", "ra", "dec", "y_angle", "z_angle"],
+        ["x_id", "x_ra", "x_dec", "x_y_angle", "x_z_angle"],
     )
-    if 'name' in astromon_xray_src.colnames:
-        astromon_xray_src.remove_column('name')
+    if "name" in astromon_xray_src.colnames:
+        astromon_xray_src.remove_column("name")
 
     if start is not None:
-        date_obs = CxoTime(astromon_obs['date_obs'].astype(str))
+        date_obs = CxoTime(astromon_obs["date_obs"].astype(str))
         astromon_obs = astromon_obs[date_obs > start]
 
     if stop is not None:
-        date_obs = CxoTime(astromon_obs['date_obs'].astype(str))
+        date_obs = CxoTime(astromon_obs["date_obs"].astype(str))
         astromon_obs = astromon_obs[date_obs <= stop]
 
     if len(astromon_xray_src) == 0 or len(astromon_cat_src) == 0:
-        logger.debug(f'{logging_tag} No xray or cat sources')
-        dtype = _join_dtype(astromon_obs.dtype, astromon_xray_src.dtype, ['obsid'])
-        dtype = _join_dtype(dtype, astromon_cat_src.dtype, ['obsid', 'x_id'])
+        logger.debug(f"{logging_tag} No xray or cat sources")
+        dtype = _join_dtype(astromon_obs.dtype, astromon_xray_src.dtype, ["obsid"])
+        dtype = _join_dtype(dtype, astromon_cat_src.dtype, ["obsid", "x_id"])
         return table.Table(dtype=dtype)
 
     matches = table.join(
         astromon_obs,
         astromon_xray_src,
-        keys=['obsid'],
+        keys=["obsid"],
     )
     matches = table.join(
-        matches,
-        astromon_cat_src,
-        keys=['obsid', 'x_id'],
-        table_names=['xray', 'cat']
+        matches, astromon_cat_src, keys=["obsid", "x_id"], table_names=["xray", "cat"]
     )
 
-    matches['dz'] = matches['x_z_angle'] - matches['c_z_angle']
-    matches['dy'] = matches['x_y_angle'] - matches['c_y_angle']
-    matches['dr'] = np.sqrt(matches['dy']**2 + matches['dz']**2)
-    matches['cat_order'] = np.full(len(matches), 200)
+    matches["dz"] = matches["x_z_angle"] - matches["c_z_angle"]
+    matches["dy"] = matches["x_y_angle"] - matches["c_y_angle"]
+    matches["dr"] = np.sqrt(matches["dy"] ** 2 + matches["dz"] ** 2)
+    matches["cat_order"] = np.full(len(matches), 200)
     for i, k in enumerate(catalogs):
-        matches['cat_order'][matches['catalog'] == k] = i
+        matches["cat_order"][matches["catalog"] == k] = i
 
     matches = matches[
-        ((matches['grating'] == 'NONE') & (matches['r_angle'] < r_angle))
-        | ((matches['grating'] != 'NONE') & (matches['r_angle'] < r_angle_grating))
+        ((matches["grating"] == "NONE") & (matches["r_angle"] < r_angle))
+        | ((matches["grating"] != "NONE") & (matches["r_angle"] < r_angle_grating))
     ]
-    matches = matches[matches['dr'] < dr]
+    matches = matches[matches["dr"] < dr]
 
     if len(matches) == 0:
         return matches
 
-    mg = matches.group_by(['obsid', 'x_id'])
+    mg = matches.group_by(["obsid", "x_id"])
     indices = mg.groups.indices
     idxs = []
     for i0, i1 in zip(indices[:-1], indices[1:]):
-        idxs_sort = np.lexsort((mg['dr'][i0:i1], mg['cat_order'][i0:i1]))
+        idxs_sort = np.lexsort((mg["dr"][i0:i1], mg["cat_order"][i0:i1]))
         idxs.append(i0 + idxs_sort[0])
     result = mg[idxs]
 
-    result['select_name'] = name
+    result["select_name"] = name
 
     return result
 
 
 CROSS_MATCHES_ARGS = {
-    'astromon_21': {
-        'name': 'astromon_21',
-        'method': 'simple',
-        'catalogs': ['ICRS', 'Tycho2'],
-        'snr': 3,
-        'r_angle': 120.,
-        'r_angle_grating': 120.,
-        'near_neighbor_dist': 6.,
-        'dr': 3.,
+    "astromon_21": {
+        "name": "astromon_21",
+        "method": "simple",
+        "catalogs": ["ICRS", "Tycho2"],
+        "snr": 3,
+        "r_angle": 120.0,
+        "r_angle_grating": 120.0,
+        "near_neighbor_dist": 6.0,
+        "dr": 3.0,
     },
-    'astromon_22': {
-        'name': 'astromon_22',
-        'method': 'simple',
-        'catalogs': ['ICRS', 'Tycho2'],
-        'snr': 3,
-        'r_angle': 120.,
-        'r_angle_grating': 24.,
-        'near_neighbor_dist': 6.,
-        'dr': 3.,
-    }
+    "astromon_22": {
+        "name": "astromon_22",
+        "method": "simple",
+        "catalogs": ["ICRS", "Tycho2"],
+        "snr": 3,
+        "r_angle": 120.0,
+        "r_angle_grating": 24.0,
+        "near_neighbor_dist": 6.0,
+        "dr": 3.0,
+    },
 }
 """
 *Standard* cross-match arguments.
 """
-CROSS_MATCHES_ARGS['default'] = CROSS_MATCHES_ARGS['astromon_21']
+CROSS_MATCHES_ARGS["default"] = CROSS_MATCHES_ARGS["astromon_21"]
 
 """
 *Standard* cross-matches (the keys of :any:`CROSS_MATCHES_ARGS`).
@@ -808,9 +816,7 @@ CROSS_MATCHES = sorted(CROSS_MATCHES_ARGS.keys())
 """
 Available cross-matching algorithms to be used in :any:`compute_cross_matches`.
 """
-CROSS_MATCH_METHODS = {
-    'simple': simple_cross_match
-}
+CROSS_MATCH_METHODS = {"simple": simple_cross_match}
 
 
 def _set_formats(dat):
@@ -821,14 +827,20 @@ def _set_formats(dat):
     ----------
     dat: `astropy.table.Table`
     """
-    fmts = {'ra': '.4f',
-            'x_ra': '.4f',
-            'c_ra': '.4f',
-            'dec': '.4f',
-            'x_dec': '.4f',
-            'c_dec': '.4f',
-            'pileup': '.4f'}
+    fmts = {
+        "ra": ".4f",
+        "x_ra": ".4f",
+        "c_ra": ".4f",
+        "dec": ".4f",
+        "x_dec": ".4f",
+        "c_dec": ".4f",
+        "pileup": ".4f",
+    }
     for col in dat.itercols():
-        if (hasattr(col, 'name') and col.name in dat.colnames
-                and hasattr(dat[col.name], 'dtype') and col.dtype.kind == 'f'):
-            dat[col.name].info.format = fmts.get(col.name, '.2f')
+        if (
+            hasattr(col, "name")
+            and col.name in dat.colnames
+            and hasattr(dat[col.name], "dtype")
+            and col.dtype.kind == "f"
+        ):
+            dat[col.name].info.format = fmts.get(col.name, ".2f")
