@@ -310,3 +310,70 @@ logging_call_decorator = LoggingCallDecorator(
 """
 Decorator to add logging messages at the start/end of the decorated function.
 """
+
+
+def calalign_from_files(calalign_dir="/data/caldb/data/chandra/pcad/align"):
+    import re
+    from astropy.io import fits
+    from cxotime import CxoTime
+    from astropy.table import Table
+
+    caldb_info = {
+        "N0008": {
+            "CalDB": "4.4.4",
+            "since": "2011-06-28T20:45:00",
+        },
+        "N0009": {
+            "CalDB": "4.6.2",
+            "since": "2014-07-09T21:00:00",
+        },
+        "N0010": {
+            "CalDB": "4.10.0",
+            "since": "2022-06-28T14:00:00",
+        },
+    }
+
+    transforms = []
+    for filename in sorted(Path(calalign_dir).glob("*.fits")):
+        # pcadD2001-01-01alignN0008.fits
+        file_re = re.search(
+            "(?P<date>[0-9]{4}-[0-9]{2}-[0-9]{2})align(?P<version>N[0-9]{4}).fits",
+            filename.name,
+        )
+        if not file_re:
+            raise Exception(f"filename {filename} does not conform to expected format")
+
+        info = file_re.groupdict()
+        hdus = fits.open(filename)
+        cals = hdus[1].data
+        for cal in cals:
+            transforms.append(
+                {
+                    "start": CxoTime(CxoTime(hdus[1].header["TSTART"]).date),
+                    "stop": CxoTime(CxoTime(hdus[1].header["TSTOP"]).date),
+                    "detector": cal["INSTR_ID"].strip(),
+                    "date": CxoTime(info["date"]),
+                    "version": info["version"],
+                    "caldb_version": caldb_info[info["version"]]["CalDB"],
+                    "since": caldb_info[info["version"]]["since"],
+                    "aca_misalign": cal["ACA_MISALIGN"],
+                    "fts_misalign": cal["FTS_MISALIGN"],
+                }
+            )
+    calalign = Table(transforms)
+    calalign["dy"], calalign["dz"] = get_offsets(calalign["aca_misalign"])
+    return calalign
+
+
+def get_offsets(aca_misalign):
+    from Quaternion import Quat
+    import numpy as np
+
+    aca_misalign = np.atleast_1d(aca_misalign)
+    dys = []
+    dzs = []
+    for xform in aca_misalign:
+        q = Quat(transform=xform)
+        dzs.append(-q.pitch * 3600)
+        dys.append(q.yaw * 3600)
+    return np.array(dys), np.array(dzs)
