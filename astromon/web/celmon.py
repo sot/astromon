@@ -459,6 +459,9 @@ def create_figures_mta(outdir):
             "Clusters of Galaxies",
         ],
     )
+    calalign = get_calalign_offsets(all_matches)
+    all_matches["dy"] -= calalign["calalign_dy"] - calalign["ref_calalign_dy"]
+    all_matches["dz"] -= calalign["calalign_dz"] - calalign["ref_calalign_dz"]
 
     all_matches["year"] = all_matches["time"].frac_year
     year_bin_2 = year_bins(all_matches["time"], 2)
@@ -570,6 +573,9 @@ def create_figures_cal(outdir, snr=5, n_years=5, draw_median=True):
             "Clusters of Galaxies",
         ],
     )
+    calalign = get_calalign_offsets(matches)
+    matches["dy"] -= calalign["calalign_dy"] - calalign["ref_calalign_dy"]
+    matches["dz"] -= calalign["calalign_dz"] - calalign["ref_calalign_dz"]
 
     ok = matches["time"] > start
     matches = matches[ok]
