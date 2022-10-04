@@ -659,11 +659,20 @@ def get_parser():
         type=Path,
         default=None,
     )
+    parser.add_argument(
+        "--log-level",
+        default='INFO',
+        choices=['CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG'],
+    )
     return parser
 
 
 def main():
+    from ska_helpers.logging import basic_logger
+
     args = get_parser().parse_args()
+    logger = basic_logger('celmon', format="%(levelname)s %(funcName)s %(message)s", level=args.log_level)
+
     if args.db_file:
         os.environ["ASTROMON_FILE"] = str(args.db_file)
         import importlib
@@ -681,13 +690,13 @@ def main():
     file_path = args.out / "cal" / "index.html"
     with open(file_path, "w") as out:
         out.write(tpl.render(data={"cal": data_cal}))
-        print(f"report created at {file_path}")
+        logger.info(f"report created at {file_path}")
 
     tpl = JINJA2.get_template("celmon_mta.html")
     file_path = args.out / "mta" / "index.html"
     with open(file_path, "w") as out:
         out.write(tpl.render(data={"cal": data_cal, "mta": data_mta}))
-        print(f"report created at {file_path}")
+        logger.info(f"report created at {file_path}")
 
 
 if __name__ == "__main__":
