@@ -312,11 +312,18 @@ Decorator to add logging messages at the start/end of the decorated function.
 """
 
 
-def calalign_from_files(calalign_dir="/data/caldb/data/chandra/pcad/align"):
+def calalign_from_files(calalign_dir=None):
     import re
     from astropy.io import fits
     from cxotime import CxoTime
     from astropy.table import Table
+
+    if calalign_dir is None:
+        calalign_dir = "/data/caldb/data/chandra/pcad/align"
+
+    calalign_files = sorted(Path(calalign_dir).glob("*.fits"))
+    if not calalign_files:
+        raise Exception(f'CALALIGN files does not exist at {calalign_dir}')
 
     caldb_info = {
         "N0008": {
@@ -334,7 +341,7 @@ def calalign_from_files(calalign_dir="/data/caldb/data/chandra/pcad/align"):
     }
 
     transforms = []
-    for filename in sorted(Path(calalign_dir).glob("*.fits")):
+    for filename in sorted(calalign_files):
         # pcadD2001-01-01alignN0008.fits
         file_re = re.search(
             "(?P<date>[0-9]{4}-[0-9]{2}-[0-9]{2})align(?P<version>N[0-9]{4}).fits",

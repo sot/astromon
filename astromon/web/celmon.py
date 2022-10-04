@@ -30,9 +30,9 @@ JINJA2 = jinja2.Environment(
 )
 
 
-def get_calalign_offsets(all_matches, ref_calalign=None):
+def get_calalign_offsets(all_matches, ref_calalign=None, calalign_dir=None):
     # this is a table of all calalign matrices
-    calalign = utils.calalign_from_files()
+    calalign = utils.calalign_from_files(calalign_dir=calalign_dir)
     calalign.rename_columns(
         ["dy", "dz", "caldb_version"],
         ["calalign_dy", "calalign_dz", "calalign_version"],
@@ -439,7 +439,7 @@ def plot_cdf_2(
         plt.savefig(filename)
 
 
-def create_figures_mta(outdir):
+def create_figures_mta(outdir, calalign_dir=None):
     outdir = Path(outdir)
 
     n_years = 5
@@ -465,7 +465,7 @@ def create_figures_mta(outdir):
         logging.getLogger("celmon").warning("Some observations with no version")
         all_matches = all_matches[~no_version]
 
-    calalign = get_calalign_offsets(all_matches)
+    calalign = get_calalign_offsets(all_matches, calalign_dir=calalign_dir)
     all_matches["dy"] -= calalign["calalign_dy"] - calalign["ref_calalign_dy"]
     all_matches["dz"] -= calalign["calalign_dz"] - calalign["ref_calalign_dz"]
 
@@ -562,7 +562,7 @@ def create_figures_mta(outdir):
     return result
 
 
-def create_figures_cal(outdir, snr=5, n_years=5, draw_median=True):
+def create_figures_cal(outdir, snr=5, n_years=5, draw_median=True, calalign_dir=None):
     outdir = Path(outdir)
 
     sim_z = 4  # max sim-z
@@ -585,7 +585,7 @@ def create_figures_cal(outdir, snr=5, n_years=5, draw_median=True):
         logging.getLogger("celmon").warning("Some observations with no version")
         matches = matches[~no_version]
 
-    calalign = get_calalign_offsets(matches)
+    calalign = get_calalign_offsets(matches, calalign_dir=calalign_dir)
     matches["dy"] -= calalign["calalign_dy"] - calalign["ref_calalign_dy"]
     matches["dz"] -= calalign["calalign_dz"] - calalign["ref_calalign_dz"]
 
@@ -654,6 +654,11 @@ def get_parser():
         type=Path,
         default=Path(os.environ["SKA"]) / "data" / "astromon" / "astromon.h5",
     )
+    parser.add_argument(
+        "--calalign-dir",
+        type=Path,
+        default=None,
+    )
     return parser
 
 
@@ -668,9 +673,9 @@ def main():
     (args.out / "cal").mkdir(exist_ok=True, parents=True)
     (args.out / "mta").mkdir(exist_ok=True, parents=True)
 
-    data_cal = create_figures_cal(outdir=args.out / "cal")
+    data_cal = create_figures_cal(outdir=args.out / "cal", calalign_dir=args.calalign_dir)
 
-    data_mta = create_figures_mta(outdir=args.out / "mta")
+    data_mta = create_figures_mta(outdir=args.out / "mta", calalign_dir=args.calalign_dir)
 
     tpl = JINJA2.get_template("celmon_cal.html")
     file_path = args.out / "cal" / "index.html"
