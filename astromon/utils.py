@@ -323,7 +323,7 @@ def calalign_from_files(calalign_dir=None):
 
     calalign_files = sorted(Path(calalign_dir).glob("*.fits"))
     if not calalign_files:
-        raise Exception(f'CALALIGN files does not exist at {calalign_dir}')
+        raise Exception(f"CALALIGN files does not exist at {calalign_dir}")
 
     caldb_info = {
         "N0008": {

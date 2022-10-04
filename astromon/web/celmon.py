@@ -661,8 +661,8 @@ def get_parser():
     )
     parser.add_argument(
         "--log-level",
-        default='INFO',
-        choices=['CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG'],
+        default="INFO",
+        choices=["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"],
     )
     return parser
 
@@ -671,7 +671,9 @@ def main():
     from ska_helpers.logging import basic_logger
 
     args = get_parser().parse_args()
-    logger = basic_logger('celmon', format="%(levelname)s %(funcName)s %(message)s", level=args.log_level)
+    logger = basic_logger(
+        "celmon", format="%(levelname)s %(funcName)s %(message)s", level=args.log_level
+    )
 
     if args.db_file:
         os.environ["ASTROMON_FILE"] = str(args.db_file)
@@ -682,9 +684,13 @@ def main():
     (args.out / "cal").mkdir(exist_ok=True, parents=True)
     (args.out / "mta").mkdir(exist_ok=True, parents=True)
 
-    data_cal = create_figures_cal(outdir=args.out / "cal", calalign_dir=args.calalign_dir)
+    data_cal = create_figures_cal(
+        outdir=args.out / "cal", calalign_dir=args.calalign_dir
+    )
 
-    data_mta = create_figures_mta(outdir=args.out / "mta", calalign_dir=args.calalign_dir)
+    data_mta = create_figures_mta(
+        outdir=args.out / "mta", calalign_dir=args.calalign_dir
+    )
 
     tpl = JINJA2.get_template("celmon_cal.html")
     file_path = args.out / "cal" / "index.html"
