@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 # import re
+import logging
 import argparse
 import functools
 import os
@@ -459,6 +460,11 @@ def create_figures_mta(outdir):
             "Clusters of Galaxies",
         ],
     )
+    no_version = all_matches["caldb_version"] == "0.0"
+    if np.any(no_version):
+        logging.getLogger("celmon").warning("Some observations with no version")
+        all_matches = all_matches[~no_version]
+
     calalign = get_calalign_offsets(all_matches)
     all_matches["dy"] -= calalign["calalign_dy"] - calalign["ref_calalign_dy"]
     all_matches["dz"] -= calalign["calalign_dz"] - calalign["ref_calalign_dz"]
@@ -573,6 +579,12 @@ def create_figures_cal(outdir, snr=5, n_years=5, draw_median=True):
             "Clusters of Galaxies",
         ],
     )
+
+    no_version = matches["caldb_version"] == "0.0"
+    if np.any(no_version):
+        logging.getLogger("celmon").warning("Some observations with no version")
+        matches = matches[~no_version]
+
     calalign = get_calalign_offsets(matches)
     matches["dy"] -= calalign["calalign_dy"] - calalign["ref_calalign_dy"]
     matches["dz"] -= calalign["calalign_dz"] - calalign["ref_calalign_dz"]
