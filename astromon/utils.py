@@ -346,11 +346,21 @@ def calalign_from_files(calalign_dir="/data/caldb/data/chandra/pcad/align"):
         info = file_re.groupdict()
         hdus = fits.open(filename)
         cals = hdus[1].data
+        cvsd = (
+            hdus[1].header["CVSD0001"]
+            if "CVSD0001" in hdus[1].header
+            else "2050:001:00:00:00.00"
+        )
+        cved = (
+            hdus[1].header["CVED0001"]
+            if "CVED0001" in hdus[1].header
+            else "2050:001:00:00:00.00"
+        )
         for cal in cals:
             transforms.append(
                 {
-                    "start": CxoTime(CxoTime(hdus[1].header["TSTART"]).date),
-                    "stop": CxoTime(CxoTime(hdus[1].header["TSTOP"]).date),
+                    "start": CxoTime(cvsd),
+                    "stop": CxoTime(cved),
                     "detector": cal["INSTR_ID"].strip(),
                     "date": CxoTime(info["date"]),
                     "version": info["version"],
@@ -360,6 +370,7 @@ def calalign_from_files(calalign_dir="/data/caldb/data/chandra/pcad/align"):
                     "fts_misalign": cal["FTS_MISALIGN"],
                 }
             )
+
     calalign = Table(transforms)
     calalign["dy"], calalign["dz"] = get_offsets(calalign["aca_misalign"])
     return calalign

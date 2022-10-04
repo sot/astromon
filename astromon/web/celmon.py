@@ -58,7 +58,7 @@ def get_calalign_offsets(all_matches, ref_calalign=None):
 
     # I actually would prefer to not sort the whole table
     # what I want is to sort the groups, which are small
-    match_w_cal.sort(keys=["obsid", "x_id", "cav"], reverse=True)
+    match_w_cal.sort(keys=["obsid", "x_id", "cav", "start"], reverse=True)
 
     if ref_calalign is None:
         ref_calalign = max(
