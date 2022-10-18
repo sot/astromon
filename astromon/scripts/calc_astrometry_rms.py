@@ -25,7 +25,16 @@ def get_parser():
 def main():
     args = get_parser().parse_args()
 
-    dat = db.get_cross_matches()
+    dat = db.get_cross_matches(
+        snr=5,
+        exclude_bad_targets=True,
+        sim_z=4,  # max sim-z
+        exclude_categories=[
+            "SN, SNR, and Isolated NS",
+            "Solar System and Misc",
+            "Clusters of Galaxies",
+        ],
+    )
     dat = dat[~cross_match.get_bad_target_mask(dat)]
 
     select_name = np.unique(dat["select_name"])
