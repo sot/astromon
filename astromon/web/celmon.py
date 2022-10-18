@@ -442,7 +442,7 @@ def plot_cdf_2(
         plt.savefig(filename)
 
 
-def create_figures_mta(outdir, calalign_dir=None):
+def create_figures_mta(outdir, calalign_dir=None, use_reference_calalign=False):
     outdir = Path(outdir)
 
     n_years = 5
@@ -469,8 +469,12 @@ def create_figures_mta(outdir, calalign_dir=None):
         all_matches = all_matches[~no_version]
 
     calalign = get_calalign_offsets(all_matches, calalign_dir=calalign_dir)
-    all_matches["dy"] -= calalign["calalign_dy"] - calalign["ref_calalign_dy"]
-    all_matches["dz"] -= calalign["calalign_dz"] - calalign["ref_calalign_dz"]
+    tag = "-archive"
+    if use_reference_calalign:
+        all_matches["dy"] -= calalign["calalign_dy"] - calalign["ref_calalign_dy"]
+        all_matches["dz"] -= calalign["calalign_dz"] - calalign["ref_calalign_dz"]
+        all_matches["dr"] = np.sqrt(all_matches["dy"]**2 + all_matches["dz"]**2)
+        tag = ""
 
     all_matches["year"] = all_matches["time"].frac_year
     year_bin_2 = year_bins(all_matches["time"], 2)
@@ -493,7 +497,7 @@ def create_figures_mta(outdir, calalign_dir=None):
     plot_offsets_history(
         all_matches,
         title="Offsets History",
-        filename=outdir / "offsets-history.png",
+        filename=outdir / f"offsets-history{tag}.png",
         dy_median=dy_median,
         dz_median=dz_median,
     )
@@ -503,13 +507,13 @@ def create_figures_mta(outdir, calalign_dir=None):
         xlims=(0, 1.1),
         quantiles=quantiles,
         title="Offset Cumulative Distribution",
-        filename=outdir / "offsets-cdf.png",
+        filename=outdir / f"offsets-cdf{tag}.png",
     )
     plot_cdf_2(
         matches,
         "dy",
         xlims=(-1.5, 1.5),
-        filename=outdir / "offsets-dy-cdf-multi-year.png",
+        filename=outdir / f"offsets-dy-cdf-multi-year{tag}.png",
         title="dY",
         loc="lower right",
     )
@@ -517,7 +521,7 @@ def create_figures_mta(outdir, calalign_dir=None):
         matches,
         "dz",
         xlims=(-1.5, 1.5),
-        filename=outdir / "offsets-dz-cdf-multi-year.png",
+        filename=outdir / f"offsets-dz-cdf-multi-year{tag}.png",
         title="dZ",
         loc="lower right",
     )
@@ -525,7 +529,7 @@ def create_figures_mta(outdir, calalign_dir=None):
         matches,
         "dr",
         xlims=(0, 1.5),
-        filename=outdir / "offsets-dr-cdf-multi-year.png",
+        filename=outdir / f"offsets-dr-cdf-multi-year{tag}.png",
         title="dR",
         loc="lower right",
     )
@@ -533,7 +537,7 @@ def create_figures_mta(outdir, calalign_dir=None):
         matches=all_matches,
         dy_median=dy_median,
         dz_median=dz_median,
-        filename=outdir / "offsets-q-history.png",
+        filename=outdir / f"offsets-q-history{tag}.png",
     )
 
     for det in np.unique(matches["detector"]):
@@ -550,7 +554,7 @@ def create_figures_mta(outdir, calalign_dir=None):
         plot_offsets_history(
             all_m,
             title=det,
-            filename=outdir / f"offsets-{det}-history.png",
+            filename=outdir / f"offsets-{det}-history{tag}.png",
             dy_median=dy_median if draw_median else None,
             dz_median=dz_median if draw_median else None,
         )
@@ -560,12 +564,14 @@ def create_figures_mta(outdir, calalign_dir=None):
             xlims=(0, 1.1),
             quantiles=quantiles,
             title=f"{det} ({len(m)} points)",
-            filename=outdir / f"offsets-{det}-cdf.png",
+            filename=outdir / f"offsets-{det}-cdf{tag}.png",
         )
     return result
 
 
-def create_figures_cal(outdir, snr=5, n_years=5, draw_median=True, calalign_dir=None):
+def create_figures_cal(
+    outdir, snr=5, n_years=5, draw_median=True, calalign_dir=None, use_reference_calalign=False
+):
     outdir = Path(outdir)
 
     sim_z = 4  # max sim-z
@@ -589,8 +595,12 @@ def create_figures_cal(outdir, snr=5, n_years=5, draw_median=True, calalign_dir=
         matches = matches[~no_version]
 
     calalign = get_calalign_offsets(matches, calalign_dir=calalign_dir)
-    matches["dy"] -= calalign["calalign_dy"] - calalign["ref_calalign_dy"]
-    matches["dz"] -= calalign["calalign_dz"] - calalign["ref_calalign_dz"]
+    tag = "-archive"
+    if use_reference_calalign:
+        matches["dy"] -= calalign["calalign_dy"] - calalign["ref_calalign_dy"]
+        matches["dz"] -= calalign["calalign_dz"] - calalign["ref_calalign_dz"]
+        matches["dr"] = np.sqrt(matches["dy"]**2 + matches["dz"]**2)
+        tag = ""
 
     ok = matches["time"] > start
     matches = matches[ok]
@@ -611,7 +621,7 @@ def create_figures_cal(outdir, snr=5, n_years=5, draw_median=True, calalign_dir=
     plot_offsets_history(
         matches,
         title="Offsets History",
-        filename=outdir / "offsets-history.png",
+        filename=outdir / f"offsets-history{tag}.png",
         dy_median=dy_median,
         dz_median=dz_median,
     )
@@ -620,7 +630,7 @@ def create_figures_cal(outdir, snr=5, n_years=5, draw_median=True, calalign_dir=
         cdf,
         quantiles,
         title="Offset Cumulative Distribution",
-        filename=outdir / "offsets-cdf.png",
+        filename=outdir / f"offsets-cdf{tag}.png",
     )
     for det in np.unique(matches["detector"]):
         result.update(
@@ -635,7 +645,7 @@ def create_figures_cal(outdir, snr=5, n_years=5, draw_median=True, calalign_dir=
         plot_offsets_history(
             m,
             title=det,
-            filename=outdir / f"offsets-{det}-history.png",
+            filename=outdir / f"offsets-{det}-history{tag}.png",
             dy_median=dy_median if draw_median else None,
             dz_median=dz_median if draw_median else None,
         )
@@ -644,7 +654,7 @@ def create_figures_cal(outdir, snr=5, n_years=5, draw_median=True, calalign_dir=
             cdf,
             quantiles,
             title=f"{det} ({len(m)} points)",
-            filename=outdir / f"offsets-{det}-cdf.png",
+            filename=outdir / f"offsets-{det}-cdf{tag}.png",
         )
     return result
 
@@ -690,21 +700,30 @@ def main():
     data_cal = create_figures_cal(
         outdir=args.out / "cal", calalign_dir=args.calalign_dir
     )
+    data_cal_ref = create_figures_cal(
+        outdir=args.out / "cal", calalign_dir=args.calalign_dir, use_reference_calalign=True)
 
     data_mta = create_figures_mta(
         outdir=args.out / "mta", calalign_dir=args.calalign_dir
     )
+    data_mta_ref = create_figures_mta(
+        outdir=args.out / "mta", calalign_dir=args.calalign_dir, use_reference_calalign=True)
 
     tpl = JINJA2.get_template("celmon_cal.html")
     file_path = args.out / "cal" / "index.html"
     with open(file_path, "w") as out:
-        out.write(tpl.render(data={"cal": data_cal}))
+        out.write(tpl.render(data={"cal": data_cal, "cal_ref": data_cal_ref}))
         logger.info(f"report created at {file_path}")
 
     tpl = JINJA2.get_template("celmon_mta.html")
     file_path = args.out / "mta" / "index.html"
     with open(file_path, "w") as out:
-        out.write(tpl.render(data={"cal": data_cal, "mta": data_mta}))
+        out.write(tpl.render(data={
+            "cal": data_cal,
+            "cal_ref": data_cal_ref,
+            "mta": data_mta,
+            "mta_ref": data_mta_ref
+        }))
         logger.info(f"report created at {file_path}")
 
 
