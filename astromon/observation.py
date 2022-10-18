@@ -764,7 +764,7 @@ class Observation:
             + i
         )
         sources["near_neighbor_dist"] = np.min(distance, axis=0)
-        sources["caldb_version"] = self.get_calalign()["CALDBVER"]
+        sources["caldb_version"] = self.get_calalign()["caldb_version"]
 
         cols = [
             "obsid",
