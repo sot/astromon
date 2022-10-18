@@ -155,13 +155,25 @@ def plot_offsets_q_history(
     assert dy_median is not None
     assert dz_median is not None
 
+    after = matches["after_caldb"]
+    # tmax = np.min(matches["time"][after])
+
     times = CxoTime([dy_median["start"], dy_median["stop"]], format="frac_year")
     dates = cxctime2plotdate(times)
+
+    # dy_median = dy_median[times[0] < tmax]
+    # dz_median = dz_median[times[0] < tmax]
+    # times = times[:, times[0] < tmax]
 
     fig, (ax0, ax1) = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
     plt.sca(ax0)
 
-    plot_cxctime(matches["time"], matches["dy"], ".", label="dy", color="k", alpha=0.2)
+    plot_cxctime(
+        matches["time"][~after], matches["dy"][~after], ".", label="dy", color="k", alpha=0.2
+    )
+    plot_cxctime(
+        matches["time"][after], matches["dy"][after], ".", label="dy", color="r", alpha=0.5
+    )
     plot_cxctime(
         times, np.tile(dy_median["median"], (2, 1)), "-", linewidth=2, color="tab:blue"
     )
@@ -182,7 +194,12 @@ def plot_offsets_q_history(
     plt.grid()
 
     plt.sca(ax1)
-    plot_cxctime(matches["time"], matches["dz"], ".", label="dz", color="k", alpha=0.2)
+    plot_cxctime(
+        matches["time"][~after], matches["dz"][~after], ".", label="dz", color="k", alpha=0.2
+    )
+    plot_cxctime(
+        matches["time"][after], matches["dz"][after], ".", label="dz", color="r", alpha=0.5
+    )
     plot_cxctime(
         times,
         np.tile(dz_median["median"], (2, 1)),
@@ -474,6 +491,7 @@ def create_figures_mta(outdir, calalign_dir=None, use_reference_calalign=False):
         all_matches = all_matches[~no_version]
 
     calalign = get_calalign_offsets(all_matches, calalign_dir=calalign_dir)
+    all_matches["after_caldb"] = calalign["after_caldb"]
     tag = "-archive"
     if use_reference_calalign:
         all_matches["dy"] -= calalign["calalign_dy"] - calalign["ref_calalign_dy"]
@@ -600,6 +618,7 @@ def create_figures_cal(
         matches = matches[~no_version]
 
     calalign = get_calalign_offsets(matches, calalign_dir=calalign_dir)
+    matches["after_caldb"] = calalign["after_caldb"]
     tag = "-archive"
     if use_reference_calalign:
         matches["dy"] -= calalign["calalign_dy"] - calalign["ref_calalign_dy"]
