@@ -451,7 +451,12 @@ def create_figures_mta(outdir, calalign_dir=None, use_reference_calalign=False):
     draw_median = True
 
     # result = {'snr': snr, 'n_years': n_years}
-    result = {}
+    end = CxoTime()
+    start = end - n_years * u.year
+    result = {
+        "start_date": start.iso.split()[0],
+        "end_date": end.iso.split()[0],
+    }
 
     all_matches = db.get_cross_matches(
         snr=snr,
@@ -717,6 +722,7 @@ def main():
 
     tpl = JINJA2.get_template("celmon_mta.html")
     file_path = args.out / "mta" / "index.html"
+
     with open(file_path, "w") as out:
         out.write(tpl.render(data={
             "cal": data_cal,
