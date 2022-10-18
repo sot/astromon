@@ -100,12 +100,15 @@ def get_calalign_offsets(all_matches, ref_calalign=None, calalign_dir=None):
 
     result = join(
         all_matches[["obsid", "x_id"]],
-        hstack([actual[["obsid", "x_id"] + cols], reference[ref_cols]]),
+        hstack([actual[["obsid", "x_id"] + cols], reference[ref_cols + ["since"]]]),
         keys=["obsid", "x_id"],
     )
 
     assert np.all(all_matches["obsid"] == result["obsid"])
     assert np.all(all_matches["x_id"] == result["x_id"])
+
+    # these are observations that happened after the reference calalign was added
+    result["after_caldb"] = result["since"] < all_matches["time"]
 
     return result
 
