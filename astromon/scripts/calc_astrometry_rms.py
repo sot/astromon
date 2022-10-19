@@ -14,7 +14,7 @@ import numpy as np
 from astropy import units as u
 from cxotime import CxoTime
 
-from astromon import cross_match, db, utils
+from astromon import db, utils
 
 
 def get_parser():
@@ -41,7 +41,6 @@ def main():
             "Clusters of Galaxies",
         ],
     )
-    dat = dat[~cross_match.get_bad_target_mask(dat)]
 
     no_version = dat["caldb_version"] == "0.0"
     if np.any(no_version):
