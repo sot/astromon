@@ -70,7 +70,7 @@ def main():
         dat["dr"] = np.sqrt(dat["dy"] ** 2 + dat["dz"] ** 2)
 
     # For all data
-    print(f"Using all '{select_name}' data (last 5 years)")
+    print(f"Using all '{select_name}' data")
     print("N srcs: {}".format(len(dat)))
     print("RMS radius", np.sqrt(np.mean(dat["dr"] ** 2)))
     # 0.410
@@ -93,7 +93,10 @@ def main():
 
     now = CxoTime()
 
-    for start, stop in [(now - 4 * u.year, now - 2 * u.year), (now - 2 * u.year, now)]:
+    time_ranges = [
+        (now - 5 * u.year, now), (now - 4 * u.year, now - 2 * u.year), (now - 2 * u.year, now)
+    ]
+    for start, stop in time_ranges:
         print("---")
         ok = (CxoTime(dat["date_obs"]) > start) & (CxoTime(dat["date_obs"]) < stop)
         print("{} to {}".format(start.date, stop.date))
