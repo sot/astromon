@@ -16,7 +16,6 @@ from cxotime import units as u
 from scipy.interpolate import interp1d
 
 # from astromon import cross_match
-from astropy.table import join, hstack
 from Ska.Matplotlib import cxctime2plotdate, plot_cxctime
 
 from astromon import db, utils
@@ -28,89 +27,6 @@ JINJA2 = jinja2.Environment(
     loader=jinja2.PackageLoader("astromon.web", "templates"),
     autoescape=jinja2.select_autoescape(["html", "xml"]),
 )
-
-
-def get_calalign_offsets(all_matches, ref_calalign=None, calalign_dir=None):
-    # this is a table of all calalign matrices
-    calalign = utils.calalign_from_files(calalign_dir=calalign_dir)
-    calalign.rename_columns(
-        ["dy", "dz", "caldb_version"],
-        ["calalign_dy", "calalign_dz", "calalign_version"],
-    )
-
-    # steps:
-    # - join on detector
-    # - filter out calaligns that do not correspond to the time of the match
-    # - filter out calalign versions after the desired one
-    # - group by match (obsid and x_id are unique identifiers)
-    # - take the row corresponding to the latest calibration
-    match_w_cal = join(all_matches, calalign, keys=["detector"])
-    match_w_cal = match_w_cal[
-        (match_w_cal["start"] <= match_w_cal["time"])
-        & (match_w_cal["time"] < match_w_cal["stop"])
-    ]
-    match_w_cal["cdbv"] = [
-        [int(f) for f in s.split(".")] for s in match_w_cal["caldb_version"]
-    ]
-    match_w_cal["cav"] = [
-        [int(f) for f in s.split(".")] for s in match_w_cal["calalign_version"]
-    ]
-
-    # I actually would prefer to not sort the whole table
-    # what I want is to sort the groups, which are small
-    match_w_cal.sort(keys=["obsid", "x_id", "cav", "start"], reverse=True)
-
-    if ref_calalign is None:
-        ref_calalign = max(
-            [
-                [int(f) for f in v.split(".")]
-                for v in np.unique(calalign["calalign_version"])
-            ]
-        )
-    else:
-        ref_calalign = [int(f) for f in ref_calalign.split(".")]
-
-    # the actual calalign used must be a CalDB version no later than one used to process the OBSID
-    # NOTE: cdbv's dtype is "object" because versions have different lengthd
-    # but cav's dtype is array, so need to convert to list
-    actual = match_w_cal[[r["cdbv"] >= r["cav"].tolist() for r in match_w_cal]]
-    actual = actual.group_by(["obsid", "x_id"])
-    actual = actual[actual.groups.indices[:-1]]
-
-    # the reference calalign must be a CalDB version no later than the given CalDB reference
-    reference = match_w_cal[[ref_calalign >= r["cav"].tolist() for r in match_w_cal]]
-    reference = reference.group_by(["obsid", "x_id"])
-    reference = reference[reference.groups.indices[:-1]]
-
-    cols = [
-        "calalign_dy",
-        "calalign_dz",
-        "aca_misalign",
-        "fts_misalign",
-        "calalign_version",
-    ]
-    ref_cols = ["ref_" + c for c in cols]
-    reference.rename_columns(cols, ref_cols)
-
-    # these should be true here:
-    assert len(all_matches) == len(actual)
-    assert len(all_matches) == len(reference)
-    assert np.all(reference["obsid"] == actual["obsid"])
-    assert np.all(reference["x_id"] == actual["x_id"])
-
-    result = join(
-        all_matches[["obsid", "x_id"]],
-        hstack([actual[["obsid", "x_id"] + cols], reference[ref_cols + ["since"]]]),
-        keys=["obsid", "x_id"],
-    )
-
-    assert np.all(all_matches["obsid"] == result["obsid"])
-    assert np.all(all_matches["x_id"] == result["x_id"])
-
-    # these are observations that happened after the reference calalign was added
-    result["after_caldb"] = result["since"] < all_matches["time"]
-
-    return result
 
 
 def plot_offsets_history(
@@ -490,7 +406,7 @@ def create_figures_mta(outdir, calalign_dir=None, use_reference_calalign=False):
         logging.getLogger("celmon").warning("Some observations with no version")
         all_matches = all_matches[~no_version]
 
-    calalign = get_calalign_offsets(all_matches, calalign_dir=calalign_dir)
+    calalign = utils.get_calalign_offsets(all_matches, calalign_dir=calalign_dir)
     all_matches["after_caldb"] = calalign["after_caldb"]
     tag = "-archive"
     if use_reference_calalign:
@@ -617,7 +533,7 @@ def create_figures_cal(
         logging.getLogger("celmon").warning("Some observations with no version")
         matches = matches[~no_version]
 
-    calalign = get_calalign_offsets(matches, calalign_dir=calalign_dir)
+    calalign = utils.get_calalign_offsets(matches, calalign_dir=calalign_dir)
     matches["after_caldb"] = calalign["after_caldb"]
     tag = "-archive"
     if use_reference_calalign:
