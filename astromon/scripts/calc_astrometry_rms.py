@@ -28,6 +28,9 @@ def get_parser():
 def main():
     args = get_parser().parse_args()
 
+    # NOTE: the list of cross-matches from the following function is given by
+    #     CROSS_MATCHES_ARGS["default"]
+    # the arguments here are applied on top of that
     dat = db.get_cross_matches(
         snr=5,
         exclude_bad_targets=True,
