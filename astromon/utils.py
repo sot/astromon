@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 import Ska.Shell
-from astropy.table import join, hstack
+from astropy.table import hstack, join
 
 __all__ = [
     "communicate",
@@ -330,9 +330,10 @@ def calalign_from_files(calalign_dir=None):
     :any:`astropy.table.Table`
     """
     import re
+
     from astropy.io import fits
-    from cxotime import CxoTime
     from astropy.table import Table
+    from cxotime import CxoTime
 
     if calalign_dir is None:
         calalign_dir = "/data/caldb/data/chandra/pcad/align"
@@ -413,8 +414,8 @@ def get_offsets(aca_misalign):
     (np.array, np.array)
         Two arrays with shape (aca_misalign.shape[1:])
     """
-    from Quaternion import Quat
     import numpy as np
+    from Quaternion import Quat
 
     aca_misalign = np.atleast_1d(aca_misalign)
     dys = []

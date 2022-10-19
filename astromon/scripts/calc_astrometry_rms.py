@@ -54,7 +54,7 @@ def main():
         calalign = utils.get_calalign_offsets(dat, calalign_dir=args.calalign_dir)
         dat["dy"] -= calalign["calalign_dy"] - calalign["ref_calalign_dy"]
         dat["dz"] -= calalign["calalign_dz"] - calalign["ref_calalign_dz"]
-        dat["dr"] = np.sqrt(dat["dy"]**2 + dat["dz"]**2)
+        dat["dr"] = np.sqrt(dat["dy"] ** 2 + dat["dz"] ** 2)
     elif args.offsets_file:
         print(f"Subtracting offsets from {args.offsets_file}")
         with open(args.offsets_file) as fh:

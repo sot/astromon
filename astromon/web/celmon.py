@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 
 # import re
-import logging
 import argparse
 import functools
+import logging
 import os
 from pathlib import Path
 
@@ -85,10 +85,20 @@ def plot_offsets_q_history(
     plt.sca(ax0)
 
     plot_cxctime(
-        matches["time"][~after], matches["dy"][~after], ".", label="dy", color="k", alpha=0.2
+        matches["time"][~after],
+        matches["dy"][~after],
+        ".",
+        label="dy",
+        color="k",
+        alpha=0.2,
     )
     plot_cxctime(
-        matches["time"][after], matches["dy"][after], ".", label="dy", color="r", alpha=0.5
+        matches["time"][after],
+        matches["dy"][after],
+        ".",
+        label="dy",
+        color="r",
+        alpha=0.5,
     )
     plot_cxctime(
         times, np.tile(dy_median["median"], (2, 1)), "-", linewidth=2, color="tab:blue"
@@ -111,10 +121,20 @@ def plot_offsets_q_history(
 
     plt.sca(ax1)
     plot_cxctime(
-        matches["time"][~after], matches["dz"][~after], ".", label="dz", color="k", alpha=0.2
+        matches["time"][~after],
+        matches["dz"][~after],
+        ".",
+        label="dz",
+        color="k",
+        alpha=0.2,
     )
     plot_cxctime(
-        matches["time"][after], matches["dz"][after], ".", label="dz", color="r", alpha=0.5
+        matches["time"][after],
+        matches["dz"][after],
+        ".",
+        label="dz",
+        color="r",
+        alpha=0.5,
     )
     plot_cxctime(
         times,
@@ -412,7 +432,7 @@ def create_figures_mta(outdir, calalign_dir=None, use_reference_calalign=False):
     if use_reference_calalign:
         all_matches["dy"] -= calalign["calalign_dy"] - calalign["ref_calalign_dy"]
         all_matches["dz"] -= calalign["calalign_dz"] - calalign["ref_calalign_dz"]
-        all_matches["dr"] = np.sqrt(all_matches["dy"]**2 + all_matches["dz"]**2)
+        all_matches["dr"] = np.sqrt(all_matches["dy"] ** 2 + all_matches["dz"] ** 2)
         tag = ""
 
     all_matches["year"] = all_matches["time"].frac_year
@@ -509,7 +529,12 @@ def create_figures_mta(outdir, calalign_dir=None, use_reference_calalign=False):
 
 
 def create_figures_cal(
-    outdir, snr=5, n_years=5, draw_median=True, calalign_dir=None, use_reference_calalign=False
+    outdir,
+    snr=5,
+    n_years=5,
+    draw_median=True,
+    calalign_dir=None,
+    use_reference_calalign=False,
 ):
     outdir = Path(outdir)
 
@@ -539,7 +564,7 @@ def create_figures_cal(
     if use_reference_calalign:
         matches["dy"] -= calalign["calalign_dy"] - calalign["ref_calalign_dy"]
         matches["dz"] -= calalign["calalign_dz"] - calalign["ref_calalign_dz"]
-        matches["dr"] = np.sqrt(matches["dy"]**2 + matches["dz"]**2)
+        matches["dr"] = np.sqrt(matches["dy"] ** 2 + matches["dz"] ** 2)
         tag = ""
 
     ok = matches["time"] > start
@@ -641,13 +666,19 @@ def main():
         outdir=args.out / "cal", calalign_dir=args.calalign_dir
     )
     data_cal_ref = create_figures_cal(
-        outdir=args.out / "cal", calalign_dir=args.calalign_dir, use_reference_calalign=True)
+        outdir=args.out / "cal",
+        calalign_dir=args.calalign_dir,
+        use_reference_calalign=True,
+    )
 
     data_mta = create_figures_mta(
         outdir=args.out / "mta", calalign_dir=args.calalign_dir
     )
     data_mta_ref = create_figures_mta(
-        outdir=args.out / "mta", calalign_dir=args.calalign_dir, use_reference_calalign=True)
+        outdir=args.out / "mta",
+        calalign_dir=args.calalign_dir,
+        use_reference_calalign=True,
+    )
 
     tpl = JINJA2.get_template("celmon_cal.html")
     file_path = args.out / "cal" / "index.html"
@@ -659,12 +690,16 @@ def main():
     file_path = args.out / "mta" / "index.html"
 
     with open(file_path, "w") as out:
-        out.write(tpl.render(data={
-            "cal": data_cal,
-            "cal_ref": data_cal_ref,
-            "mta": data_mta,
-            "mta_ref": data_mta_ref
-        }))
+        out.write(
+            tpl.render(
+                data={
+                    "cal": data_cal,
+                    "cal_ref": data_cal_ref,
+                    "mta": data_mta,
+                    "mta_ref": data_mta_ref,
+                }
+            )
+        )
         logger.info(f"report created at {file_path}")
 
 
