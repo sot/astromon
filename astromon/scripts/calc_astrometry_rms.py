@@ -94,7 +94,9 @@ def main():
     now = CxoTime()
 
     time_ranges = [
-        (now - 5 * u.year, now), (now - 4 * u.year, now - 2 * u.year), (now - 2 * u.year, now)
+        (now - 5 * u.year, now),
+        (now - 4 * u.year, now - 2 * u.year),
+        (now - 2 * u.year, now),
     ]
     for start, stop in time_ranges:
         print("---")
