@@ -52,6 +52,7 @@ ASTROMON_XRAY_SRC_DTYPE = np.dtype(
         ("near_neighbor_dist", np.float32),
         ("pileup", np.float32),
         ("acis_streak", np.int32),
+        ("caldb_version", "S10"),
     ]
 )
 

@@ -3,3 +3,8 @@ __pycache__
 .eggs
 *.egg-info
 _build
+build
+record.txt
+work
+test
+archive

@@ -3,6 +3,7 @@
 # import re
 import argparse
 import functools
+import logging
 import os
 from pathlib import Path
 
@@ -15,10 +16,9 @@ from cxotime import units as u
 from scipy.interpolate import interp1d
 
 # from astromon import cross_match
-# from astropy.table import join
 from Ska.Matplotlib import cxctime2plotdate, plot_cxctime
 
-from astromon import db
+from astromon import db, utils
 
 plt.rcParams["font.size"] = "16"
 plt.rcParams["figure.max_open_warning"] = 100
@@ -71,13 +71,35 @@ def plot_offsets_q_history(
     assert dy_median is not None
     assert dz_median is not None
 
+    after = matches["after_caldb"]
+    # tmax = np.min(matches["time"][after])
+
     times = CxoTime([dy_median["start"], dy_median["stop"]], format="frac_year")
     dates = cxctime2plotdate(times)
+
+    # dy_median = dy_median[times[0] < tmax]
+    # dz_median = dz_median[times[0] < tmax]
+    # times = times[:, times[0] < tmax]
 
     fig, (ax0, ax1) = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
     plt.sca(ax0)
 
-    plot_cxctime(matches["time"], matches["dy"], ".", label="dy", color="k", alpha=0.2)
+    plot_cxctime(
+        matches["time"][~after],
+        matches["dy"][~after],
+        ".",
+        label="dy",
+        color="k",
+        alpha=0.2,
+    )
+    plot_cxctime(
+        matches["time"][after],
+        matches["dy"][after],
+        ".",
+        label="dy",
+        color="r",
+        alpha=0.5,
+    )
     plot_cxctime(
         times, np.tile(dy_median["median"], (2, 1)), "-", linewidth=2, color="tab:blue"
     )
@@ -98,7 +120,22 @@ def plot_offsets_q_history(
     plt.grid()
 
     plt.sca(ax1)
-    plot_cxctime(matches["time"], matches["dz"], ".", label="dz", color="k", alpha=0.2)
+    plot_cxctime(
+        matches["time"][~after],
+        matches["dz"][~after],
+        ".",
+        label="dz",
+        color="k",
+        alpha=0.2,
+    )
+    plot_cxctime(
+        matches["time"][after],
+        matches["dz"][after],
+        ".",
+        label="dz",
+        color="r",
+        alpha=0.5,
+    )
     plot_cxctime(
         times,
         np.tile(dz_median["median"], (2, 1)),
@@ -358,7 +395,7 @@ def plot_cdf_2(
         plt.savefig(filename)
 
 
-def create_figures_mta(outdir):
+def create_figures_mta(outdir, calalign_dir=None, use_reference_calalign=False):
     outdir = Path(outdir)
 
     n_years = 5
@@ -367,7 +404,12 @@ def create_figures_mta(outdir):
     draw_median = True
 
     # result = {'snr': snr, 'n_years': n_years}
-    result = {}
+    end = CxoTime()
+    start = end - n_years * u.year
+    result = {
+        "start_date": start.iso.split()[0],
+        "end_date": end.iso.split()[0],
+    }
 
     all_matches = db.get_cross_matches(
         snr=snr,
@@ -379,6 +421,19 @@ def create_figures_mta(outdir):
             "Clusters of Galaxies",
         ],
     )
+    no_version = all_matches["caldb_version"] == "0.0"
+    if np.any(no_version):
+        logging.getLogger("celmon").warning("Some observations with no version")
+        all_matches = all_matches[~no_version]
+
+    calalign = utils.get_calalign_offsets(all_matches, calalign_dir=calalign_dir)
+    all_matches["after_caldb"] = calalign["after_caldb"]
+    tag = "-archive"
+    if use_reference_calalign:
+        all_matches["dy"] -= calalign["calalign_dy"] - calalign["ref_calalign_dy"]
+        all_matches["dz"] -= calalign["calalign_dz"] - calalign["ref_calalign_dz"]
+        all_matches["dr"] = np.sqrt(all_matches["dy"] ** 2 + all_matches["dz"] ** 2)
+        tag = ""
 
     all_matches["year"] = all_matches["time"].frac_year
     year_bin_2 = year_bins(all_matches["time"], 2)
@@ -401,7 +456,7 @@ def create_figures_mta(outdir):
     plot_offsets_history(
         all_matches,
         title="Offsets History",
-        filename=outdir / "offsets-history.png",
+        filename=outdir / f"offsets-history{tag}.png",
         dy_median=dy_median,
         dz_median=dz_median,
     )
@@ -411,13 +466,13 @@ def create_figures_mta(outdir):
         xlims=(0, 1.1),
         quantiles=quantiles,
         title="Offset Cumulative Distribution",
-        filename=outdir / "offsets-cdf.png",
+        filename=outdir / f"offsets-cdf{tag}.png",
     )
     plot_cdf_2(
         matches,
         "dy",
         xlims=(-1.5, 1.5),
-        filename=outdir / "offsets-dy-cdf-multi-year.png",
+        filename=outdir / f"offsets-dy-cdf-multi-year{tag}.png",
         title="dY",
         loc="lower right",
     )
@@ -425,7 +480,7 @@ def create_figures_mta(outdir):
         matches,
         "dz",
         xlims=(-1.5, 1.5),
-        filename=outdir / "offsets-dz-cdf-multi-year.png",
+        filename=outdir / f"offsets-dz-cdf-multi-year{tag}.png",
         title="dZ",
         loc="lower right",
     )
@@ -433,7 +488,7 @@ def create_figures_mta(outdir):
         matches,
         "dr",
         xlims=(0, 1.5),
-        filename=outdir / "offsets-dr-cdf-multi-year.png",
+        filename=outdir / f"offsets-dr-cdf-multi-year{tag}.png",
         title="dR",
         loc="lower right",
     )
@@ -441,7 +496,7 @@ def create_figures_mta(outdir):
         matches=all_matches,
         dy_median=dy_median,
         dz_median=dz_median,
-        filename=outdir / "offsets-q-history.png",
+        filename=outdir / f"offsets-q-history{tag}.png",
     )
 
     for det in np.unique(matches["detector"]):
@@ -458,7 +513,7 @@ def create_figures_mta(outdir):
         plot_offsets_history(
             all_m,
             title=det,
-            filename=outdir / f"offsets-{det}-history.png",
+            filename=outdir / f"offsets-{det}-history{tag}.png",
             dy_median=dy_median if draw_median else None,
             dz_median=dz_median if draw_median else None,
         )
@@ -468,12 +523,19 @@ def create_figures_mta(outdir):
             xlims=(0, 1.1),
             quantiles=quantiles,
             title=f"{det} ({len(m)} points)",
-            filename=outdir / f"offsets-{det}-cdf.png",
+            filename=outdir / f"offsets-{det}-cdf{tag}.png",
         )
     return result
 
 
-def create_figures_cal(outdir, snr=5, n_years=5, draw_median=True):
+def create_figures_cal(
+    outdir,
+    snr=5,
+    n_years=5,
+    draw_median=True,
+    calalign_dir=None,
+    use_reference_calalign=False,
+):
     outdir = Path(outdir)
 
     sim_z = 4  # max sim-z
@@ -490,6 +552,20 @@ def create_figures_cal(outdir, snr=5, n_years=5, draw_median=True):
             "Clusters of Galaxies",
         ],
     )
+
+    no_version = matches["caldb_version"] == "0.0"
+    if np.any(no_version):
+        logging.getLogger("celmon").warning("Some observations with no version")
+        matches = matches[~no_version]
+
+    calalign = utils.get_calalign_offsets(matches, calalign_dir=calalign_dir)
+    matches["after_caldb"] = calalign["after_caldb"]
+    tag = "-archive"
+    if use_reference_calalign:
+        matches["dy"] -= calalign["calalign_dy"] - calalign["ref_calalign_dy"]
+        matches["dz"] -= calalign["calalign_dz"] - calalign["ref_calalign_dz"]
+        matches["dr"] = np.sqrt(matches["dy"] ** 2 + matches["dz"] ** 2)
+        tag = ""
 
     ok = matches["time"] > start
     matches = matches[ok]
@@ -510,7 +586,7 @@ def create_figures_cal(outdir, snr=5, n_years=5, draw_median=True):
     plot_offsets_history(
         matches,
         title="Offsets History",
-        filename=outdir / "offsets-history.png",
+        filename=outdir / f"offsets-history{tag}.png",
         dy_median=dy_median,
         dz_median=dz_median,
     )
@@ -519,7 +595,7 @@ def create_figures_cal(outdir, snr=5, n_years=5, draw_median=True):
         cdf,
         quantiles,
         title="Offset Cumulative Distribution",
-        filename=outdir / "offsets-cdf.png",
+        filename=outdir / f"offsets-cdf{tag}.png",
     )
     for det in np.unique(matches["detector"]):
         result.update(
@@ -534,7 +610,7 @@ def create_figures_cal(outdir, snr=5, n_years=5, draw_median=True):
         plot_offsets_history(
             m,
             title=det,
-            filename=outdir / f"offsets-{det}-history.png",
+            filename=outdir / f"offsets-{det}-history{tag}.png",
             dy_median=dy_median if draw_median else None,
             dz_median=dz_median if draw_median else None,
         )
@@ -543,7 +619,7 @@ def create_figures_cal(outdir, snr=5, n_years=5, draw_median=True):
             cdf,
             quantiles,
             title=f"{det} ({len(m)} points)",
-            filename=outdir / f"offsets-{det}-cdf.png",
+            filename=outdir / f"offsets-{det}-cdf{tag}.png",
         )
     return result
 
@@ -556,11 +632,27 @@ def get_parser():
         type=Path,
         default=Path(os.environ["SKA"]) / "data" / "astromon" / "astromon.h5",
     )
+    parser.add_argument(
+        "--calalign-dir",
+        type=Path,
+        default=None,
+    )
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"],
+    )
     return parser
 
 
 def main():
+    from ska_helpers.logging import basic_logger
+
     args = get_parser().parse_args()
+    logger = basic_logger(
+        "celmon", format="%(levelname)s %(funcName)s %(message)s", level=args.log_level
+    )
+
     if args.db_file:
         os.environ["ASTROMON_FILE"] = str(args.db_file)
         import importlib
@@ -570,21 +662,45 @@ def main():
     (args.out / "cal").mkdir(exist_ok=True, parents=True)
     (args.out / "mta").mkdir(exist_ok=True, parents=True)
 
-    data_cal = create_figures_cal(outdir=args.out / "cal")
+    data_cal = create_figures_cal(
+        outdir=args.out / "cal", calalign_dir=args.calalign_dir
+    )
+    data_cal_ref = create_figures_cal(
+        outdir=args.out / "cal",
+        calalign_dir=args.calalign_dir,
+        use_reference_calalign=True,
+    )
 
-    data_mta = create_figures_mta(outdir=args.out / "mta")
+    data_mta = create_figures_mta(
+        outdir=args.out / "mta", calalign_dir=args.calalign_dir
+    )
+    data_mta_ref = create_figures_mta(
+        outdir=args.out / "mta",
+        calalign_dir=args.calalign_dir,
+        use_reference_calalign=True,
+    )
 
     tpl = JINJA2.get_template("celmon_cal.html")
     file_path = args.out / "cal" / "index.html"
     with open(file_path, "w") as out:
-        out.write(tpl.render(data={"cal": data_cal}))
-        print(f"report created at {file_path}")
+        out.write(tpl.render(data={"cal": data_cal, "cal_ref": data_cal_ref}))
+        logger.info(f"report created at {file_path}")
 
     tpl = JINJA2.get_template("celmon_mta.html")
     file_path = args.out / "mta" / "index.html"
+
     with open(file_path, "w") as out:
-        out.write(tpl.render(data={"cal": data_cal, "mta": data_mta}))
-        print(f"report created at {file_path}")
+        out.write(
+            tpl.render(
+                data={
+                    "cal": data_cal,
+                    "cal_ref": data_cal_ref,
+                    "mta": data_mta,
+                    "mta_ref": data_mta_ref,
+                }
+            )
+        )
+        logger.info(f"report created at {file_path}")
 
 
 if __name__ == "__main__":

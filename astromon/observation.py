@@ -171,6 +171,7 @@ class Observation:
                 "*_broad_flux.img",
                 "*_acis_streaks.txt",
                 "*.src",
+                "calalign.json",
             ]
         else:
             self.archive_regex = archive_regex
@@ -763,6 +764,7 @@ class Observation:
             + i
         )
         sources["near_neighbor_dist"] = np.min(distance, axis=0)
+        sources["caldb_version"] = self.get_calalign()["caldb_version"]
 
         cols = [
             "obsid",
@@ -778,6 +780,7 @@ class Observation:
             "psfratio",
             "pileup",
             "acis_streak",
+            "caldb_version",
         ]
         return sources[cols]
 
@@ -820,11 +823,41 @@ class Observation:
             "bpix": (f"{instrument}1[*bpix*]", "primary"),
             "flt": (f"{instrument}1[*flt*]", "secondary"),
             "stat": (f"{instrument}1[*stat*]", "secondary"),
-            "asol": (f"asp1[*{self.obsid}*asol*]", "primary"),
+            "asol": (f"asp1[*asol*]", "secondary"),
+            "acal": (f"asp1[*acal*]", "secondary"),
             "dtf": (f"{instrument}1[*dtf1*]", "primary"),
             # 'pbk': f'{instrument}0[*pbk0*]',
             # 'bias': f'{instrument}0[*bias*]',
         }
+
+    def get_calalign(self):
+        calalign_file = None
+        if (self.workdir / "calalign.json").exists():
+            calalign_file = self.workdir / "calalign.json"
+        if (
+            self.archive_dir is not None
+            and (self.archive_dir / "calalign.json").exists()
+        ):
+            calalign_file = self.archive_dir / "calalign.json"
+
+        if calalign_file:
+            with open(calalign_file) as fh:
+                return json.load(fh)
+
+        self.download(["acal"])
+        cal_file = list((self.workdir / "secondary").glob("*acal*fits*"))
+        if cal_file:
+            hdus = fits.open(cal_file[0])
+            calalign = {
+                k: hdus[1].data[k]
+                for k in ["aca_align", "aca_misalign", "fts_misalign"]
+            }
+            calalign = {k: v.tolist() for k, v in calalign.items()}
+            calalign["obsid"] = int(self.obsid)
+            calalign["caldb_version"] = hdus[1].header["CALDBVER"]
+            with open(self.workdir / "calalign.json", "w") as fh:
+                json.dump(calalign, fh)
+            return calalign
 
 
 def get_parser():
