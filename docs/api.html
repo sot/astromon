@@ -6,7 +6,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
 
-    <title>Astromon API &#8212; Astromon 1.0.1 documentation</title>
+    <title>Astromon API &#8212; Astromon 1.1.0 documentation</title>
     <link rel="stylesheet" type="text/css" href="_static/pygments.css" />
     <link rel="stylesheet" type="text/css" href="_static/bootstrap-astropy.css" />
     
@@ -54,7 +54,7 @@
 	
       </li>
       <li>
-	<a href="index.html">Astromon 1.0.1 documentation</a>
+	<a href="index.html">Astromon 1.1.0 documentation</a>
 	 &#187;
       </li>
       
@@ -82,7 +82,7 @@ Raises an exception if the astromon_regions table is not in the dbfile.</p>
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>regions</strong> (<cite>astropy.table.Table</cite>-compatible) – This parameter gets converted to an <cite>astropy.table.Table</cite>.</p></li>
-<li><p><strong>dbfile</strong> (<a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.10)"><code class="xref any docutils literal notranslate"><span class="pre">pathlib.Path</span></code></a>) – File where tables are stored.
+<li><p><strong>dbfile</strong> (<a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.11)"><code class="xref any docutils literal notranslate"><span class="pre">pathlib.Path</span></code></a>) – File where tables are stored.
 The default is <cite>$ASTROMON_FILE</cite> or <cite>$SKA/data/astromon/astromon.h5</cite></p></li>
 </ul>
 </dd>
@@ -108,10 +108,10 @@ few columns on the fly:</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>name</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.10)"><em>str</em></a>) – name of the standard cross-match.</p></li>
-<li><p><strong>dbfile</strong> (<a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.10)"><code class="xref any docutils literal notranslate"><span class="pre">pathlib.Path</span></code></a>) – File where tables are stored.
+<li><p><strong>name</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.11)"><em>str</em></a>) – name of the standard cross-match.</p></li>
+<li><p><strong>dbfile</strong> (<a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.11)"><code class="xref any docutils literal notranslate"><span class="pre">pathlib.Path</span></code></a>) – File where tables are stored.
 The default is <cite>$ASTROMON_FILE</cite> or <cite>$SKA/data/astromon/astromon.h5</cite></p></li>
-<li><p><strong>kwargs</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.10)"><em>dict</em></a>) – <p>All extra arguments are passed directly to <a class="reference internal" href="#astromon.cross_match.filter_matches" title="astromon.cross_match.filter_matches"><code class="xref any py py-func docutils literal notranslate"><span class="pre">cross_match.filter_matches</span></code></a>. These are
+<li><p><strong>kwargs</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.11)"><em>dict</em></a>) – <p>All extra arguments are passed directly to <a class="reference internal" href="#astromon.cross_match.filter_matches" title="astromon.cross_match.filter_matches"><code class="xref any py py-func docutils literal notranslate"><span class="pre">cross_match.filter_matches</span></code></a>. These are
 some of the allowed arguments:</p>
 <ul>
 <li><p>snr</p></li>
@@ -161,9 +161,9 @@ the argument value</p></li>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>table_name</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.10)"><em>str</em></a>) – Name of the table to retrieve. If the requested table is not in the file,
+<li><p><strong>table_name</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.11)"><em>str</em></a>) – Name of the table to retrieve. If the requested table is not in the file,
 an exception will be raised.</p></li>
-<li><p><strong>dbfile</strong> (<a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.10)"><code class="xref any docutils literal notranslate"><span class="pre">pathlib.Path</span></code></a>) – File where tables are stored.
+<li><p><strong>dbfile</strong> (<a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.11)"><code class="xref any docutils literal notranslate"><span class="pre">pathlib.Path</span></code></a>) – File where tables are stored.
 The default is <cite>$ASTROMON_FILE</cite> or <cite>$SKA/data/astromon/astromon.h5</cite></p></li>
 </ul>
 </dd>
@@ -184,8 +184,8 @@ The default is <cite>$ASTROMON_FILE</cite> or <cite>$SKA/data/astromon/astromon.
 <dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>regions</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.10)"><em>list</em></a>) – list of integer region ID.</p></li>
-<li><p><strong>dbfile</strong> (<a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.10)"><code class="xref any docutils literal notranslate"><span class="pre">pathlib.Path</span></code></a>) – File where tables are stored.
+<li><p><strong>regions</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.11)"><em>list</em></a>) – list of integer region ID.</p></li>
+<li><p><strong>dbfile</strong> (<a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.11)"><code class="xref any docutils literal notranslate"><span class="pre">pathlib.Path</span></code></a>) – File where tables are stored.
 The default is <cite>$ASTROMON_FILE</cite> or <cite>$SKA/data/astromon/astromon.h5</cite></p></li>
 </ul>
 </dd>
@@ -200,9 +200,9 @@ The default is <cite>$ASTROMON_FILE</cite> or <cite>$SKA/data/astromon/astromon.
 <dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>table_name</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.10)"><em>str</em></a>) – The name of the table.</p></li>
+<li><p><strong>table_name</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.11)"><em>str</em></a>) – The name of the table.</p></li>
 <li><p><strong>data</strong> (<a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.1)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.table.Table</span></code></a>) – </p></li>
-<li><p><strong>dbfile</strong> (<a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.10)"><code class="xref any docutils literal notranslate"><span class="pre">pathlib.Path</span></code></a>) – File where tables are stored.
+<li><p><strong>dbfile</strong> (<a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.11)"><code class="xref any docutils literal notranslate"><span class="pre">pathlib.Path</span></code></a>) – File where tables are stored.
 The default is <cite>$ASTROMON_FILE</cite> or <cite>$SKA/data/astromon/astromon.h5</cite></p></li>
 </ul>
 </dd>
@@ -234,7 +234,7 @@ algorithm is the <cite>name=”simple”</cite> cross-match
 <dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>name</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.10)"><em>str</em></a>) – Can be the name one of the <a class="reference internal" href="#astromon.cross_match.CROSS_MATCHES" title="astromon.cross_match.CROSS_MATCHES"><code class="xref any py py-data docutils literal notranslate"><span class="pre">standard</span> <span class="pre">cross-matches</span></code></a>
+<li><p><strong>name</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.11)"><em>str</em></a>) – Can be the name one of the <a class="reference internal" href="#astromon.cross_match.CROSS_MATCHES" title="astromon.cross_match.CROSS_MATCHES"><code class="xref any py py-data docutils literal notranslate"><span class="pre">standard</span> <span class="pre">cross-matches</span></code></a>
 or the name of the algorithm to use (only ‘simple’ is implemented). Default: ‘simple’.</p></li>
 <li><p><strong>astromon_obs</strong> (<a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.1)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.table.Table</span></code></a>) – Table of astromon observations as returned by
 <a class="reference internal" href="#astromon.db.get_table" title="astromon.db.get_table"><code class="xref any py py-func docutils literal notranslate"><span class="pre">db.get_table(&quot;astromon_obs&quot;)</span></code></a>.  The default is to get it from <cite>dbfile</cite>.</p></li>
@@ -244,11 +244,11 @@ or the name of the algorithm to use (only ‘simple’ is implemented). Default:
 <li><p><strong>astromon_cat_src</strong> (<a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.1)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.table.Table</span></code></a>) – Table of catalog counterparts as returned by
 <a class="reference internal" href="#astromon.db.get_table" title="astromon.db.get_table"><code class="xref any py py-func docutils literal notranslate"><span class="pre">db.get_table(&quot;astromon_cat_src&quot;)</span></code></a>
 or <a class="reference internal" href="#astromon.cross_match.rough_match" title="astromon.cross_match.rough_match"><code class="xref any py py-func docutils literal notranslate"><span class="pre">rough_match</span></code></a>. The default is to get it from <cite>dbfile</cite>.</p></li>
-<li><p><strong>dbfile</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.10)"><em>str</em></a>) – HDF5 or SQLite file where the tables are. The default is to let <a class="reference internal" href="#astromon.db.get_table" title="astromon.db.get_table"><code class="xref any py py-func docutils literal notranslate"><span class="pre">db.get_table</span></code></a> decide.</p></li>
-<li><p><strong>exclude_bad_targets</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.10)"><em>bool</em></a>) – Default is False.</p></li>
-<li><p><strong>exclude_regions</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.10)"><em>bool</em></a>) – Default is False.</p></li>
-<li><p><strong>logging_tag</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.10)"><em>str</em></a>) – A string to prepend to the logging messages.</p></li>
-<li><p><strong>kwargs</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.10)"><em>dict</em></a>) – <p>Arguments passed to the algorithm implementation. Ignored if <cite>name</cite> is one of the
+<li><p><strong>dbfile</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.11)"><em>str</em></a>) – HDF5 or SQLite file where the tables are. The default is to let <a class="reference internal" href="#astromon.db.get_table" title="astromon.db.get_table"><code class="xref any py py-func docutils literal notranslate"><span class="pre">db.get_table</span></code></a> decide.</p></li>
+<li><p><strong>exclude_bad_targets</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.11)"><em>bool</em></a>) – Default is False.</p></li>
+<li><p><strong>exclude_regions</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.11)"><em>bool</em></a>) – Default is False.</p></li>
+<li><p><strong>logging_tag</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.11)"><em>str</em></a>) – A string to prepend to the logging messages.</p></li>
+<li><p><strong>kwargs</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.11)"><em>dict</em></a>) – <p>Arguments passed to the algorithm implementation. Ignored if <cite>name</cite> is one of the
 <a class="reference internal" href="#astromon.cross_match.CROSS_MATCHES" title="astromon.cross_match.CROSS_MATCHES"><code class="xref any py py-data docutils literal notranslate"><span class="pre">standard</span> <span class="pre">cross-matches</span></code></a>. kwargs is implementation dependant,
 but the arguments of the ‘simple’ algorithm are:</p>
 <blockquote>
@@ -283,21 +283,21 @@ Default is to consider all.</p></li>
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>matches</strong> (<a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.1)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.table.Table</span></code></a>) – Table of cross-matches as returned by <a class="reference internal" href="#astromon.db.get_cross_matches" title="astromon.db.get_cross_matches"><code class="xref any py py-func docutils literal notranslate"><span class="pre">db.get_cross_matches</span></code></a> or <a class="reference internal" href="#module-astromon.cross_match" title="astromon.cross_match"><code class="xref any py py-mod docutils literal notranslate"><span class="pre">cross_match</span></code></a></p></li>
-<li><p><strong>snr</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.10)"><em>float</em></a>) – Filter matches based on signal-to-noise. Selects matches[‘snr’] &lt;= snr.</p></li>
-<li><p><strong>dr</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.10)"><em>float</em></a>) – Filter matches based on angular offset. Selects matches[‘dr’] &lt;= dr.</p></li>
-<li><p><strong>r_angle</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.10)"><em>float</em></a>) – Filter matches based on distance to optical axis.
+<li><p><strong>snr</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.11)"><em>float</em></a>) – Filter matches based on signal-to-noise. Selects matches[‘snr’] &lt;= snr.</p></li>
+<li><p><strong>dr</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.11)"><em>float</em></a>) – Filter matches based on angular offset. Selects matches[‘dr’] &lt;= dr.</p></li>
+<li><p><strong>r_angle</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.11)"><em>float</em></a>) – Filter matches based on distance to optical axis.
 Selects matches[‘r_angle’] &lt;= r_angle (apply to non-grating observations only).</p></li>
 <li><p><strong>start</strong> (<a class="reference external" href="https://sot.github.io/cxotime/index.html" title="(in cxotime v0.1)"><code class="xref any docutils literal notranslate"><span class="pre">CxoTime</span></code></a>) – Filter matches based on time. Selects matches[‘tstart’] &gt;= start.</p></li>
 <li><p><strong>stop</strong> (<a class="reference external" href="https://sot.github.io/cxotime/index.html" title="(in cxotime v0.1)"><code class="xref any docutils literal notranslate"><span class="pre">CxoTime</span></code></a>) – Filter matches based on time. Selects matches[‘tstart’] &lt;= stop.</p></li>
-<li><p><strong>r_angle_grating</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.10)"><em>float</em></a>) – Filter matches based on distance to optical axis (apply to grating observations only).
+<li><p><strong>r_angle_grating</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.11)"><em>float</em></a>) – Filter matches based on distance to optical axis (apply to grating observations only).
 Selects matches[‘r_angle_grating’] &lt;= r_angle_grating.</p></li>
-<li><p><strong>near_neighbor_dist</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.10)"><em>float</em></a>) – Filter matches based on distance to closest neighbor.
+<li><p><strong>near_neighbor_dist</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.11)"><em>float</em></a>) – Filter matches based on distance to closest neighbor.
 Selects matches[‘near_neighbor_dist’] &lt;= near_neighbor_dist.</p></li>
-<li><p><strong>sim_z</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.10)"><em>float</em></a>) – Maximum allowed SIM-Z in mm.</p></li>
-<li><p><strong>exclude_bad_targets</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.10)"><em>bool</em></a>) – Default is False.</p></li>
-<li><p><strong>exclude_regions</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.10)"><em>bool</em></a>) – Default is False.</p></li>
-<li><p><strong>exclude_categories</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.10)"><em>tuple</em></a>) – A list of observation categories to exclude. Default is empty.</p></li>
-<li><p><strong>kwargs</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.10)"><em>dict</em></a>) – The keys in kwargs determine on which columns to filter. The values of kwargs are used
+<li><p><strong>sim_z</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.11)"><em>float</em></a>) – Maximum allowed SIM-Z in mm.</p></li>
+<li><p><strong>exclude_bad_targets</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.11)"><em>bool</em></a>) – Default is False.</p></li>
+<li><p><strong>exclude_regions</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.11)"><em>bool</em></a>) – Default is False.</p></li>
+<li><p><strong>exclude_categories</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.11)"><em>tuple</em></a>) – A list of observation categories to exclude. Default is empty.</p></li>
+<li><p><strong>kwargs</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.11)"><em>dict</em></a>) – The keys in kwargs determine on which columns to filter. The values of kwargs are used
 according to their type:
 - list types cause a row to be selected if the column value is in the list.
 - otherwise rows are selected if the column value is equal to the kwargs value</p></li>
@@ -358,7 +358,7 @@ join allows one to get rough matches without a requirement in <cite>near_neighbo
 <a class="reference internal" href="#astromon.observation.Observation.get_sources" title="astromon.observation.Observation.get_sources"><code class="xref any py py-meth docutils literal notranslate"><span class="pre">observation.Observation.get_sources</span></code></a>. Required.</p></li>
 <li><p><strong>time</strong> (<a class="reference external" href="https://sot.github.io/cxotime/index.html" title="(in cxotime v0.1)"><code class="xref any docutils literal notranslate"><span class="pre">CxoTime</span></code></a>-compatible) – Time of the observation. Required to account for proper motion.</p></li>
 <li><p><strong>radius</strong> (<a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.units.Quantity.html#astropy.units.Quantity" title="(in Astropy v5.1)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.units.Quantity</span></code></a>) – Radius around the x-ray sources to look for counterparts.</p></li>
-<li><p><strong>catalogs</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.10)"><em>list</em></a>) – A list of catalog names.
+<li><p><strong>catalogs</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.11)"><em>list</em></a>) – A list of catalog names.
 Default is (‘Tycho2’, ‘ICRS’, ‘USNO-B1.0’, ‘2MASS’, ‘SDSS’)</p></li>
 </ul>
 </dd>
@@ -406,24 +406,24 @@ smaller than the one used in <a class="reference internal" href="#astromon.cross
 <li><p><strong>astromon_cat_src</strong> (<a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.1)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.table.Table</span></code></a>) – Table of catalog counterparts as returned by
 <a class="reference internal" href="#astromon.db.get_table" title="astromon.db.get_table"><code class="xref any py py-func docutils literal notranslate"><span class="pre">db.get_table(&quot;astromon_cat_src&quot;)</span></code></a>
 or <a class="reference internal" href="#astromon.cross_match.rough_match" title="astromon.cross_match.rough_match"><code class="xref any py py-func docutils literal notranslate"><span class="pre">rough_match</span></code></a>. Required.</p></li>
-<li><p><strong>name</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.10)"><em>str</em></a>) – The name of the algorithm to use or the name of a standard set of arguments.
+<li><p><strong>name</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.11)"><em>str</em></a>) – The name of the algorithm to use or the name of a standard set of arguments.
 Default is ‘simple’</p></li>
-<li><p><strong>catalogs</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.10)"><em>list</em></a>) – A list of catalog names. The order matters. Default is [‘ICRS’, ‘Tycho2’]</p></li>
-<li><p><strong>snr</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.10)"><em>float</em></a>) – Minimum signal-to-noise ratio of x-ray sources to consider.
+<li><p><strong>catalogs</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.11)"><em>list</em></a>) – A list of catalog names. The order matters. Default is [‘ICRS’, ‘Tycho2’]</p></li>
+<li><p><strong>snr</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.11)"><em>float</em></a>) – Minimum signal-to-noise ratio of x-ray sources to consider.
 Default is 3.</p></li>
-<li><p><strong>r_angle</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.10)"><em>float</em></a>) – Maximum r_angle (in arcsec).
+<li><p><strong>r_angle</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.11)"><em>float</em></a>) – Maximum r_angle (in arcsec).
 Default is 120 arcsec (2 arcmin).</p></li>
-<li><p><strong>dr</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.10)"><em>float</em></a>) – Maximum separation between x-ray source and catalog counterpart (in arcsec).
+<li><p><strong>dr</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.11)"><em>float</em></a>) – Maximum separation between x-ray source and catalog counterpart (in arcsec).
 Default is 3 arcsec.</p></li>
-<li><p><strong>r_angle_grating</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.10)"><em>float</em></a>) – Maximum r_angle in the case of grating observations (in arcsec).
+<li><p><strong>r_angle_grating</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.11)"><em>float</em></a>) – Maximum r_angle in the case of grating observations (in arcsec).
 Default is 24 arcsec (0.4 arcmin).</p></li>
-<li><p><strong>near_neighbor_dist</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.10)"><em>float</em></a>) – Only consider x-ray sources with no other x-ray source within this radial distance (arcsec).
+<li><p><strong>near_neighbor_dist</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.11)"><em>float</em></a>) – Only consider x-ray sources with no other x-ray source within this radial distance (arcsec).
 Default is 6 arcsec.</p></li>
 <li><p><strong>start</strong> (<a class="reference external" href="https://sot.github.io/cxotime/index.html" title="(in cxotime v0.1)"><code class="xref any docutils literal notranslate"><span class="pre">CxoTime</span></code></a>-compatible timestamp) – Only consider observations after this time.
 Default is to consider all.</p></li>
 <li><p><strong>stop</strong> (<a class="reference external" href="https://sot.github.io/cxotime/index.html" title="(in cxotime v0.1)"><code class="xref any docutils literal notranslate"><span class="pre">CxoTime</span></code></a>-compatible timestamp) – Only consider observations before this time.
 Default is to consider all.</p></li>
-<li><p><strong>logging_tag</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.10)"><em>str</em></a>) – A string to prepend to the logging messages.</p></li>
+<li><p><strong>logging_tag</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.11)"><em>str</em></a>) – A string to prepend to the logging messages.</p></li>
 </ul>
 </dd>
 </dl>
@@ -439,18 +439,18 @@ Default is to consider all.</p></li>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>obsid</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.10)"><em>int</em></a>) – </p></li>
-<li><p><strong>workdir</strong> (<a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.10)"><em>pathlib.Path</em></a><em> or </em><em>str.</em>) – Top-level working directory. Used to set PFILES and ASCDS_WORK_PATH and to download files.
+<li><p><strong>obsid</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.11)"><em>int</em></a>) – </p></li>
+<li><p><strong>workdir</strong> (<a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.11)"><em>pathlib.Path</em></a><em> or </em><em>str.</em>) – Top-level working directory. Used to set PFILES and ASCDS_WORK_PATH and to download files.
 The actual working directory will be {workdir}/obs{int(obsid)//1000:02d}/{obsid}.
 If not given, the working directory will be a temporary directory.</p></li>
-<li><p><strong>source</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.10)"><em>str</em></a>) – One of ‘arc5gl’ (to get data using arc5gl) or ‘archive’ (to get data from chandra public
+<li><p><strong>source</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.11)"><em>str</em></a>) – One of ‘arc5gl’ (to get data using arc5gl) or ‘archive’ (to get data from chandra public
 archive using CIAO’s download_chandra_obsid).</p></li>
-<li><p><strong>archive_dir</strong> (<a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.10)"><em>pathlib.Path</em></a><em> or </em><em>str.</em>) – Top-level archive directory. Used to permanently store the result files.
+<li><p><strong>archive_dir</strong> (<a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.11)"><em>pathlib.Path</em></a><em> or </em><em>str.</em>) – Top-level archive directory. Used to permanently store the result files.
 The actual archive directory will be {archive_dir}/obs{int(obsid)//1000:02d}/{obsid}.</p></li>
-<li><p><strong>ciao_prefix</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.10)"><em>str</em></a>) – The location of CIAO.</p></li>
+<li><p><strong>ciao_prefix</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.11)"><em>str</em></a>) – The location of CIAO.</p></li>
 <li><p><strong>logger</strong> (<em>logging.Logger.</em>) – If not provided, the root logger is used.</p></li>
 <li><p><strong>archive_regex</strong> (<em>list of str.</em>) – Files matching any regex in the list are archived.</p></li>
-<li><p><strong>use_ciao</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.10)"><em>bool</em></a>) – If this is False, there will be no calls to CIAO tools (and some methods will just fail).</p></li>
+<li><p><strong>use_ciao</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.11)"><em>bool</em></a>) – If this is False, there will be no calls to CIAO tools (and some methods will just fail).</p></li>
 </ul>
 </dd>
 </dl>
@@ -463,7 +463,7 @@ The actual archive directory will be {archive_dir}/obs{int(obsid)//1000:02d}/{ob
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>regex</strong> (<em>list of str</em>) – Optional. If not given, self.archive_regex is used.
 Files matching any of the strings are arcived in a long-term location.</p></li>
-<li><p><strong>destination</strong> (<a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.10)"><em>pathlib.Path</em></a><em> or </em><em>str.</em>) – Optional. If not given, self.archive_dir is used.
+<li><p><strong>destination</strong> (<a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.11)"><em>pathlib.Path</em></a><em> or </em><em>str.</em>) – Optional. If not given, self.archive_dir is used.
 Long-term location where to store files.</p></li>
 </ul>
 </dd>
@@ -573,9 +573,9 @@ from <a class="reference external" href="https://icxc.harvard.edu/cgi-bin/mp/tar
 <dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>prefix</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.10)"><em>str</em></a>) – The location of CIAO.</p></li>
-<li><p><strong>workdir</strong> (<a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.10)"><code class="docutils literal notranslate"><span class="pre">pathlib.Path</span></code></a> or str) – Working directory. Used to set PFILES and ASCDS_WORK_PATH.</p></li>
-<li><p><strong>logger</strong> (<a class="reference external" href="https://docs.python.org/3/library/logging.html#logging.Logger" title="(in Python v3.10)"><code class="docutils literal notranslate"><span class="pre">logging.Logger</span></code></a>) – If not provided, the root logger is used.</p></li>
+<li><p><strong>prefix</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.11)"><em>str</em></a>) – The location of CIAO.</p></li>
+<li><p><strong>workdir</strong> (<a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.11)"><code class="docutils literal notranslate"><span class="pre">pathlib.Path</span></code></a> or str) – Working directory. Used to set PFILES and ASCDS_WORK_PATH.</p></li>
+<li><p><strong>logger</strong> (<a class="reference external" href="https://docs.python.org/3/library/logging.html#logging.Logger" title="(in Python v3.11)"><code class="docutils literal notranslate"><span class="pre">logging.Logger</span></code></a>) – If not provided, the root logger is used.</p></li>
 </ul>
 </dd>
 </dl>
@@ -595,6 +595,23 @@ from <a class="reference external" href="https://icxc.harvard.edu/cgi-bin/mp/tar
 instructed otherwise.</p>
 </dd></dl>
 
+<dl class="py function">
+<dt class="sig sig-object py" id="astromon.utils.calalign_from_files">
+<span class="sig-prename descclassname"><span class="pre">astromon.utils.</span></span><span class="sig-name descname"><span class="pre">calalign_from_files</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">calalign_dir</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/astromon/utils.html#calalign_from_files"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#astromon.utils.calalign_from_files" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get data from calalign files in <cite>calalign_dir</cite>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>calalign_dir</strong> (<a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.11)"><code class="xref any docutils literal notranslate"><span class="pre">pathlib.Path</span></code></a>) – Directory where to find the calalign files.</p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p></p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.1)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.table.Table</span></code></a></p>
+</dd>
+</dl>
+</dd></dl>
+
 <dl class="py class">
 <dt class="sig sig-object py" id="astromon.utils.chdir">
 <em class="property"><span class="pre">class</span> </em><span class="sig-prename descclassname"><span class="pre">astromon.utils.</span></span><span class="sig-name descname"><span class="pre">chdir</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">directory</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/astromon/utils.html#chdir"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#astromon.utils.chdir" title="Permalink to this definition">¶</a></dt>
@@ -608,8 +625,8 @@ instructed otherwise.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>directory</strong> (<a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.10)"><em>pathlib.Path</em></a><em> or </em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.10)"><em>str</em></a>) – Working directory. Used to set PFILES and ASCDS_WORK_PATH.</p></li>
-<li><p><strong>logger</strong> (<a class="reference external" href="https://docs.python.org/3/library/logging.html#logging.Logger" title="(in Python v3.10)"><code class="docutils literal notranslate"><span class="pre">logging.Logger</span></code></a>) – If not provided, the root logger is used.</p></li>
+<li><p><strong>directory</strong> (<a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.11)"><em>pathlib.Path</em></a><em> or </em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.11)"><em>str</em></a>) – Working directory. Used to set PFILES and ASCDS_WORK_PATH.</p></li>
+<li><p><strong>logger</strong> (<a class="reference external" href="https://docs.python.org/3/library/logging.html#logging.Logger" title="(in Python v3.11)"><code class="docutils literal notranslate"><span class="pre">logging.Logger</span></code></a>) – If not provided, the root logger is used.</p></li>
 </ul>
 </dd>
 </dl>
@@ -622,11 +639,43 @@ instructed otherwise.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>process</strong> – process returned by <a class="reference external" href="https://docs.python.org/3/library/subprocess.html#subprocess.Popen" title="(in Python v3.10)"><code class="docutils literal notranslate"><span class="pre">subprocess.Popen</span></code></a></p></li>
-<li><p><strong>logger</strong> (<a class="reference external" href="https://docs.python.org/3/library/logging.html#logging.Logger" title="(in Python v3.10)"><code class="docutils literal notranslate"><span class="pre">logging.Logger</span></code></a>) – </p></li>
-<li><p><strong>level</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.10)"><em>str</em></a><em> or </em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.10)"><em>int</em></a>) – the logging level</p></li>
-<li><p><strong>text</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.10)"><em>bool</em></a>) – whether the process output is text or binary</p></li>
+<li><p><strong>process</strong> – process returned by <a class="reference external" href="https://docs.python.org/3/library/subprocess.html#subprocess.Popen" title="(in Python v3.11)"><code class="docutils literal notranslate"><span class="pre">subprocess.Popen</span></code></a></p></li>
+<li><p><strong>logger</strong> (<a class="reference external" href="https://docs.python.org/3/library/logging.html#logging.Logger" title="(in Python v3.11)"><code class="docutils literal notranslate"><span class="pre">logging.Logger</span></code></a>) – </p></li>
+<li><p><strong>level</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.11)"><em>str</em></a><em> or </em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.11)"><em>int</em></a>) – the logging level</p></li>
+<li><p><strong>text</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.11)"><em>bool</em></a>) – whether the process output is text or binary</p></li>
 </ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="astromon.utils.get_calalign_offsets">
+<span class="sig-prename descclassname"><span class="pre">astromon.utils.</span></span><span class="sig-name descname"><span class="pre">get_calalign_offsets</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">all_matches</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ref_calalign</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">calalign_dir</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/astromon/utils.html#get_calalign_offsets"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#astromon.utils.get_calalign_offsets" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get a table with the yag/zag offsets subtracted by the aca_misalign matrix.</p>
+<p>The table includes two sets of offsets: the offsets used when the observation was processed,
+and the offsets one would get when using a reference CALALIGN.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>all_matches</strong> (<a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.1)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.table.Table</span></code></a>) – The table of x-ray sources. The only required columns are ‘obsid’ and ‘x_id’</p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p><p>A table with keys:</p>
+<ul class="simple">
+<li><p>calalign_dy</p></li>
+<li><p>calalign_dz</p></li>
+<li><p>aca_misalign</p></li>
+<li><p>fts_misalign</p></li>
+<li><p>calalign_version</p></li>
+<li><p>ref_calalign_dy</p></li>
+<li><p>ref_calalign_dz</p></li>
+<li><p>ref_aca_misalign</p></li>
+<li><p>ref_fts_misalign</p></li>
+<li><p>ref_calalign_version</p></li>
+</ul>
+</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.1)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.table.Table</span></code></a></p>
 </dd>
 </dl>
 </dd></dl>

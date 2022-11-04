@@ -5,7 +5,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>astromon.cross_match &#8212; Astromon 1.0.1 documentation</title>
+    <title>astromon.cross_match &#8212; Astromon 1.1.0 documentation</title>
     <link rel="stylesheet" type="text/css" href="../../_static/pygments.css" />
     <link rel="stylesheet" type="text/css" href="../../_static/bootstrap-astropy.css" />
     
@@ -46,7 +46,7 @@
     <h3>Navigation</h3>
     <ul>
       <li>
-	<a href="../../index.html">Astromon 1.0.1 documentation</a>
+	<a href="../../index.html">Astromon 1.1.0 documentation</a>
 	 &#187;
       </li>
       <li><a href="../index.html" accesskey="U">Module code</a> &#187;</li>
@@ -65,33 +65,26 @@
 <span></span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">&quot;&quot;&quot;</span>
 
-<span class="kn">import</span> <span class="nn">re</span>
 <span class="kn">import</span> <span class="nn">logging</span>
-<span class="kn">import</span> <span class="nn">requests</span>
+<span class="kn">import</span> <span class="nn">re</span>
 <span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
 
 <span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
-
-<span class="kn">from</span> <span class="nn">astropy</span> <span class="kn">import</span> <span class="n">table</span>
-<span class="kn">from</span> <span class="nn">astropy</span> <span class="kn">import</span> <span class="n">coordinates</span> <span class="k">as</span> <span class="n">coords</span><span class="p">,</span> <span class="n">units</span> <span class="k">as</span> <span class="n">u</span>
-<span class="kn">from</span> <span class="nn">astropy</span> <span class="kn">import</span> <span class="n">io</span>
-
+<span class="kn">import</span> <span class="nn">requests</span>
+<span class="kn">from</span> <span class="nn">astropy</span> <span class="kn">import</span> <span class="n">coordinates</span> <span class="k">as</span> <span class="n">coords</span>
+<span class="kn">from</span> <span class="nn">astropy</span> <span class="kn">import</span> <span class="n">io</span><span class="p">,</span> <span class="n">table</span>
+<span class="kn">from</span> <span class="nn">astropy</span> <span class="kn">import</span> <span class="n">units</span> <span class="k">as</span> <span class="n">u</span>
 <span class="kn">from</span> <span class="nn">astroquery.vizier</span> <span class="kn">import</span> <span class="n">Vizier</span>
-
-<span class="kn">from</span> <span class="nn">Ska.DBI</span> <span class="kn">import</span> <span class="n">DBI</span>
 <span class="kn">from</span> <span class="nn">cxotime</span> <span class="kn">import</span> <span class="n">CxoTime</span>
+<span class="kn">from</span> <span class="nn">Ska.DBI</span> <span class="kn">import</span> <span class="n">DBI</span>
+
 <span class="kn">import</span> <span class="nn">astromon</span>
-<span class="kn">from</span> <span class="nn">astromon</span> <span class="kn">import</span> <span class="n">db</span><span class="p">,</span> <span class="n">utils</span><span class="p">,</span> <span class="n">observation</span>
+<span class="kn">from</span> <span class="nn">astromon</span> <span class="kn">import</span> <span class="n">db</span><span class="p">,</span> <span class="n">observation</span><span class="p">,</span> <span class="n">utils</span>
 
-<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s1">&#39;astromon&#39;</span><span class="p">)</span>
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s2">&quot;astromon&quot;</span><span class="p">)</span>
 
 
-<span class="n">SIM_Z</span> <span class="o">=</span> <span class="p">{</span>
-    <span class="s1">&#39;ACIS-I&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">233.587</span><span class="p">,</span>
-    <span class="s1">&#39;ACIS-S&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mf">190.143</span><span class="p">,</span>
-    <span class="s1">&#39;HRC-I&#39;</span><span class="p">:</span> <span class="mf">126.983</span><span class="p">,</span>
-    <span class="s1">&#39;HRC-S&#39;</span><span class="p">:</span> <span class="mf">250.466</span>
-<span class="p">}</span>
+<span class="n">SIM_Z</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;ACIS-I&quot;</span><span class="p">:</span> <span class="o">-</span><span class="mf">233.587</span><span class="p">,</span> <span class="s2">&quot;ACIS-S&quot;</span><span class="p">:</span> <span class="o">-</span><span class="mf">190.143</span><span class="p">,</span> <span class="s2">&quot;HRC-I&quot;</span><span class="p">:</span> <span class="mf">126.983</span><span class="p">,</span> <span class="s2">&quot;HRC-S&quot;</span><span class="p">:</span> <span class="mf">250.466</span><span class="p">}</span>
 
 
 <span class="k">def</span> <span class="nf">_get_vizier</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="n">ra</span><span class="p">,</span> <span class="n">dec</span><span class="p">,</span> <span class="n">time</span><span class="p">,</span> <span class="n">radius</span><span class="p">):</span>
@@ -100,52 +93,77 @@
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">time</span> <span class="o">=</span> <span class="n">CxoTime</span><span class="p">(</span><span class="n">time</span><span class="p">)</span>
     <span class="n">url</span> <span class="o">=</span> <span class="p">(</span>
-        <span class="s1">&#39;http://vizier.cfa.harvard.edu/viz-bin/asu-tsv?&#39;</span>
-        <span class="s1">&#39;-source=</span><span class="si">{source}</span><span class="s1">&#39;</span>
-        <span class="s1">&#39;&amp;-sort=_r&#39;</span>
-        <span class="s1">&#39;&amp;-c=</span><span class="si">{ra:.5f}</span><span class="s1">+</span><span class="si">{dec:.4f}</span><span class="s1">&#39;</span>
-        <span class="s1">&#39;&amp;-out.add=_RA(J2000,J</span><span class="si">{year}</span><span class="s1">)&#39;</span>
-        <span class="s1">&#39;&amp;-c.rs=</span><span class="si">{radius}</span><span class="s1">&#39;</span>
+        <span class="s2">&quot;http://vizier.cfa.harvard.edu/viz-bin/asu-tsv?&quot;</span>
+        <span class="s2">&quot;-source=</span><span class="si">{source}</span><span class="s2">&quot;</span>
+        <span class="s2">&quot;&amp;-sort=_r&quot;</span>
+        <span class="s2">&quot;&amp;-c=</span><span class="si">{ra:.5f}</span><span class="s2">+</span><span class="si">{dec:.4f}</span><span class="s2">&quot;</span>
+        <span class="s2">&quot;&amp;-out.add=_RA(J2000,J</span><span class="si">{year}</span><span class="s2">)&quot;</span>
+        <span class="s2">&quot;&amp;-c.rs=</span><span class="si">{radius}</span><span class="s2">&quot;</span>
     <span class="p">)</span>
     <span class="n">opts</span> <span class="o">=</span> <span class="p">{</span>
-        <span class="s1">&#39;source&#39;</span><span class="p">:</span> <span class="n">source</span><span class="p">,</span>
-        <span class="s1">&#39;ra&#39;</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">ra</span><span class="p">),</span>
-        <span class="s1">&#39;dec&#39;</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">dec</span><span class="p">),</span>
-        <span class="s1">&#39;year&#39;</span><span class="p">:</span> <span class="n">time</span><span class="o">.</span><span class="n">frac_year</span><span class="p">,</span>
-        <span class="s1">&#39;radius&#39;</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">radius</span><span class="p">)</span>
+        <span class="s2">&quot;source&quot;</span><span class="p">:</span> <span class="n">source</span><span class="p">,</span>
+        <span class="s2">&quot;ra&quot;</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">ra</span><span class="p">),</span>
+        <span class="s2">&quot;dec&quot;</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">dec</span><span class="p">),</span>
+        <span class="s2">&quot;year&quot;</span><span class="p">:</span> <span class="n">time</span><span class="o">.</span><span class="n">frac_year</span><span class="p">,</span>
+        <span class="s2">&quot;radius&quot;</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">radius</span><span class="p">),</span>
     <span class="p">}</span>
     <span class="n">rc</span> <span class="o">=</span> <span class="n">requests</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">url</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="o">**</span><span class="n">opts</span><span class="p">))</span>
     <span class="n">output</span> <span class="o">=</span> <span class="n">rc</span><span class="o">.</span><span class="n">content</span><span class="o">.</span><span class="n">decode</span><span class="p">()</span>
-    <span class="n">n_rows</span> <span class="o">=</span> <span class="nb">len</span><span class="p">([</span><span class="n">line</span> <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">output</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">&#39;</span><span class="se">\n</span><span class="s1">&#39;</span><span class="p">)</span> <span class="k">if</span> <span class="ow">not</span> <span class="n">re</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="s1">&#39;#&#39;</span><span class="p">,</span> <span class="n">line</span><span class="p">)</span> <span class="ow">and</span> <span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">()])</span>
+    <span class="n">n_rows</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span>
+        <span class="p">[</span>
+            <span class="n">line</span>
+            <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">output</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">re</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="s2">&quot;#&quot;</span><span class="p">,</span> <span class="n">line</span><span class="p">)</span> <span class="ow">and</span> <span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+        <span class="p">]</span>
+    <span class="p">)</span>
     <span class="k">if</span> <span class="n">n_rows</span><span class="p">:</span>
         <span class="k">return</span> <span class="n">io</span><span class="o">.</span><span class="n">ascii</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="n">output</span><span class="p">,</span> <span class="n">data_start</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
 
 
-<span class="n">CROSS_MATCH_DTYPE</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">dtype</span><span class="p">([</span>
-    <span class="c1"># (&#39;obsid&#39;, &#39;int&#39;),</span>
-    <span class="c1"># (&#39;id&#39;, &#39;int&#39;),</span>
-    <span class="p">(</span><span class="s1">&#39;catalog&#39;</span><span class="p">,</span> <span class="s1">&#39;&lt;U24&#39;</span><span class="p">),</span>
-    <span class="p">(</span><span class="s1">&#39;name&#39;</span><span class="p">,</span> <span class="s1">&#39;&lt;U16&#39;</span><span class="p">),</span>
-    <span class="p">(</span><span class="s1">&#39;ra&#39;</span><span class="p">,</span> <span class="nb">float</span><span class="p">),</span>
-    <span class="p">(</span><span class="s1">&#39;dec&#39;</span><span class="p">,</span> <span class="nb">float</span><span class="p">),</span>
-    <span class="p">(</span><span class="s1">&#39;mag&#39;</span><span class="p">,</span> <span class="nb">float</span><span class="p">)</span>
-<span class="p">])</span>
+<span class="n">CROSS_MATCH_DTYPE</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">dtype</span><span class="p">(</span>
+    <span class="p">[</span>
+        <span class="c1"># (&#39;obsid&#39;, &#39;int&#39;),</span>
+        <span class="c1"># (&#39;id&#39;, &#39;int&#39;),</span>
+        <span class="p">(</span><span class="s2">&quot;catalog&quot;</span><span class="p">,</span> <span class="s2">&quot;&lt;U24&quot;</span><span class="p">),</span>
+        <span class="p">(</span><span class="s2">&quot;name&quot;</span><span class="p">,</span> <span class="s2">&quot;&lt;U16&quot;</span><span class="p">),</span>
+        <span class="p">(</span><span class="s2">&quot;ra&quot;</span><span class="p">,</span> <span class="nb">float</span><span class="p">),</span>
+        <span class="p">(</span><span class="s2">&quot;dec&quot;</span><span class="p">,</span> <span class="nb">float</span><span class="p">),</span>
+        <span class="p">(</span><span class="s2">&quot;mag&quot;</span><span class="p">,</span> <span class="nb">float</span><span class="p">),</span>
+    <span class="p">]</span>
+<span class="p">)</span>
 
 
-<span class="k">def</span> <span class="nf">get_vizier</span><span class="p">(</span><span class="n">pos</span><span class="p">,</span> <span class="n">catalog</span><span class="p">,</span> <span class="n">cat_identifier</span><span class="p">,</span> <span class="n">name_cols</span><span class="p">,</span> <span class="n">columns</span><span class="p">,</span>
-               <span class="n">radius</span><span class="o">=</span><span class="mi">3</span> <span class="o">*</span> <span class="n">u</span><span class="o">.</span><span class="n">arcsec</span><span class="p">,</span> <span class="n">logging_tag</span><span class="o">=</span><span class="s1">&#39;&#39;</span><span class="p">,</span> <span class="n">use_astroquery</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">raw</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+<span class="k">def</span> <span class="nf">get_vizier</span><span class="p">(</span>
+    <span class="n">pos</span><span class="p">,</span>
+    <span class="n">catalog</span><span class="p">,</span>
+    <span class="n">cat_identifier</span><span class="p">,</span>
+    <span class="n">name_cols</span><span class="p">,</span>
+    <span class="n">columns</span><span class="p">,</span>
+    <span class="n">radius</span><span class="o">=</span><span class="mi">3</span> <span class="o">*</span> <span class="n">u</span><span class="o">.</span><span class="n">arcsec</span><span class="p">,</span>
+    <span class="n">logging_tag</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">,</span>
+    <span class="n">use_astroquery</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">raw</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<span class="p">):</span>
     <span class="k">if</span> <span class="n">use_astroquery</span><span class="p">:</span>
         <span class="n">vizier</span> <span class="o">=</span> <span class="n">Vizier</span><span class="p">(</span>
             <span class="n">columns</span><span class="o">=</span><span class="p">[</span>
-                <span class="sa">f</span><span class="s1">&#39;_RA(J2000,</span><span class="si">{</span><span class="n">pos</span><span class="o">.</span><span class="n">obstime</span><span class="o">.</span><span class="n">frac_year</span><span class="si">:</span><span class="s1">8.3f</span><span class="si">}</span><span class="s1">)&#39;</span><span class="p">,</span>
-                <span class="sa">f</span><span class="s1">&#39;_DE(J2000,</span><span class="si">{</span><span class="n">pos</span><span class="o">.</span><span class="n">obstime</span><span class="o">.</span><span class="n">frac_year</span><span class="si">:</span><span class="s1">8.3f</span><span class="si">}</span><span class="s1">)&#39;</span>
+                <span class="sa">f</span><span class="s2">&quot;_RA(J2000,</span><span class="si">{</span><span class="n">pos</span><span class="o">.</span><span class="n">obstime</span><span class="o">.</span><span class="n">frac_year</span><span class="si">:</span><span class="s2">8.3f</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">,</span>
+                <span class="sa">f</span><span class="s2">&quot;_DE(J2000,</span><span class="si">{</span><span class="n">pos</span><span class="o">.</span><span class="n">obstime</span><span class="o">.</span><span class="n">frac_year</span><span class="si">:</span><span class="s2">8.3f</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">,</span>
             <span class="p">],</span>
         <span class="p">)</span>
-        <span class="n">vizier_result</span> <span class="o">=</span> <span class="n">vizier</span><span class="o">.</span><span class="n">query_region</span><span class="p">(</span><span class="n">pos</span><span class="p">,</span> <span class="n">radius</span><span class="o">=</span><span class="n">radius</span><span class="p">,</span> <span class="n">catalog</span><span class="o">=</span><span class="n">cat_identifier</span><span class="p">,</span> <span class="n">cache</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="n">vizier_result</span> <span class="o">=</span> <span class="n">vizier</span><span class="o">.</span><span class="n">query_region</span><span class="p">(</span>
+            <span class="n">pos</span><span class="p">,</span> <span class="n">radius</span><span class="o">=</span><span class="n">radius</span><span class="p">,</span> <span class="n">catalog</span><span class="o">=</span><span class="n">cat_identifier</span><span class="p">,</span> <span class="n">cache</span><span class="o">=</span><span class="kc">False</span>
+        <span class="p">)</span>
         <span class="n">vizier_result</span> <span class="o">=</span> <span class="p">[</span><span class="n">r</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">vizier_result</span><span class="p">]</span>
     <span class="k">else</span><span class="p">:</span>
         <span class="n">vizier_result</span> <span class="o">=</span> <span class="p">[</span>
-            <span class="n">_get_vizier</span><span class="p">(</span><span class="n">cat_identifier</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">ra</span> <span class="o">/</span> <span class="n">u</span><span class="o">.</span><span class="n">deg</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">dec</span> <span class="o">/</span> <span class="n">u</span><span class="o">.</span><span class="n">deg</span><span class="p">,</span> <span class="n">pos</span><span class="o">.</span><span class="n">obstime</span><span class="p">,</span> <span class="n">radius</span> <span class="o">/</span> <span class="n">u</span><span class="o">.</span><span class="n">arcsec</span><span class="p">)</span>
+            <span class="n">_get_vizier</span><span class="p">(</span>
+                <span class="n">cat_identifier</span><span class="p">,</span>
+                <span class="n">p</span><span class="o">.</span><span class="n">ra</span> <span class="o">/</span> <span class="n">u</span><span class="o">.</span><span class="n">deg</span><span class="p">,</span>
+                <span class="n">p</span><span class="o">.</span><span class="n">dec</span> <span class="o">/</span> <span class="n">u</span><span class="o">.</span><span class="n">deg</span><span class="p">,</span>
+                <span class="n">pos</span><span class="o">.</span><span class="n">obstime</span><span class="p">,</span>
+                <span class="n">radius</span> <span class="o">/</span> <span class="n">u</span><span class="o">.</span><span class="n">arcsec</span><span class="p">,</span>
+            <span class="p">)</span>
             <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">pos</span>
         <span class="p">]</span>
         <span class="n">vizier_result</span> <span class="o">=</span> <span class="p">[</span><span class="n">r</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">vizier_result</span> <span class="k">if</span> <span class="n">r</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">]</span>
@@ -154,14 +172,16 @@
         <span class="k">return</span> <span class="n">vizier_result</span>
 
     <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">vizier_result</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">logging_tag</span><span class="si">}</span><span class="s1"> </span><span class="si">{</span><span class="n">catalog</span><span class="si">:</span><span class="s1">&gt;24s</span><span class="si">}</span><span class="s1"> has no results&#39;</span><span class="p">)</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">logging_tag</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">catalog</span><span class="si">:</span><span class="s2">&gt;24s</span><span class="si">}</span><span class="s2"> has no results&quot;</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">table</span><span class="o">.</span><span class="n">Table</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">CROSS_MATCH_DTYPE</span><span class="p">)</span>
 
-    <span class="n">vizier_result</span> <span class="o">=</span> <span class="n">table</span><span class="o">.</span><span class="n">vstack</span><span class="p">(</span><span class="n">vizier_result</span><span class="p">,</span> <span class="n">metadata_conflicts</span><span class="o">=</span><span class="s1">&#39;silent&#39;</span><span class="p">)</span>
+    <span class="n">vizier_result</span> <span class="o">=</span> <span class="n">table</span><span class="o">.</span><span class="n">vstack</span><span class="p">(</span><span class="n">vizier_result</span><span class="p">,</span> <span class="n">metadata_conflicts</span><span class="o">=</span><span class="s2">&quot;silent&quot;</span><span class="p">)</span>
 
-    <span class="n">vizier_result</span><span class="p">[</span><span class="s1">&#39;catalog&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">catalog</span>
+    <span class="n">vizier_result</span><span class="p">[</span><span class="s2">&quot;catalog&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">catalog</span>
 
-    <span class="n">vizier_result</span><span class="p">[</span><span class="s1">&#39;name&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;-&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="nb">str</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="n">n</span><span class="p">])</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">name_cols</span><span class="p">])</span> <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">vizier_result</span><span class="p">]</span>
+    <span class="n">vizier_result</span><span class="p">[</span><span class="s2">&quot;name&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="s2">&quot;-&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="nb">str</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="n">n</span><span class="p">])</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">name_cols</span><span class="p">])</span> <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">vizier_result</span>
+    <span class="p">]</span>
 
     <span class="n">result</span> <span class="o">=</span> <span class="n">table</span><span class="o">.</span><span class="n">Table</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">vizier_result</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">CROSS_MATCH_DTYPE</span><span class="p">))</span>
     <span class="k">for</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">CROSS_MATCH_DTYPE</span><span class="o">.</span><span class="n">names</span><span class="p">:</span>
@@ -172,142 +192,119 @@
             <span class="n">result</span><span class="p">[</span><span class="n">col</span><span class="p">]</span> <span class="o">=</span> <span class="n">table</span><span class="o">.</span><span class="n">MaskedColumn</span><span class="p">(</span>
                 <span class="n">dtype</span><span class="o">=</span><span class="n">CROSS_MATCH_DTYPE</span><span class="p">[</span><span class="n">col</span><span class="p">],</span>
                 <span class="n">length</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="n">vizier_result</span><span class="p">),</span>
-                <span class="n">mask</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">vizier_result</span><span class="p">))</span>
+                <span class="n">mask</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">vizier_result</span><span class="p">)),</span>
             <span class="p">)</span>
-    <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">logging_tag</span><span class="si">}</span><span class="s1"> </span><span class="si">{</span><span class="n">catalog</span><span class="si">:</span><span class="s1">&gt;24s</span><span class="si">}</span><span class="s1"> has </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">vizier_result</span><span class="p">)</span><span class="si">}</span><span class="s1"> results&#39;</span><span class="p">)</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">logging_tag</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">catalog</span><span class="si">:</span><span class="s2">&gt;24s</span><span class="si">}</span><span class="s2"> has </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">vizier_result</span><span class="p">)</span><span class="si">}</span><span class="s2"> results&quot;</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">result</span>
 
 
 <span class="n">VIZIER_CATALOGS</span> <span class="o">=</span> <span class="p">{</span>
-    <span class="s1">&#39;Tycho2&#39;</span><span class="p">:</span> <span class="nb">dict</span><span class="p">(</span>
-        <span class="n">catalog</span><span class="o">=</span><span class="s1">&#39;Tycho2&#39;</span><span class="p">,</span>
-        <span class="n">cat_identifier</span><span class="o">=</span><span class="s1">&#39;I/259/tyc2&#39;</span><span class="p">,</span>
-        <span class="n">name_cols</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;TYC1&#39;</span><span class="p">,</span> <span class="s1">&#39;TYC2&#39;</span><span class="p">,</span> <span class="s1">&#39;TYC3&#39;</span><span class="p">],</span>
+    <span class="s2">&quot;Tycho2&quot;</span><span class="p">:</span> <span class="nb">dict</span><span class="p">(</span>
+        <span class="n">catalog</span><span class="o">=</span><span class="s2">&quot;Tycho2&quot;</span><span class="p">,</span>
+        <span class="n">cat_identifier</span><span class="o">=</span><span class="s2">&quot;I/259/tyc2&quot;</span><span class="p">,</span>
+        <span class="n">name_cols</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;TYC1&quot;</span><span class="p">,</span> <span class="s2">&quot;TYC2&quot;</span><span class="p">,</span> <span class="s2">&quot;TYC3&quot;</span><span class="p">],</span>
         <span class="n">columns</span><span class="o">=</span><span class="p">{</span>
-            <span class="s1">&#39;ra&#39;</span><span class="p">:</span> <span class="s1">&#39;_RAJ2000_</span><span class="si">{time.frac_year:.3f}</span><span class="s1">&#39;</span><span class="p">,</span>
-            <span class="s1">&#39;dec&#39;</span><span class="p">:</span> <span class="s1">&#39;_DEJ2000_</span><span class="si">{time.frac_year:.3f}</span><span class="s1">&#39;</span><span class="p">,</span>
-            <span class="s1">&#39;mag&#39;</span><span class="p">:</span> <span class="s1">&#39;VTmag&#39;</span>
+            <span class="s2">&quot;ra&quot;</span><span class="p">:</span> <span class="s2">&quot;_RAJ2000_</span><span class="si">{time.frac_year:.3f}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;dec&quot;</span><span class="p">:</span> <span class="s2">&quot;_DEJ2000_</span><span class="si">{time.frac_year:.3f}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;mag&quot;</span><span class="p">:</span> <span class="s2">&quot;VTmag&quot;</span><span class="p">,</span>
         <span class="p">},</span>
     <span class="p">),</span>
     <span class="c1"># https://vizier.u-strasbg.fr/viz-bin/VizieR?-source=I/323</span>
-    <span class="s1">&#39;ICRS&#39;</span><span class="p">:</span> <span class="nb">dict</span><span class="p">(</span>
-        <span class="n">catalog</span><span class="o">=</span><span class="s1">&#39;ICRS&#39;</span><span class="p">,</span>
-        <span class="n">cat_identifier</span><span class="o">=</span><span class="s1">&#39;I/323&#39;</span><span class="p">,</span>
-        <span class="n">name_cols</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;ICRF&#39;</span><span class="p">],</span>
-        <span class="n">columns</span><span class="o">=</span><span class="p">{</span>
-            <span class="s1">&#39;ra&#39;</span><span class="p">:</span> <span class="s1">&#39;_RAJ2000&#39;</span><span class="p">,</span>
-            <span class="s1">&#39;dec&#39;</span><span class="p">:</span> <span class="s1">&#39;_DEJ2000&#39;</span>
-        <span class="p">},</span>
+    <span class="s2">&quot;ICRS&quot;</span><span class="p">:</span> <span class="nb">dict</span><span class="p">(</span>
+        <span class="n">catalog</span><span class="o">=</span><span class="s2">&quot;ICRS&quot;</span><span class="p">,</span>
+        <span class="n">cat_identifier</span><span class="o">=</span><span class="s2">&quot;I/323&quot;</span><span class="p">,</span>
+        <span class="n">name_cols</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;ICRF&quot;</span><span class="p">],</span>
+        <span class="n">columns</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;ra&quot;</span><span class="p">:</span> <span class="s2">&quot;_RAJ2000&quot;</span><span class="p">,</span> <span class="s2">&quot;dec&quot;</span><span class="p">:</span> <span class="s2">&quot;_DEJ2000&quot;</span><span class="p">},</span>
     <span class="p">),</span>
     <span class="c1"># https://vizier.u-strasbg.fr/viz-bin/VizieR?-source=I/284</span>
-    <span class="s1">&#39;USNO-B1.0&#39;</span><span class="p">:</span> <span class="nb">dict</span><span class="p">(</span>
-        <span class="n">catalog</span><span class="o">=</span><span class="s1">&#39;USNO-B1.0&#39;</span><span class="p">,</span>
-        <span class="n">cat_identifier</span><span class="o">=</span><span class="s1">&#39;USNO-B1.0&#39;</span><span class="p">,</span>
-        <span class="n">name_cols</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;USNO-B1.0&#39;</span><span class="p">],</span>
-        <span class="n">columns</span><span class="o">=</span><span class="p">{</span>
-            <span class="s1">&#39;ra&#39;</span><span class="p">:</span> <span class="s1">&#39;_RAJ2000&#39;</span><span class="p">,</span>
-            <span class="s1">&#39;dec&#39;</span><span class="p">:</span> <span class="s1">&#39;_DEJ2000&#39;</span><span class="p">,</span>
-            <span class="s1">&#39;mag&#39;</span><span class="p">:</span> <span class="s1">&#39;R1mag&#39;</span>
-        <span class="p">},</span>
+    <span class="s2">&quot;USNO-B1.0&quot;</span><span class="p">:</span> <span class="nb">dict</span><span class="p">(</span>
+        <span class="n">catalog</span><span class="o">=</span><span class="s2">&quot;USNO-B1.0&quot;</span><span class="p">,</span>
+        <span class="n">cat_identifier</span><span class="o">=</span><span class="s2">&quot;USNO-B1.0&quot;</span><span class="p">,</span>
+        <span class="n">name_cols</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;USNO-B1.0&quot;</span><span class="p">],</span>
+        <span class="n">columns</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;ra&quot;</span><span class="p">:</span> <span class="s2">&quot;_RAJ2000&quot;</span><span class="p">,</span> <span class="s2">&quot;dec&quot;</span><span class="p">:</span> <span class="s2">&quot;_DEJ2000&quot;</span><span class="p">,</span> <span class="s2">&quot;mag&quot;</span><span class="p">:</span> <span class="s2">&quot;R1mag&quot;</span><span class="p">},</span>
     <span class="p">),</span>
     <span class="c1"># http://vizier.u-strasbg.fr/viz-bin/VizieR?-source=I/239</span>
-    <span class="s1">&#39;HIP&#39;</span><span class="p">:</span> <span class="nb">dict</span><span class="p">(</span>
-        <span class="n">catalog</span><span class="o">=</span><span class="s1">&#39;HIP&#39;</span><span class="p">,</span>
-        <span class="n">cat_identifier</span><span class="o">=</span><span class="s1">&#39;I/239/hip_main&#39;</span><span class="p">,</span>
-        <span class="n">name_cols</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;HIP&#39;</span><span class="p">],</span>
-        <span class="n">columns</span><span class="o">=</span><span class="p">{</span>
-            <span class="s1">&#39;ra&#39;</span><span class="p">:</span> <span class="s1">&#39;_RAJ2000&#39;</span><span class="p">,</span>
-            <span class="s1">&#39;dec&#39;</span><span class="p">:</span> <span class="s1">&#39;_DEJ2000&#39;</span><span class="p">,</span>
-            <span class="s1">&#39;mag&#39;</span><span class="p">:</span> <span class="s1">&#39;Vmag&#39;</span>
-        <span class="p">},</span>
+    <span class="s2">&quot;HIP&quot;</span><span class="p">:</span> <span class="nb">dict</span><span class="p">(</span>
+        <span class="n">catalog</span><span class="o">=</span><span class="s2">&quot;HIP&quot;</span><span class="p">,</span>
+        <span class="n">cat_identifier</span><span class="o">=</span><span class="s2">&quot;I/239/hip_main&quot;</span><span class="p">,</span>
+        <span class="n">name_cols</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;HIP&quot;</span><span class="p">],</span>
+        <span class="n">columns</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;ra&quot;</span><span class="p">:</span> <span class="s2">&quot;_RAJ2000&quot;</span><span class="p">,</span> <span class="s2">&quot;dec&quot;</span><span class="p">:</span> <span class="s2">&quot;_DEJ2000&quot;</span><span class="p">,</span> <span class="s2">&quot;mag&quot;</span><span class="p">:</span> <span class="s2">&quot;Vmag&quot;</span><span class="p">},</span>
     <span class="p">),</span>
     <span class="c1"># http://vizier.u-strasbg.fr/viz-bin/VizieR?-source=I/311</span>
     <span class="c1"># https://heasarc.gsfc.nasa.gov/W3Browse/all/hipnewcat.html</span>
-    <span class="s1">&#39;HIP2&#39;</span><span class="p">:</span> <span class="nb">dict</span><span class="p">(</span>
-        <span class="n">catalog</span><span class="o">=</span><span class="s1">&#39;HIP&#39;</span><span class="p">,</span>
-        <span class="n">cat_identifier</span><span class="o">=</span><span class="s1">&#39;I/311/hip2&#39;</span><span class="p">,</span>
-        <span class="n">name_cols</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;HIP&#39;</span><span class="p">],</span>
+    <span class="s2">&quot;HIP2&quot;</span><span class="p">:</span> <span class="nb">dict</span><span class="p">(</span>
+        <span class="n">catalog</span><span class="o">=</span><span class="s2">&quot;HIP&quot;</span><span class="p">,</span>
+        <span class="n">cat_identifier</span><span class="o">=</span><span class="s2">&quot;I/311/hip2&quot;</span><span class="p">,</span>
+        <span class="n">name_cols</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;HIP&quot;</span><span class="p">],</span>
         <span class="n">columns</span><span class="o">=</span><span class="p">{</span>
-            <span class="s1">&#39;ra&#39;</span><span class="p">:</span> <span class="s1">&#39;_RAJ2000&#39;</span><span class="p">,</span>
-            <span class="s1">&#39;dec&#39;</span><span class="p">:</span> <span class="s1">&#39;_DEJ2000&#39;</span><span class="p">,</span>
-            <span class="s1">&#39;mag&#39;</span><span class="p">:</span> <span class="s1">&#39;Vmag&#39;</span><span class="p">,</span>
-        <span class="p">}</span>
-    <span class="p">),</span>
-    <span class="c1"># http://vizier.u-strasbg.fr/viz-bin/VizieR?-source=I/322</span>
-    <span class="s1">&#39;UCAC4&#39;</span><span class="p">:</span> <span class="nb">dict</span><span class="p">(</span>
-        <span class="n">catalog</span><span class="o">=</span><span class="s1">&#39;UCAC4&#39;</span><span class="p">,</span>
-        <span class="n">cat_identifier</span><span class="o">=</span><span class="s1">&#39;I/322&#39;</span><span class="p">,</span>
-        <span class="n">name_cols</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;UCAC4&#39;</span><span class="p">],</span>
-        <span class="n">columns</span><span class="o">=</span><span class="p">{</span>
-            <span class="s1">&#39;ra&#39;</span><span class="p">:</span> <span class="s1">&#39;_RAJ2000&#39;</span><span class="p">,</span>
-            <span class="s1">&#39;dec&#39;</span><span class="p">:</span> <span class="s1">&#39;_DEJ2000&#39;</span><span class="p">,</span>
-            <span class="s1">&#39;mag&#39;</span><span class="p">:</span> <span class="s1">&#39;f.mag&#39;</span>
+            <span class="s2">&quot;ra&quot;</span><span class="p">:</span> <span class="s2">&quot;_RAJ2000&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;dec&quot;</span><span class="p">:</span> <span class="s2">&quot;_DEJ2000&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;mag&quot;</span><span class="p">:</span> <span class="s2">&quot;Vmag&quot;</span><span class="p">,</span>
         <span class="p">},</span>
     <span class="p">),</span>
-    <span class="s1">&#39;2MASS&#39;</span><span class="p">:</span> <span class="nb">dict</span><span class="p">(</span>
-        <span class="n">catalog</span><span class="o">=</span><span class="s1">&#39;2MASS&#39;</span><span class="p">,</span>
-        <span class="n">cat_identifier</span><span class="o">=</span><span class="s1">&#39;II/246/out&#39;</span><span class="p">,</span>
-        <span class="n">name_cols</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;_2MASS&#39;</span><span class="p">],</span>
-        <span class="n">columns</span><span class="o">=</span><span class="p">{</span>
-            <span class="s1">&#39;ra&#39;</span><span class="p">:</span> <span class="s1">&#39;_RAJ2000&#39;</span><span class="p">,</span>
-            <span class="s1">&#39;dec&#39;</span><span class="p">:</span> <span class="s1">&#39;_DEJ2000&#39;</span><span class="p">,</span>
-            <span class="s1">&#39;mag&#39;</span><span class="p">:</span> <span class="s1">&#39;Kmag&#39;</span><span class="p">},</span>
+    <span class="c1"># http://vizier.u-strasbg.fr/viz-bin/VizieR?-source=I/322</span>
+    <span class="s2">&quot;UCAC4&quot;</span><span class="p">:</span> <span class="nb">dict</span><span class="p">(</span>
+        <span class="n">catalog</span><span class="o">=</span><span class="s2">&quot;UCAC4&quot;</span><span class="p">,</span>
+        <span class="n">cat_identifier</span><span class="o">=</span><span class="s2">&quot;I/322&quot;</span><span class="p">,</span>
+        <span class="n">name_cols</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;UCAC4&quot;</span><span class="p">],</span>
+        <span class="n">columns</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;ra&quot;</span><span class="p">:</span> <span class="s2">&quot;_RAJ2000&quot;</span><span class="p">,</span> <span class="s2">&quot;dec&quot;</span><span class="p">:</span> <span class="s2">&quot;_DEJ2000&quot;</span><span class="p">,</span> <span class="s2">&quot;mag&quot;</span><span class="p">:</span> <span class="s2">&quot;f.mag&quot;</span><span class="p">},</span>
     <span class="p">),</span>
-    <span class="s1">&#39;SDSS&#39;</span><span class="p">:</span> <span class="nb">dict</span><span class="p">(</span>
-        <span class="n">catalog</span><span class="o">=</span><span class="s1">&#39;SDSS&#39;</span><span class="p">,</span>
-        <span class="n">cat_identifier</span><span class="o">=</span><span class="s1">&#39;II/294&#39;</span><span class="p">,</span>
-        <span class="n">name_cols</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;SDSS&#39;</span><span class="p">],</span>
+    <span class="s2">&quot;2MASS&quot;</span><span class="p">:</span> <span class="nb">dict</span><span class="p">(</span>
+        <span class="n">catalog</span><span class="o">=</span><span class="s2">&quot;2MASS&quot;</span><span class="p">,</span>
+        <span class="n">cat_identifier</span><span class="o">=</span><span class="s2">&quot;II/246/out&quot;</span><span class="p">,</span>
+        <span class="n">name_cols</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;_2MASS&quot;</span><span class="p">],</span>
+        <span class="n">columns</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;ra&quot;</span><span class="p">:</span> <span class="s2">&quot;_RAJ2000&quot;</span><span class="p">,</span> <span class="s2">&quot;dec&quot;</span><span class="p">:</span> <span class="s2">&quot;_DEJ2000&quot;</span><span class="p">,</span> <span class="s2">&quot;mag&quot;</span><span class="p">:</span> <span class="s2">&quot;Kmag&quot;</span><span class="p">},</span>
+    <span class="p">),</span>
+    <span class="s2">&quot;SDSS&quot;</span><span class="p">:</span> <span class="nb">dict</span><span class="p">(</span>
+        <span class="n">catalog</span><span class="o">=</span><span class="s2">&quot;SDSS&quot;</span><span class="p">,</span>
+        <span class="n">cat_identifier</span><span class="o">=</span><span class="s2">&quot;II/294&quot;</span><span class="p">,</span>
+        <span class="n">name_cols</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;SDSS&quot;</span><span class="p">],</span>
         <span class="n">columns</span><span class="o">=</span><span class="p">{</span>
-            <span class="s1">&#39;ra&#39;</span><span class="p">:</span> <span class="s1">&#39;_RAJ2000_</span><span class="si">{time.frac_year:.3f}</span><span class="s1">&#39;</span><span class="p">,</span>
-            <span class="s1">&#39;dec&#39;</span><span class="p">:</span> <span class="s1">&#39;_DEJ2000_</span><span class="si">{time.frac_year:.3f}</span><span class="s1">&#39;</span><span class="p">,</span>
-            <span class="s1">&#39;mag&#39;</span><span class="p">:</span> <span class="s1">&#39;rmag&#39;</span>
+            <span class="s2">&quot;ra&quot;</span><span class="p">:</span> <span class="s2">&quot;_RAJ2000_</span><span class="si">{time.frac_year:.3f}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;dec&quot;</span><span class="p">:</span> <span class="s2">&quot;_DEJ2000_</span><span class="si">{time.frac_year:.3f}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;mag&quot;</span><span class="p">:</span> <span class="s2">&quot;rmag&quot;</span><span class="p">,</span>
         <span class="p">},</span>
     <span class="p">),</span>
     <span class="c1"># https://vizier.u-strasbg.fr/viz-bin/VizieR-3?-source=I/345/gaia2</span>
-    <span class="s1">&#39;Gaia2&#39;</span><span class="p">:</span> <span class="nb">dict</span><span class="p">(</span>
-        <span class="n">catalog</span><span class="o">=</span><span class="s1">&#39;Gaia2&#39;</span><span class="p">,</span>
-        <span class="n">cat_identifier</span><span class="o">=</span><span class="s1">&#39;I/345/gaia2&#39;</span><span class="p">,</span>
-        <span class="n">name_cols</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;Source&#39;</span><span class="p">],</span>
-        <span class="n">columns</span><span class="o">=</span><span class="p">{</span>
-            <span class="s1">&#39;ra&#39;</span><span class="p">:</span> <span class="s1">&#39;_RA_ICRS&#39;</span><span class="p">,</span>
-            <span class="s1">&#39;dec&#39;</span><span class="p">:</span> <span class="s1">&#39;_DE_ICRS&#39;</span><span class="p">,</span>
-            <span class="s1">&#39;mag&#39;</span><span class="p">:</span> <span class="s1">&#39;Gmag&#39;</span>
-        <span class="p">},</span>
+    <span class="s2">&quot;Gaia2&quot;</span><span class="p">:</span> <span class="nb">dict</span><span class="p">(</span>
+        <span class="n">catalog</span><span class="o">=</span><span class="s2">&quot;Gaia2&quot;</span><span class="p">,</span>
+        <span class="n">cat_identifier</span><span class="o">=</span><span class="s2">&quot;I/345/gaia2&quot;</span><span class="p">,</span>
+        <span class="n">name_cols</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;Source&quot;</span><span class="p">],</span>
+        <span class="n">columns</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;ra&quot;</span><span class="p">:</span> <span class="s2">&quot;_RA_ICRS&quot;</span><span class="p">,</span> <span class="s2">&quot;dec&quot;</span><span class="p">:</span> <span class="s2">&quot;_DE_ICRS&quot;</span><span class="p">,</span> <span class="s2">&quot;mag&quot;</span><span class="p">:</span> <span class="s2">&quot;Gmag&quot;</span><span class="p">},</span>
     <span class="p">),</span>
 <span class="p">}</span>
 
 
 <span class="k">def</span> <span class="nf">_get</span><span class="p">(</span>
-    <span class="n">catalog</span><span class="p">,</span> <span class="n">time</span><span class="p">,</span> <span class="n">pos</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">ra</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">dec</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-    <span class="n">radius</span><span class="o">=</span><span class="mi">3</span> <span class="o">*</span> <span class="n">u</span><span class="o">.</span><span class="n">arcsec</span><span class="p">,</span> <span class="n">logging_tag</span><span class="o">=</span><span class="s1">&#39;&#39;</span><span class="p">,</span> <span class="n">raw</span><span class="o">=</span><span class="kc">False</span>
+    <span class="n">catalog</span><span class="p">,</span>
+    <span class="n">time</span><span class="p">,</span>
+    <span class="n">pos</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">ra</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">dec</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">radius</span><span class="o">=</span><span class="mi">3</span> <span class="o">*</span> <span class="n">u</span><span class="o">.</span><span class="n">arcsec</span><span class="p">,</span>
+    <span class="n">logging_tag</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">,</span>
+    <span class="n">raw</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
 <span class="p">):</span>
-    <span class="k">assert</span> <span class="p">(</span><span class="n">ra</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">dec</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">or</span> <span class="n">pos</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span> <span class="s1">&#39;pos or ra/dec required&#39;</span>
+    <span class="k">assert</span> <span class="p">(</span>
+        <span class="n">ra</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">dec</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+    <span class="p">)</span> <span class="ow">or</span> <span class="n">pos</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;pos or ra/dec required&quot;</span>
     <span class="k">if</span> <span class="n">pos</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">pos</span> <span class="o">=</span> <span class="n">coords</span><span class="o">.</span><span class="n">SkyCoord</span><span class="p">(</span>
-            <span class="n">ra</span><span class="o">=</span><span class="n">ra</span><span class="p">,</span> <span class="n">dec</span><span class="o">=</span><span class="n">dec</span><span class="p">,</span>
-            <span class="n">unit</span><span class="o">=</span><span class="s1">&#39;deg&#39;</span><span class="p">,</span>
-            <span class="n">frame</span><span class="o">=</span><span class="s1">&#39;icrs&#39;</span><span class="p">,</span>
-            <span class="n">obstime</span><span class="o">=</span><span class="n">time</span>
-        <span class="p">)</span>
+        <span class="n">pos</span> <span class="o">=</span> <span class="n">coords</span><span class="o">.</span><span class="n">SkyCoord</span><span class="p">(</span><span class="n">ra</span><span class="o">=</span><span class="n">ra</span><span class="p">,</span> <span class="n">dec</span><span class="o">=</span><span class="n">dec</span><span class="p">,</span> <span class="n">unit</span><span class="o">=</span><span class="s2">&quot;deg&quot;</span><span class="p">,</span> <span class="n">frame</span><span class="o">=</span><span class="s2">&quot;icrs&quot;</span><span class="p">,</span> <span class="n">obstime</span><span class="o">=</span><span class="n">time</span><span class="p">)</span>
     <span class="k">else</span><span class="p">:</span>
-        <span class="k">assert</span> <span class="n">ra</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">dec</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">,</span> <span class="s1">&#39;ra/dec not required if giving pos&#39;</span>
+        <span class="k">assert</span> <span class="n">ra</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">dec</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;ra/dec not required if giving pos&quot;</span>
     <span class="n">params</span> <span class="o">=</span> <span class="n">VIZIER_CATALOGS</span><span class="p">[</span><span class="n">catalog</span><span class="p">]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
     <span class="n">columns</span> <span class="o">=</span> <span class="p">{}</span>
-    <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">params</span><span class="p">[</span><span class="s1">&#39;columns&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+    <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">params</span><span class="p">[</span><span class="s2">&quot;columns&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
         <span class="n">columns</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">col</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">time</span><span class="o">=</span><span class="n">time</span><span class="p">)</span>
-    <span class="n">params</span><span class="p">[</span><span class="s1">&#39;columns&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">columns</span>
-    <span class="k">return</span> <span class="n">get_vizier</span><span class="p">(</span>
-        <span class="n">pos</span><span class="p">,</span>
-        <span class="n">radius</span><span class="o">=</span><span class="n">radius</span><span class="p">,</span>
-        <span class="n">logging_tag</span><span class="o">=</span><span class="n">logging_tag</span><span class="p">,</span>
-        <span class="o">**</span><span class="n">params</span><span class="p">,</span>
-        <span class="n">raw</span><span class="o">=</span><span class="n">raw</span>
-    <span class="p">)</span>
+    <span class="n">params</span><span class="p">[</span><span class="s2">&quot;columns&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">columns</span>
+    <span class="k">return</span> <span class="n">get_vizier</span><span class="p">(</span><span class="n">pos</span><span class="p">,</span> <span class="n">radius</span><span class="o">=</span><span class="n">radius</span><span class="p">,</span> <span class="n">logging_tag</span><span class="o">=</span><span class="n">logging_tag</span><span class="p">,</span> <span class="o">**</span><span class="n">params</span><span class="p">,</span> <span class="n">raw</span><span class="o">=</span><span class="n">raw</span><span class="p">)</span>
 
 
 <div class="viewcode-block" id="rough_match"><a class="viewcode-back" href="../../api.html#astromon.cross_match.rough_match">[docs]</a><span class="k">def</span> <span class="nf">rough_match</span><span class="p">(</span>
-    <span class="n">sources</span><span class="p">,</span> <span class="n">time</span><span class="p">,</span> <span class="n">radius</span><span class="o">=</span><span class="mi">3</span> <span class="o">*</span> <span class="n">u</span><span class="o">.</span><span class="n">arcsec</span><span class="p">,</span>
-    <span class="n">catalogs</span><span class="o">=</span><span class="p">(</span><span class="s1">&#39;Tycho2&#39;</span><span class="p">,</span> <span class="s1">&#39;ICRS&#39;</span><span class="p">,</span> <span class="s1">&#39;USNO-B1.0&#39;</span><span class="p">,</span> <span class="s1">&#39;2MASS&#39;</span><span class="p">,</span> <span class="s1">&#39;SDSS&#39;</span><span class="p">)</span>
+    <span class="n">sources</span><span class="p">,</span>
+    <span class="n">time</span><span class="p">,</span>
+    <span class="n">radius</span><span class="o">=</span><span class="mi">3</span> <span class="o">*</span> <span class="n">u</span><span class="o">.</span><span class="n">arcsec</span><span class="p">,</span>
+    <span class="n">catalogs</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;Tycho2&quot;</span><span class="p">,</span> <span class="s2">&quot;ICRS&quot;</span><span class="p">,</span> <span class="s2">&quot;USNO-B1.0&quot;</span><span class="p">,</span> <span class="s2">&quot;2MASS&quot;</span><span class="p">,</span> <span class="s2">&quot;SDSS&quot;</span><span class="p">),</span>
 <span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Find sources in a set of :ref:`catalogs &lt;catalog-list&gt;` around the x-ray sources given</span>
@@ -346,63 +343,62 @@
     <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">sources</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
         <span class="k">return</span> <span class="p">[]</span>
 
-    <span class="k">if</span> <span class="s1">&#39;obsid&#39;</span> <span class="ow">in</span> <span class="n">sources</span><span class="o">.</span><span class="n">dtype</span><span class="o">.</span><span class="n">names</span><span class="p">:</span>
-        <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">unique</span><span class="p">(</span><span class="n">sources</span><span class="p">[</span><span class="s1">&#39;obsid&#39;</span><span class="p">]))</span> <span class="o">&lt;=</span> <span class="mi">1</span><span class="p">,</span> <span class="s1">&#39;rough_match only handles one OBSID at a time&#39;</span>
+    <span class="k">if</span> <span class="s2">&quot;obsid&quot;</span> <span class="ow">in</span> <span class="n">sources</span><span class="o">.</span><span class="n">dtype</span><span class="o">.</span><span class="n">names</span><span class="p">:</span>
+        <span class="k">assert</span> <span class="p">(</span>
+            <span class="nb">len</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">unique</span><span class="p">(</span><span class="n">sources</span><span class="p">[</span><span class="s2">&quot;obsid&quot;</span><span class="p">]))</span> <span class="o">&lt;=</span> <span class="mi">1</span>
+        <span class="p">),</span> <span class="s2">&quot;rough_match only handles one OBSID at a time&quot;</span>
         <span class="n">logging_tag</span> <span class="o">=</span> <span class="sa">f</span><span class="s1">&#39;OBSID=</span><span class="si">{</span><span class="n">sources</span><span class="p">[</span><span class="s2">&quot;obsid&quot;</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s1"> &#39;</span>
     <span class="k">else</span><span class="p">:</span>
-        <span class="n">logging_tag</span> <span class="o">=</span> <span class="s1">&#39;&#39;</span>
+        <span class="n">logging_tag</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
 
-    <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">logging_tag</span><span class="si">}</span><span class="s1"> rough_match started&#39;</span><span class="p">)</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">logging_tag</span><span class="si">}</span><span class="s2"> rough_match started&quot;</span><span class="p">)</span>
     <span class="n">pos</span> <span class="o">=</span> <span class="n">coords</span><span class="o">.</span><span class="n">SkyCoord</span><span class="p">(</span>
-        <span class="n">ra</span><span class="o">=</span><span class="n">sources</span><span class="p">[</span><span class="s1">&#39;ra&#39;</span><span class="p">],</span> <span class="n">dec</span><span class="o">=</span><span class="n">sources</span><span class="p">[</span><span class="s1">&#39;dec&#39;</span><span class="p">],</span>
-        <span class="n">unit</span><span class="o">=</span><span class="s1">&#39;deg&#39;</span><span class="p">,</span>
-        <span class="n">frame</span><span class="o">=</span><span class="s1">&#39;icrs&#39;</span><span class="p">,</span>
-        <span class="n">obstime</span><span class="o">=</span><span class="n">time</span>
+        <span class="n">ra</span><span class="o">=</span><span class="n">sources</span><span class="p">[</span><span class="s2">&quot;ra&quot;</span><span class="p">],</span> <span class="n">dec</span><span class="o">=</span><span class="n">sources</span><span class="p">[</span><span class="s2">&quot;dec&quot;</span><span class="p">],</span> <span class="n">unit</span><span class="o">=</span><span class="s2">&quot;deg&quot;</span><span class="p">,</span> <span class="n">frame</span><span class="o">=</span><span class="s2">&quot;icrs&quot;</span><span class="p">,</span> <span class="n">obstime</span><span class="o">=</span><span class="n">time</span>
     <span class="p">)</span>
 
     <span class="n">res</span> <span class="o">=</span> <span class="p">[</span>
-        <span class="n">_get</span><span class="p">(</span>
-            <span class="n">pos</span><span class="o">=</span><span class="n">pos</span><span class="p">,</span>
-            <span class="n">time</span><span class="o">=</span><span class="n">time</span><span class="p">,</span>
-            <span class="n">radius</span><span class="o">=</span><span class="n">radius</span><span class="p">,</span>
-            <span class="n">catalog</span><span class="o">=</span><span class="n">name</span><span class="p">,</span>
-            <span class="n">logging_tag</span><span class="o">=</span><span class="n">logging_tag</span>
-        <span class="p">)</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">catalogs</span><span class="p">]</span>
-    <span class="n">res</span> <span class="o">=</span> <span class="n">table</span><span class="o">.</span><span class="n">vstack</span><span class="p">([</span><span class="n">r</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">res</span><span class="p">],</span> <span class="n">metadata_conflicts</span><span class="o">=</span><span class="s1">&#39;silent&#39;</span><span class="p">)</span>
+        <span class="n">_get</span><span class="p">(</span><span class="n">pos</span><span class="o">=</span><span class="n">pos</span><span class="p">,</span> <span class="n">time</span><span class="o">=</span><span class="n">time</span><span class="p">,</span> <span class="n">radius</span><span class="o">=</span><span class="n">radius</span><span class="p">,</span> <span class="n">catalog</span><span class="o">=</span><span class="n">name</span><span class="p">,</span> <span class="n">logging_tag</span><span class="o">=</span><span class="n">logging_tag</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">catalogs</span>
+    <span class="p">]</span>
+    <span class="n">res</span> <span class="o">=</span> <span class="n">table</span><span class="o">.</span><span class="n">vstack</span><span class="p">([</span><span class="n">r</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">res</span><span class="p">],</span> <span class="n">metadata_conflicts</span><span class="o">=</span><span class="s2">&quot;silent&quot;</span><span class="p">)</span>
 
     <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">sources</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">res</span><span class="p">):</span>
-        <span class="n">sources</span><span class="p">[</span><span class="s1">&#39;coord_xray&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">coords</span><span class="o">.</span><span class="n">SkyCoord</span><span class="p">(</span><span class="n">sources</span><span class="p">[</span><span class="s1">&#39;ra&#39;</span><span class="p">],</span> <span class="n">sources</span><span class="p">[</span><span class="s1">&#39;dec&#39;</span><span class="p">],</span> <span class="n">unit</span><span class="o">=</span><span class="s1">&#39;deg&#39;</span><span class="p">)</span>
-        <span class="n">res</span><span class="p">[</span><span class="s1">&#39;coord_cat&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">coords</span><span class="o">.</span><span class="n">SkyCoord</span><span class="p">(</span><span class="n">res</span><span class="p">[</span><span class="s1">&#39;ra&#39;</span><span class="p">],</span> <span class="n">res</span><span class="p">[</span><span class="s1">&#39;dec&#39;</span><span class="p">],</span> <span class="n">unit</span><span class="o">=</span><span class="s1">&#39;deg&#39;</span><span class="p">)</span>
-        <span class="n">res</span> <span class="o">=</span> <span class="n">table</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">res</span><span class="p">,</span> <span class="n">sources</span><span class="p">[[</span><span class="s1">&#39;coord_xray&#39;</span><span class="p">,</span> <span class="s1">&#39;id&#39;</span><span class="p">]],</span> <span class="n">join_type</span><span class="o">=</span><span class="s1">&#39;cartesian&#39;</span><span class="p">)</span>
-        <span class="n">sep</span> <span class="o">=</span> <span class="n">res</span><span class="p">[</span><span class="s1">&#39;coord_xray&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">separation</span><span class="p">(</span><span class="n">res</span><span class="p">[</span><span class="s1">&#39;coord_cat&#39;</span><span class="p">])</span>
-        <span class="n">res</span><span class="p">[</span><span class="s1">&#39;separation&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">sep</span><span class="o">.</span><span class="n">to_value</span><span class="p">(</span><span class="n">unit</span><span class="o">=</span><span class="s1">&#39;arcsec&#39;</span><span class="p">)</span>
-        <span class="n">res</span><span class="o">.</span><span class="n">remove_columns</span><span class="p">([</span><span class="s1">&#39;coord_xray&#39;</span><span class="p">,</span> <span class="s1">&#39;coord_cat&#39;</span><span class="p">])</span>
+        <span class="n">sources</span><span class="p">[</span><span class="s2">&quot;coord_xray&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">coords</span><span class="o">.</span><span class="n">SkyCoord</span><span class="p">(</span>
+            <span class="n">sources</span><span class="p">[</span><span class="s2">&quot;ra&quot;</span><span class="p">],</span> <span class="n">sources</span><span class="p">[</span><span class="s2">&quot;dec&quot;</span><span class="p">],</span> <span class="n">unit</span><span class="o">=</span><span class="s2">&quot;deg&quot;</span>
+        <span class="p">)</span>
+        <span class="n">res</span><span class="p">[</span><span class="s2">&quot;coord_cat&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">coords</span><span class="o">.</span><span class="n">SkyCoord</span><span class="p">(</span><span class="n">res</span><span class="p">[</span><span class="s2">&quot;ra&quot;</span><span class="p">],</span> <span class="n">res</span><span class="p">[</span><span class="s2">&quot;dec&quot;</span><span class="p">],</span> <span class="n">unit</span><span class="o">=</span><span class="s2">&quot;deg&quot;</span><span class="p">)</span>
+        <span class="n">res</span> <span class="o">=</span> <span class="n">table</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">res</span><span class="p">,</span> <span class="n">sources</span><span class="p">[[</span><span class="s2">&quot;coord_xray&quot;</span><span class="p">,</span> <span class="s2">&quot;id&quot;</span><span class="p">]],</span> <span class="n">join_type</span><span class="o">=</span><span class="s2">&quot;cartesian&quot;</span><span class="p">)</span>
+        <span class="n">sep</span> <span class="o">=</span> <span class="n">res</span><span class="p">[</span><span class="s2">&quot;coord_xray&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">separation</span><span class="p">(</span><span class="n">res</span><span class="p">[</span><span class="s2">&quot;coord_cat&quot;</span><span class="p">])</span>
+        <span class="n">res</span><span class="p">[</span><span class="s2">&quot;separation&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">sep</span><span class="o">.</span><span class="n">to_value</span><span class="p">(</span><span class="n">unit</span><span class="o">=</span><span class="s2">&quot;arcsec&quot;</span><span class="p">)</span>
+        <span class="n">res</span><span class="o">.</span><span class="n">remove_columns</span><span class="p">([</span><span class="s2">&quot;coord_xray&quot;</span><span class="p">,</span> <span class="s2">&quot;coord_cat&quot;</span><span class="p">])</span>
         <span class="n">res</span> <span class="o">=</span> <span class="n">res</span><span class="p">[</span><span class="n">sep</span> <span class="o">&lt;</span> <span class="n">radius</span><span class="p">]</span>
-        <span class="n">res</span><span class="o">.</span><span class="n">rename_column</span><span class="p">(</span><span class="s1">&#39;id&#39;</span><span class="p">,</span> <span class="s1">&#39;x_id&#39;</span><span class="p">)</span>
+        <span class="n">res</span><span class="o">.</span><span class="n">rename_column</span><span class="p">(</span><span class="s2">&quot;id&quot;</span><span class="p">,</span> <span class="s2">&quot;x_id&quot;</span><span class="p">)</span>
     <span class="k">else</span><span class="p">:</span>
-        <span class="n">dtype</span> <span class="o">=</span> <span class="n">_join_dtype</span><span class="p">(</span><span class="n">res</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="n">sources</span><span class="p">[[</span><span class="s1">&#39;id&#39;</span><span class="p">]]</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="p">[])</span>
+        <span class="n">dtype</span> <span class="o">=</span> <span class="n">_join_dtype</span><span class="p">(</span><span class="n">res</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="n">sources</span><span class="p">[[</span><span class="s2">&quot;id&quot;</span><span class="p">]]</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="p">[])</span>
         <span class="n">res</span> <span class="o">=</span> <span class="n">table</span><span class="o">.</span><span class="n">Table</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
-        <span class="n">res</span><span class="o">.</span><span class="n">rename_column</span><span class="p">(</span><span class="s1">&#39;id&#39;</span><span class="p">,</span> <span class="s1">&#39;x_id&#39;</span><span class="p">)</span>
-        <span class="n">res</span><span class="p">[</span><span class="s1">&#39;separation&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">table</span><span class="o">.</span><span class="n">Column</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+        <span class="n">res</span><span class="o">.</span><span class="n">rename_column</span><span class="p">(</span><span class="s2">&quot;id&quot;</span><span class="p">,</span> <span class="s2">&quot;x_id&quot;</span><span class="p">)</span>
+        <span class="n">res</span><span class="p">[</span><span class="s2">&quot;separation&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">table</span><span class="o">.</span><span class="n">Column</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
 
     <span class="k">return</span> <span class="n">res</span></div>
 
 
 <span class="nd">@utils</span><span class="o">.</span><span class="n">logging_call_decorator</span>
 <span class="k">def</span> <span class="nf">do_sql_cross_match</span><span class="p">(</span><span class="n">selection_name</span><span class="p">):</span>
-    <span class="n">sql_script</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">astromon</span><span class="o">.</span><span class="vm">__file__</span><span class="p">)</span><span class="o">.</span><span class="n">parent</span> <span class="o">/</span> <span class="s1">&#39;sql&#39;</span> <span class="o">/</span> <span class="s1">&#39;x-corr&#39;</span> <span class="o">/</span> <span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">selection_name</span><span class="si">}</span><span class="s1">.sql&#39;</span>
+    <span class="n">sql_script</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="n">Path</span><span class="p">(</span><span class="n">astromon</span><span class="o">.</span><span class="vm">__file__</span><span class="p">)</span><span class="o">.</span><span class="n">parent</span> <span class="o">/</span> <span class="s2">&quot;sql&quot;</span> <span class="o">/</span> <span class="s2">&quot;x-corr&quot;</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">selection_name</span><span class="si">}</span><span class="s2">.sql&quot;</span>
+    <span class="p">)</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="n">sql_script</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
-        <span class="n">logging</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;File </span><span class="si">{</span><span class="n">sql_script</span><span class="si">}</span><span class="s1"> does not exist&#39;</span><span class="p">)</span>
+        <span class="n">logging</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;File </span><span class="si">{</span><span class="n">sql_script</span><span class="si">}</span><span class="s2"> does not exist&quot;</span><span class="p">)</span>
         <span class="n">sql_script</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">selection_name</span><span class="p">)</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="n">sql_script</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
-        <span class="n">logging</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;File </span><span class="si">{</span><span class="n">sql_script</span><span class="si">}</span><span class="s1"> does not exist&#39;</span><span class="p">)</span>
-        <span class="n">msg</span> <span class="o">=</span> <span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">selection_name</span><span class="si">}</span><span class="s1"> is not a known selection&#39;</span>
+        <span class="n">logging</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;File </span><span class="si">{</span><span class="n">sql_script</span><span class="si">}</span><span class="s2"> does not exist&quot;</span><span class="p">)</span>
+        <span class="n">msg</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">selection_name</span><span class="si">}</span><span class="s2"> is not a known selection&quot;</span>
         <span class="n">logging</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
         <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
 
     <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">sql_script</span><span class="p">)</span> <span class="k">as</span> <span class="n">fh</span><span class="p">:</span>
         <span class="n">sql_query</span> <span class="o">=</span> <span class="n">fh</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
-        <span class="n">dbi</span> <span class="o">=</span> <span class="n">DBI</span><span class="p">(</span><span class="s1">&#39;sqlite&#39;</span><span class="p">,</span> <span class="n">db</span><span class="o">.</span><span class="n">FILE</span><span class="p">,</span> <span class="n">numpy</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="n">dbi</span> <span class="o">=</span> <span class="n">DBI</span><span class="p">(</span><span class="s2">&quot;sqlite&quot;</span><span class="p">,</span> <span class="n">db</span><span class="o">.</span><span class="n">FILE</span><span class="p">,</span> <span class="n">numpy</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">table</span><span class="o">.</span><span class="n">Table</span><span class="p">(</span><span class="n">dbi</span><span class="o">.</span><span class="n">fetchall</span><span class="p">(</span><span class="n">sql_query</span><span class="p">))</span>
 
 
@@ -419,10 +415,19 @@
 <span class="sd">        :any:`db.get_cross_matches`. Required.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">ok</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">matches</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">bool</span><span class="p">)</span>
-    <span class="n">bad_targets</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;RW Aur&#39;</span><span class="p">,</span> <span class="s1">&#39;Tau Boo&#39;</span><span class="p">,</span> <span class="s1">&#39;70 OPH&#39;</span><span class="p">,</span> <span class="s1">&#39;16 Cyg&#39;</span><span class="p">,</span> <span class="s1">&#39;M87&#39;</span><span class="p">,</span> <span class="s1">&#39;Orion&#39;</span><span class="p">,</span> <span class="s1">&#39;HD 97950&#39;</span><span class="p">,</span> <span class="s1">&#39;HD4915&#39;</span><span class="p">]</span>
-    <span class="n">bad_targets</span> <span class="o">=</span> <span class="p">[</span><span class="n">x</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s1">&#39; &#39;</span><span class="p">,</span> <span class="s1">&#39;&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">bad_targets</span><span class="p">]</span>
-    <span class="k">for</span> <span class="n">ii</span><span class="p">,</span> <span class="n">target</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">matches</span><span class="p">[</span><span class="s1">&#39;target&#39;</span><span class="p">]):</span>
-        <span class="n">target</span> <span class="o">=</span> <span class="n">target</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s1">&#39; &#39;</span><span class="p">,</span> <span class="s1">&#39;&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+    <span class="n">bad_targets</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="s2">&quot;RW Aur&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;Tau Boo&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;70 OPH&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;16 Cyg&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;M87&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;Orion&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;HD 97950&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;HD4915&quot;</span><span class="p">,</span>
+    <span class="p">]</span>
+    <span class="n">bad_targets</span> <span class="o">=</span> <span class="p">[</span><span class="n">x</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">&quot; &quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">bad_targets</span><span class="p">]</span>
+    <span class="k">for</span> <span class="n">ii</span><span class="p">,</span> <span class="n">target</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">matches</span><span class="p">[</span><span class="s2">&quot;target&quot;</span><span class="p">]):</span>
+        <span class="n">target</span> <span class="o">=</span> <span class="n">target</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">&quot; &quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
         <span class="k">for</span> <span class="n">bad_target</span> <span class="ow">in</span> <span class="n">bad_targets</span><span class="p">:</span>
             <span class="k">if</span> <span class="n">target</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="n">bad_target</span><span class="p">):</span>
                 <span class="n">ok</span><span class="p">[</span><span class="n">ii</span><span class="p">]</span> <span class="o">=</span> <span class="kc">False</span>
@@ -440,11 +445,16 @@
 <span class="sd">        :any:`db.get_cross_matches`. Required.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">if</span> <span class="n">regions</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">regions</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get_table</span><span class="p">(</span><span class="s1">&#39;astromon_regions&#39;</span><span class="p">)</span>
-    <span class="n">ii</span><span class="p">,</span> <span class="n">jj</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">broadcast_arrays</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">matches</span><span class="p">))[</span><span class="kc">None</span><span class="p">,</span> <span class="p">:],</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">regions</span><span class="p">))[:,</span> <span class="kc">None</span><span class="p">])</span>
+        <span class="n">regions</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get_table</span><span class="p">(</span><span class="s2">&quot;astromon_regions&quot;</span><span class="p">)</span>
+    <span class="n">ii</span><span class="p">,</span> <span class="n">jj</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">broadcast_arrays</span><span class="p">(</span>
+        <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">matches</span><span class="p">))[</span><span class="kc">None</span><span class="p">,</span> <span class="p">:],</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">regions</span><span class="p">))[:,</span> <span class="kc">None</span><span class="p">]</span>
+    <span class="p">)</span>
     <span class="n">i</span><span class="p">,</span> <span class="n">j</span> <span class="o">=</span> <span class="n">ii</span><span class="o">.</span><span class="n">flatten</span><span class="p">(),</span> <span class="n">jj</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span>
-    <span class="n">regions</span><span class="p">[</span><span class="s1">&#39;loc&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">coords</span><span class="o">.</span><span class="n">SkyCoord</span><span class="p">(</span><span class="n">regions</span><span class="p">[</span><span class="s1">&#39;ra&#39;</span><span class="p">]</span> <span class="o">*</span> <span class="n">u</span><span class="o">.</span><span class="n">deg</span><span class="p">,</span> <span class="n">regions</span><span class="p">[</span><span class="s1">&#39;dec&#39;</span><span class="p">]</span> <span class="o">*</span> <span class="n">u</span><span class="o">.</span><span class="n">deg</span><span class="p">)</span>
-    <span class="n">in_region</span> <span class="o">=</span> <span class="n">matches</span><span class="p">[</span><span class="s1">&#39;x_loc&#39;</span><span class="p">][</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">separation</span><span class="p">(</span><span class="n">regions</span><span class="p">[</span><span class="s1">&#39;loc&#39;</span><span class="p">][</span><span class="n">j</span><span class="p">])</span> <span class="o">&lt;</span> <span class="n">regions</span><span class="p">[</span><span class="s1">&#39;radius&#39;</span><span class="p">][</span><span class="n">j</span><span class="p">]</span> <span class="o">*</span> <span class="n">u</span><span class="o">.</span><span class="n">arcsec</span>
+    <span class="n">regions</span><span class="p">[</span><span class="s2">&quot;loc&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">coords</span><span class="o">.</span><span class="n">SkyCoord</span><span class="p">(</span><span class="n">regions</span><span class="p">[</span><span class="s2">&quot;ra&quot;</span><span class="p">]</span> <span class="o">*</span> <span class="n">u</span><span class="o">.</span><span class="n">deg</span><span class="p">,</span> <span class="n">regions</span><span class="p">[</span><span class="s2">&quot;dec&quot;</span><span class="p">]</span> <span class="o">*</span> <span class="n">u</span><span class="o">.</span><span class="n">deg</span><span class="p">)</span>
+    <span class="n">in_region</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="n">matches</span><span class="p">[</span><span class="s2">&quot;x_loc&quot;</span><span class="p">][</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">separation</span><span class="p">(</span><span class="n">regions</span><span class="p">[</span><span class="s2">&quot;loc&quot;</span><span class="p">][</span><span class="n">j</span><span class="p">])</span>
+        <span class="o">&lt;</span> <span class="n">regions</span><span class="p">[</span><span class="s2">&quot;radius&quot;</span><span class="p">][</span><span class="n">j</span><span class="p">]</span> <span class="o">*</span> <span class="n">u</span><span class="o">.</span><span class="n">arcsec</span>
+    <span class="p">)</span>
     <span class="n">in_region</span> <span class="o">=</span> <span class="n">in_region</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">ii</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">in_region</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span></div>
 
@@ -462,7 +472,7 @@
     <span class="n">exclude_regions</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
     <span class="n">exclude_bad_targets</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
     <span class="n">exclude_categories</span><span class="o">=</span><span class="p">(),</span>
-    <span class="o">**</span><span class="n">kwargs</span>
+    <span class="o">**</span><span class="n">kwargs</span><span class="p">,</span>
 <span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Return a mask to filter out cross-matches based on some common criteria.</span>
@@ -505,35 +515,35 @@
     <span class="n">ok</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">matches</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">bool</span><span class="p">)</span>
 
     <span class="k">if</span> <span class="n">dr</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">ok</span> <span class="o">&amp;=</span> <span class="n">matches</span><span class="p">[</span><span class="s1">&#39;dr&#39;</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="n">dr</span>
+        <span class="n">ok</span> <span class="o">&amp;=</span> <span class="n">matches</span><span class="p">[</span><span class="s2">&quot;dr&quot;</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="n">dr</span>
 
     <span class="k">if</span> <span class="n">snr</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">ok</span> <span class="o">&amp;=</span> <span class="n">matches</span><span class="p">[</span><span class="s1">&#39;snr&#39;</span><span class="p">]</span> <span class="o">&gt;=</span> <span class="n">snr</span>
+        <span class="n">ok</span> <span class="o">&amp;=</span> <span class="n">matches</span><span class="p">[</span><span class="s2">&quot;snr&quot;</span><span class="p">]</span> <span class="o">&gt;=</span> <span class="n">snr</span>
 
     <span class="k">if</span> <span class="n">r_angle</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">ok</span> <span class="o">&amp;=</span> <span class="n">matches</span><span class="p">[</span><span class="s1">&#39;r_angle&#39;</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="n">r_angle</span>
+        <span class="n">ok</span> <span class="o">&amp;=</span> <span class="n">matches</span><span class="p">[</span><span class="s2">&quot;r_angle&quot;</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="n">r_angle</span>
 
     <span class="k">if</span> <span class="n">start</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">ok</span> <span class="o">&amp;=</span> <span class="n">matches</span><span class="p">[</span><span class="s1">&#39;tstart&#39;</span><span class="p">]</span> <span class="o">&gt;=</span> <span class="n">CxoTime</span><span class="p">(</span><span class="n">start</span><span class="p">)</span><span class="o">.</span><span class="n">secs</span>
+        <span class="n">ok</span> <span class="o">&amp;=</span> <span class="n">matches</span><span class="p">[</span><span class="s2">&quot;tstart&quot;</span><span class="p">]</span> <span class="o">&gt;=</span> <span class="n">CxoTime</span><span class="p">(</span><span class="n">start</span><span class="p">)</span><span class="o">.</span><span class="n">secs</span>
 
     <span class="k">if</span> <span class="n">stop</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">ok</span> <span class="o">&amp;=</span> <span class="n">matches</span><span class="p">[</span><span class="s1">&#39;tstart&#39;</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="n">CxoTime</span><span class="p">(</span><span class="n">stop</span><span class="p">)</span><span class="o">.</span><span class="n">secs</span>
+        <span class="n">ok</span> <span class="o">&amp;=</span> <span class="n">matches</span><span class="p">[</span><span class="s2">&quot;tstart&quot;</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="n">CxoTime</span><span class="p">(</span><span class="n">stop</span><span class="p">)</span><span class="o">.</span><span class="n">secs</span>
 
     <span class="k">if</span> <span class="n">r_angle_grating</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">ok</span> <span class="o">&amp;=</span> <span class="n">matches</span><span class="p">[</span><span class="s1">&#39;r_angle_grating&#39;</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="n">r_angle_grating</span>
+        <span class="n">ok</span> <span class="o">&amp;=</span> <span class="n">matches</span><span class="p">[</span><span class="s2">&quot;r_angle_grating&quot;</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="n">r_angle_grating</span>
 
     <span class="k">if</span> <span class="n">near_neighbor_dist</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">ok</span> <span class="o">&amp;=</span> <span class="n">matches</span><span class="p">[</span><span class="s1">&#39;near_neighbor_dist&#39;</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="n">near_neighbor_dist</span>
+        <span class="n">ok</span> <span class="o">&amp;=</span> <span class="n">matches</span><span class="p">[</span><span class="s2">&quot;near_neighbor_dist&quot;</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="n">near_neighbor_dist</span>
 
     <span class="k">if</span> <span class="n">sim_z</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
         <span class="n">sim_z_offset</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">matches</span><span class="p">))</span>
         <span class="k">for</span> <span class="n">det</span> <span class="ow">in</span> <span class="n">SIM_Z</span><span class="p">:</span>
-            <span class="n">msk</span> <span class="o">=</span> <span class="n">matches</span><span class="p">[</span><span class="s1">&#39;detector&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="n">det</span>
-            <span class="n">sim_z_offset</span><span class="p">[</span><span class="n">msk</span><span class="p">]</span> <span class="o">=</span> <span class="n">matches</span><span class="p">[</span><span class="s1">&#39;sim_z&#39;</span><span class="p">][</span><span class="n">msk</span><span class="p">]</span> <span class="o">-</span> <span class="n">SIM_Z</span><span class="p">[</span><span class="n">det</span><span class="p">]</span>
+            <span class="n">msk</span> <span class="o">=</span> <span class="n">matches</span><span class="p">[</span><span class="s2">&quot;detector&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="n">det</span>
+            <span class="n">sim_z_offset</span><span class="p">[</span><span class="n">msk</span><span class="p">]</span> <span class="o">=</span> <span class="n">matches</span><span class="p">[</span><span class="s2">&quot;sim_z&quot;</span><span class="p">][</span><span class="n">msk</span><span class="p">]</span> <span class="o">-</span> <span class="n">SIM_Z</span><span class="p">[</span><span class="n">det</span><span class="p">]</span>
         <span class="n">ok</span> <span class="o">&amp;=</span> <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">sim_z_offset</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="n">sim_z</span>
 
     <span class="k">if</span> <span class="n">exclude_categories</span><span class="p">:</span>
-        <span class="n">ok</span> <span class="o">&amp;=</span> <span class="o">~</span><span class="n">np</span><span class="o">.</span><span class="n">in1d</span><span class="p">(</span><span class="n">matches</span><span class="p">[</span><span class="s1">&#39;category&#39;</span><span class="p">],</span> <span class="n">exclude_categories</span><span class="p">)</span>
+        <span class="n">ok</span> <span class="o">&amp;=</span> <span class="o">~</span><span class="n">np</span><span class="o">.</span><span class="n">in1d</span><span class="p">(</span><span class="n">matches</span><span class="p">[</span><span class="s2">&quot;category&quot;</span><span class="p">],</span> <span class="n">exclude_categories</span><span class="p">)</span>
 
     <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">val</span> <span class="ow">in</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">val</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
@@ -558,8 +568,8 @@
     <span class="n">dbfile</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
     <span class="n">exclude_regions</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
     <span class="n">exclude_bad_targets</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-    <span class="n">logging_tag</span><span class="o">=</span><span class="s1">&#39;&#39;</span><span class="p">,</span>
-    <span class="o">**</span><span class="n">kwargs</span>
+    <span class="n">logging_tag</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">,</span>
+    <span class="o">**</span><span class="n">kwargs</span><span class="p">,</span>
 <span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Cross-match x-ray sources with catalog counterparts.</span>
@@ -613,26 +623,25 @@
 <span class="sd">              Default is to consider all.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">if</span> <span class="n">astromon_xray_src</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">astromon_xray_src</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get_table</span><span class="p">(</span><span class="s1">&#39;astromon_xray_src&#39;</span><span class="p">,</span> <span class="n">dbfile</span><span class="p">)</span>
+        <span class="n">astromon_xray_src</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get_table</span><span class="p">(</span><span class="s2">&quot;astromon_xray_src&quot;</span><span class="p">,</span> <span class="n">dbfile</span><span class="p">)</span>
     <span class="k">if</span> <span class="n">astromon_cat_src</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">astromon_cat_src</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get_table</span><span class="p">(</span><span class="s1">&#39;astromon_cat_src&#39;</span><span class="p">,</span> <span class="n">dbfile</span><span class="p">)</span>
+        <span class="n">astromon_cat_src</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get_table</span><span class="p">(</span><span class="s2">&quot;astromon_cat_src&quot;</span><span class="p">,</span> <span class="n">dbfile</span><span class="p">)</span>
     <span class="k">if</span> <span class="n">astromon_obs</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">astromon_obs</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get_table</span><span class="p">(</span><span class="s1">&#39;astromon_obs&#39;</span><span class="p">,</span> <span class="n">dbfile</span><span class="p">)</span>
+        <span class="n">astromon_obs</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get_table</span><span class="p">(</span><span class="s2">&quot;astromon_obs&quot;</span><span class="p">,</span> <span class="n">dbfile</span><span class="p">)</span>
 
     <span class="k">if</span> <span class="n">name</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">name</span> <span class="o">=</span> <span class="s1">&#39;default&#39;</span> <span class="k">if</span> <span class="ow">not</span> <span class="n">kwargs</span> <span class="k">else</span> <span class="s1">&#39;simple&#39;</span>
+        <span class="n">name</span> <span class="o">=</span> <span class="s2">&quot;default&quot;</span> <span class="k">if</span> <span class="ow">not</span> <span class="n">kwargs</span> <span class="k">else</span> <span class="s2">&quot;simple&quot;</span>
 
     <span class="k">if</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">CROSS_MATCHES_ARGS</span><span class="p">:</span>
         <span class="k">if</span> <span class="n">kwargs</span><span class="p">:</span>
-            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;calling astromon.cross_match with </span><span class="si">{</span><span class="n">name</span><span class="si">=}</span><span class="s1">. kwargs are ignored.&#39;</span><span class="p">)</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;calling astromon.cross_match with </span><span class="si">{</span><span class="n">name</span><span class="si">=}</span><span class="s2">. kwargs are ignored.&quot;</span>
+            <span class="p">)</span>
         <span class="n">args</span> <span class="o">=</span> <span class="n">CROSS_MATCHES_ARGS</span><span class="p">[</span><span class="n">name</span><span class="p">]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
-        <span class="n">method</span> <span class="o">=</span> <span class="n">CROSS_MATCH_METHODS</span><span class="p">[</span><span class="n">args</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s1">&#39;method&#39;</span><span class="p">)]</span>
+        <span class="n">method</span> <span class="o">=</span> <span class="n">CROSS_MATCH_METHODS</span><span class="p">[</span><span class="n">args</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;method&quot;</span><span class="p">)]</span>
     <span class="k">elif</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">CROSS_MATCH_METHODS</span><span class="p">:</span>
         <span class="n">method</span> <span class="o">=</span> <span class="n">CROSS_MATCH_METHODS</span><span class="p">[</span><span class="n">name</span><span class="p">]</span>
-        <span class="n">args</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span>
-            <span class="n">name</span><span class="o">=</span><span class="n">name</span><span class="p">,</span>
-            <span class="o">**</span><span class="n">kwargs</span>
-        <span class="p">)</span>
+        <span class="n">args</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">name</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
     <span class="k">else</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;Unknown x-matching name: &quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s1">&quot;&#39;</span><span class="p">)</span>
 
@@ -641,24 +650,24 @@
         <span class="n">astromon_xray_src</span><span class="p">,</span>
         <span class="n">astromon_cat_src</span><span class="p">,</span>
         <span class="n">logging_tag</span><span class="o">=</span><span class="n">logging_tag</span><span class="p">,</span>
-        <span class="o">**</span><span class="n">args</span>
+        <span class="o">**</span><span class="n">args</span><span class="p">,</span>
     <span class="p">)</span>
 
-    <span class="n">result</span><span class="p">[</span><span class="s1">&#39;time&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">CxoTime</span><span class="p">(</span><span class="n">result</span><span class="p">[</span><span class="s1">&#39;date_obs&#39;</span><span class="p">])</span>
-    <span class="n">result</span><span class="p">[</span><span class="s1">&#39;c_loc&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">coords</span><span class="o">.</span><span class="n">SkyCoord</span><span class="p">(</span><span class="n">result</span><span class="p">[</span><span class="s1">&#39;c_ra&#39;</span><span class="p">],</span> <span class="n">result</span><span class="p">[</span><span class="s1">&#39;c_dec&#39;</span><span class="p">],</span> <span class="n">unit</span><span class="o">=</span><span class="s1">&#39;deg&#39;</span><span class="p">)</span>
-    <span class="n">result</span><span class="p">[</span><span class="s1">&#39;x_loc&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">coords</span><span class="o">.</span><span class="n">SkyCoord</span><span class="p">(</span><span class="n">result</span><span class="p">[</span><span class="s1">&#39;x_ra&#39;</span><span class="p">],</span> <span class="n">result</span><span class="p">[</span><span class="s1">&#39;x_dec&#39;</span><span class="p">],</span> <span class="n">unit</span><span class="o">=</span><span class="s1">&#39;deg&#39;</span><span class="p">)</span>
+    <span class="n">result</span><span class="p">[</span><span class="s2">&quot;time&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">CxoTime</span><span class="p">(</span><span class="n">result</span><span class="p">[</span><span class="s2">&quot;date_obs&quot;</span><span class="p">])</span>
+    <span class="n">result</span><span class="p">[</span><span class="s2">&quot;c_loc&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">coords</span><span class="o">.</span><span class="n">SkyCoord</span><span class="p">(</span><span class="n">result</span><span class="p">[</span><span class="s2">&quot;c_ra&quot;</span><span class="p">],</span> <span class="n">result</span><span class="p">[</span><span class="s2">&quot;c_dec&quot;</span><span class="p">],</span> <span class="n">unit</span><span class="o">=</span><span class="s2">&quot;deg&quot;</span><span class="p">)</span>
+    <span class="n">result</span><span class="p">[</span><span class="s2">&quot;x_loc&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">coords</span><span class="o">.</span><span class="n">SkyCoord</span><span class="p">(</span><span class="n">result</span><span class="p">[</span><span class="s2">&quot;x_ra&quot;</span><span class="p">],</span> <span class="n">result</span><span class="p">[</span><span class="s2">&quot;x_dec&quot;</span><span class="p">],</span> <span class="n">unit</span><span class="o">=</span><span class="s2">&quot;deg&quot;</span><span class="p">)</span>
 
-    <span class="n">result</span><span class="p">[</span><span class="s1">&#39;category&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span>
-        <span class="n">observation</span><span class="o">.</span><span class="n">ID_CATEGORY_MAP</span><span class="p">[</span><span class="n">cat</span><span class="p">]</span> <span class="k">for</span> <span class="n">cat</span> <span class="ow">in</span> <span class="n">result</span><span class="p">[</span><span class="s1">&#39;category_id&#39;</span><span class="p">]</span>
+    <span class="n">result</span><span class="p">[</span><span class="s2">&quot;category&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="n">observation</span><span class="o">.</span><span class="n">ID_CATEGORY_MAP</span><span class="p">[</span><span class="n">cat</span><span class="p">]</span> <span class="k">for</span> <span class="n">cat</span> <span class="ow">in</span> <span class="n">result</span><span class="p">[</span><span class="s2">&quot;category_id&quot;</span><span class="p">]</span>
     <span class="p">]</span>
 
     <span class="k">if</span> <span class="n">exclude_bad_targets</span><span class="p">:</span>
         <span class="n">result</span> <span class="o">=</span> <span class="n">result</span><span class="p">[</span><span class="o">~</span><span class="n">get_bad_target_mask</span><span class="p">(</span><span class="n">result</span><span class="p">)]</span>
     <span class="k">if</span> <span class="n">exclude_regions</span><span class="p">:</span>
-        <span class="n">regions</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get_table</span><span class="p">(</span><span class="s1">&#39;astromon_regions&#39;</span><span class="p">,</span> <span class="n">dbfile</span><span class="o">=</span><span class="n">dbfile</span><span class="p">)</span>
+        <span class="n">regions</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get_table</span><span class="p">(</span><span class="s2">&quot;astromon_regions&quot;</span><span class="p">,</span> <span class="n">dbfile</span><span class="o">=</span><span class="n">dbfile</span><span class="p">)</span>
         <span class="n">result</span> <span class="o">=</span> <span class="n">result</span><span class="p">[</span><span class="o">~</span><span class="n">get_excluded_regions_mask</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="n">regions</span><span class="o">=</span><span class="n">regions</span><span class="p">)]</span>
 
-    <span class="n">result</span><span class="o">.</span><span class="n">add_index</span><span class="p">(</span><span class="s1">&#39;obsid&#39;</span><span class="p">)</span>
+    <span class="n">result</span><span class="o">.</span><span class="n">add_index</span><span class="p">(</span><span class="s2">&quot;obsid&quot;</span><span class="p">)</span>
     <span class="n">_set_formats</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>
 
     <span class="k">return</span> <span class="n">result</span></div>
@@ -680,16 +689,16 @@
     <span class="n">astromon_obs</span><span class="p">,</span>
     <span class="n">astromon_xray_src</span><span class="p">,</span>
     <span class="n">astromon_cat_src</span><span class="p">,</span>
-    <span class="n">name</span><span class="o">=</span><span class="s1">&#39;&#39;</span><span class="p">,</span>
-    <span class="n">catalogs</span><span class="o">=</span><span class="p">(</span><span class="s1">&#39;ICRS&#39;</span><span class="p">,</span> <span class="s1">&#39;Tycho2&#39;</span><span class="p">),</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">,</span>
+    <span class="n">catalogs</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;ICRS&quot;</span><span class="p">,</span> <span class="s2">&quot;Tycho2&quot;</span><span class="p">),</span>
     <span class="n">snr</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
-    <span class="n">r_angle</span><span class="o">=</span><span class="mf">120.</span><span class="p">,</span>
+    <span class="n">r_angle</span><span class="o">=</span><span class="mf">120.0</span><span class="p">,</span>
     <span class="n">dr</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
-    <span class="n">r_angle_grating</span><span class="o">=</span><span class="mf">24.</span><span class="p">,</span>
+    <span class="n">r_angle_grating</span><span class="o">=</span><span class="mf">24.0</span><span class="p">,</span>
     <span class="n">near_neighbor_dist</span><span class="o">=</span><span class="mf">6.0</span><span class="p">,</span>
     <span class="n">start</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
     <span class="n">stop</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-    <span class="n">logging_tag</span><span class="o">=</span><span class="s1">&#39;&#39;</span><span class="p">,</span>
+    <span class="n">logging_tag</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">,</span>
 <span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    The simplest cross-match of x-ray sources with catalog counterparts.</span>
@@ -765,104 +774,101 @@
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="n">astromon_xray_src</span> <span class="o">=</span> <span class="n">astromon_xray_src</span><span class="p">[</span>
-        <span class="p">(</span><span class="n">astromon_xray_src</span><span class="p">[</span><span class="s1">&#39;snr&#39;</span><span class="p">]</span> <span class="o">&gt;</span> <span class="n">snr</span><span class="p">)</span>
-        <span class="o">&amp;</span> <span class="p">(</span><span class="n">astromon_xray_src</span><span class="p">[</span><span class="s1">&#39;near_neighbor_dist&#39;</span><span class="p">]</span> <span class="o">&gt;</span> <span class="n">near_neighbor_dist</span><span class="p">)</span>
+        <span class="p">(</span><span class="n">astromon_xray_src</span><span class="p">[</span><span class="s2">&quot;snr&quot;</span><span class="p">]</span> <span class="o">&gt;</span> <span class="n">snr</span><span class="p">)</span>
+        <span class="o">&amp;</span> <span class="p">(</span><span class="n">astromon_xray_src</span><span class="p">[</span><span class="s2">&quot;near_neighbor_dist&quot;</span><span class="p">]</span> <span class="o">&gt;</span> <span class="n">near_neighbor_dist</span><span class="p">)</span>
     <span class="p">]</span>
-    <span class="n">astromon_cat_src</span> <span class="o">=</span> <span class="n">astromon_cat_src</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">in1d</span><span class="p">(</span><span class="n">astromon_cat_src</span><span class="p">[</span><span class="s1">&#39;catalog&#39;</span><span class="p">],</span> <span class="n">catalogs</span><span class="p">)]</span>
+    <span class="n">astromon_cat_src</span> <span class="o">=</span> <span class="n">astromon_cat_src</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">in1d</span><span class="p">(</span><span class="n">astromon_cat_src</span><span class="p">[</span><span class="s2">&quot;catalog&quot;</span><span class="p">],</span> <span class="n">catalogs</span><span class="p">)]</span>
 
     <span class="c1"># I can rename and drop these to match the standard in astromon.db because I just made copies</span>
     <span class="n">astromon_cat_src</span><span class="o">.</span><span class="n">rename_columns</span><span class="p">(</span>
-        <span class="p">[</span><span class="s1">&#39;id&#39;</span><span class="p">,</span> <span class="s1">&#39;ra&#39;</span><span class="p">,</span> <span class="s1">&#39;dec&#39;</span><span class="p">,</span> <span class="s1">&#39;y_angle&#39;</span><span class="p">,</span> <span class="s1">&#39;z_angle&#39;</span><span class="p">],</span>
-        <span class="p">[</span><span class="s1">&#39;c_id&#39;</span><span class="p">,</span> <span class="s1">&#39;c_ra&#39;</span><span class="p">,</span> <span class="s1">&#39;c_dec&#39;</span><span class="p">,</span> <span class="s1">&#39;c_y_angle&#39;</span><span class="p">,</span> <span class="s1">&#39;c_z_angle&#39;</span><span class="p">]</span>
+        <span class="p">[</span><span class="s2">&quot;id&quot;</span><span class="p">,</span> <span class="s2">&quot;ra&quot;</span><span class="p">,</span> <span class="s2">&quot;dec&quot;</span><span class="p">,</span> <span class="s2">&quot;y_angle&quot;</span><span class="p">,</span> <span class="s2">&quot;z_angle&quot;</span><span class="p">],</span>
+        <span class="p">[</span><span class="s2">&quot;c_id&quot;</span><span class="p">,</span> <span class="s2">&quot;c_ra&quot;</span><span class="p">,</span> <span class="s2">&quot;c_dec&quot;</span><span class="p">,</span> <span class="s2">&quot;c_y_angle&quot;</span><span class="p">,</span> <span class="s2">&quot;c_z_angle&quot;</span><span class="p">],</span>
     <span class="p">)</span>
     <span class="n">astromon_xray_src</span><span class="o">.</span><span class="n">rename_columns</span><span class="p">(</span>
-        <span class="p">[</span><span class="s1">&#39;id&#39;</span><span class="p">,</span> <span class="s1">&#39;ra&#39;</span><span class="p">,</span> <span class="s1">&#39;dec&#39;</span><span class="p">,</span> <span class="s1">&#39;y_angle&#39;</span><span class="p">,</span> <span class="s1">&#39;z_angle&#39;</span><span class="p">],</span>
-        <span class="p">[</span><span class="s1">&#39;x_id&#39;</span><span class="p">,</span> <span class="s1">&#39;x_ra&#39;</span><span class="p">,</span> <span class="s1">&#39;x_dec&#39;</span><span class="p">,</span> <span class="s1">&#39;x_y_angle&#39;</span><span class="p">,</span> <span class="s1">&#39;x_z_angle&#39;</span><span class="p">]</span>
+        <span class="p">[</span><span class="s2">&quot;id&quot;</span><span class="p">,</span> <span class="s2">&quot;ra&quot;</span><span class="p">,</span> <span class="s2">&quot;dec&quot;</span><span class="p">,</span> <span class="s2">&quot;y_angle&quot;</span><span class="p">,</span> <span class="s2">&quot;z_angle&quot;</span><span class="p">],</span>
+        <span class="p">[</span><span class="s2">&quot;x_id&quot;</span><span class="p">,</span> <span class="s2">&quot;x_ra&quot;</span><span class="p">,</span> <span class="s2">&quot;x_dec&quot;</span><span class="p">,</span> <span class="s2">&quot;x_y_angle&quot;</span><span class="p">,</span> <span class="s2">&quot;x_z_angle&quot;</span><span class="p">],</span>
     <span class="p">)</span>
-    <span class="k">if</span> <span class="s1">&#39;name&#39;</span> <span class="ow">in</span> <span class="n">astromon_xray_src</span><span class="o">.</span><span class="n">colnames</span><span class="p">:</span>
-        <span class="n">astromon_xray_src</span><span class="o">.</span><span class="n">remove_column</span><span class="p">(</span><span class="s1">&#39;name&#39;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="s2">&quot;name&quot;</span> <span class="ow">in</span> <span class="n">astromon_xray_src</span><span class="o">.</span><span class="n">colnames</span><span class="p">:</span>
+        <span class="n">astromon_xray_src</span><span class="o">.</span><span class="n">remove_column</span><span class="p">(</span><span class="s2">&quot;name&quot;</span><span class="p">)</span>
 
     <span class="k">if</span> <span class="n">start</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">date_obs</span> <span class="o">=</span> <span class="n">CxoTime</span><span class="p">(</span><span class="n">astromon_obs</span><span class="p">[</span><span class="s1">&#39;date_obs&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">str</span><span class="p">))</span>
+        <span class="n">date_obs</span> <span class="o">=</span> <span class="n">CxoTime</span><span class="p">(</span><span class="n">astromon_obs</span><span class="p">[</span><span class="s2">&quot;date_obs&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">str</span><span class="p">))</span>
         <span class="n">astromon_obs</span> <span class="o">=</span> <span class="n">astromon_obs</span><span class="p">[</span><span class="n">date_obs</span> <span class="o">&gt;</span> <span class="n">start</span><span class="p">]</span>
 
     <span class="k">if</span> <span class="n">stop</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">date_obs</span> <span class="o">=</span> <span class="n">CxoTime</span><span class="p">(</span><span class="n">astromon_obs</span><span class="p">[</span><span class="s1">&#39;date_obs&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">str</span><span class="p">))</span>
+        <span class="n">date_obs</span> <span class="o">=</span> <span class="n">CxoTime</span><span class="p">(</span><span class="n">astromon_obs</span><span class="p">[</span><span class="s2">&quot;date_obs&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">str</span><span class="p">))</span>
         <span class="n">astromon_obs</span> <span class="o">=</span> <span class="n">astromon_obs</span><span class="p">[</span><span class="n">date_obs</span> <span class="o">&lt;=</span> <span class="n">stop</span><span class="p">]</span>
 
     <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">astromon_xray_src</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span> <span class="ow">or</span> <span class="nb">len</span><span class="p">(</span><span class="n">astromon_cat_src</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">logging_tag</span><span class="si">}</span><span class="s1"> No xray or cat sources&#39;</span><span class="p">)</span>
-        <span class="n">dtype</span> <span class="o">=</span> <span class="n">_join_dtype</span><span class="p">(</span><span class="n">astromon_obs</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="n">astromon_xray_src</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="p">[</span><span class="s1">&#39;obsid&#39;</span><span class="p">])</span>
-        <span class="n">dtype</span> <span class="o">=</span> <span class="n">_join_dtype</span><span class="p">(</span><span class="n">dtype</span><span class="p">,</span> <span class="n">astromon_cat_src</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="p">[</span><span class="s1">&#39;obsid&#39;</span><span class="p">,</span> <span class="s1">&#39;x_id&#39;</span><span class="p">])</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">logging_tag</span><span class="si">}</span><span class="s2"> No xray or cat sources&quot;</span><span class="p">)</span>
+        <span class="n">dtype</span> <span class="o">=</span> <span class="n">_join_dtype</span><span class="p">(</span><span class="n">astromon_obs</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="n">astromon_xray_src</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="p">[</span><span class="s2">&quot;obsid&quot;</span><span class="p">])</span>
+        <span class="n">dtype</span> <span class="o">=</span> <span class="n">_join_dtype</span><span class="p">(</span><span class="n">dtype</span><span class="p">,</span> <span class="n">astromon_cat_src</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="p">[</span><span class="s2">&quot;obsid&quot;</span><span class="p">,</span> <span class="s2">&quot;x_id&quot;</span><span class="p">])</span>
         <span class="k">return</span> <span class="n">table</span><span class="o">.</span><span class="n">Table</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
 
     <span class="n">matches</span> <span class="o">=</span> <span class="n">table</span><span class="o">.</span><span class="n">join</span><span class="p">(</span>
         <span class="n">astromon_obs</span><span class="p">,</span>
         <span class="n">astromon_xray_src</span><span class="p">,</span>
-        <span class="n">keys</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;obsid&#39;</span><span class="p">],</span>
+        <span class="n">keys</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;obsid&quot;</span><span class="p">],</span>
     <span class="p">)</span>
     <span class="n">matches</span> <span class="o">=</span> <span class="n">table</span><span class="o">.</span><span class="n">join</span><span class="p">(</span>
-        <span class="n">matches</span><span class="p">,</span>
-        <span class="n">astromon_cat_src</span><span class="p">,</span>
-        <span class="n">keys</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;obsid&#39;</span><span class="p">,</span> <span class="s1">&#39;x_id&#39;</span><span class="p">],</span>
-        <span class="n">table_names</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;xray&#39;</span><span class="p">,</span> <span class="s1">&#39;cat&#39;</span><span class="p">]</span>
+        <span class="n">matches</span><span class="p">,</span> <span class="n">astromon_cat_src</span><span class="p">,</span> <span class="n">keys</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;obsid&quot;</span><span class="p">,</span> <span class="s2">&quot;x_id&quot;</span><span class="p">],</span> <span class="n">table_names</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;xray&quot;</span><span class="p">,</span> <span class="s2">&quot;cat&quot;</span><span class="p">]</span>
     <span class="p">)</span>
 
-    <span class="n">matches</span><span class="p">[</span><span class="s1">&#39;dz&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">matches</span><span class="p">[</span><span class="s1">&#39;x_z_angle&#39;</span><span class="p">]</span> <span class="o">-</span> <span class="n">matches</span><span class="p">[</span><span class="s1">&#39;c_z_angle&#39;</span><span class="p">]</span>
-    <span class="n">matches</span><span class="p">[</span><span class="s1">&#39;dy&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">matches</span><span class="p">[</span><span class="s1">&#39;x_y_angle&#39;</span><span class="p">]</span> <span class="o">-</span> <span class="n">matches</span><span class="p">[</span><span class="s1">&#39;c_y_angle&#39;</span><span class="p">]</span>
-    <span class="n">matches</span><span class="p">[</span><span class="s1">&#39;dr&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">matches</span><span class="p">[</span><span class="s1">&#39;dy&#39;</span><span class="p">]</span><span class="o">**</span><span class="mi">2</span> <span class="o">+</span> <span class="n">matches</span><span class="p">[</span><span class="s1">&#39;dz&#39;</span><span class="p">]</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span>
-    <span class="n">matches</span><span class="p">[</span><span class="s1">&#39;cat_order&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">matches</span><span class="p">),</span> <span class="mi">200</span><span class="p">)</span>
+    <span class="n">matches</span><span class="p">[</span><span class="s2">&quot;dz&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">matches</span><span class="p">[</span><span class="s2">&quot;x_z_angle&quot;</span><span class="p">]</span> <span class="o">-</span> <span class="n">matches</span><span class="p">[</span><span class="s2">&quot;c_z_angle&quot;</span><span class="p">]</span>
+    <span class="n">matches</span><span class="p">[</span><span class="s2">&quot;dy&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">matches</span><span class="p">[</span><span class="s2">&quot;x_y_angle&quot;</span><span class="p">]</span> <span class="o">-</span> <span class="n">matches</span><span class="p">[</span><span class="s2">&quot;c_y_angle&quot;</span><span class="p">]</span>
+    <span class="n">matches</span><span class="p">[</span><span class="s2">&quot;dr&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">matches</span><span class="p">[</span><span class="s2">&quot;dy&quot;</span><span class="p">]</span> <span class="o">**</span> <span class="mi">2</span> <span class="o">+</span> <span class="n">matches</span><span class="p">[</span><span class="s2">&quot;dz&quot;</span><span class="p">]</span> <span class="o">**</span> <span class="mi">2</span><span class="p">)</span>
+    <span class="n">matches</span><span class="p">[</span><span class="s2">&quot;cat_order&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">matches</span><span class="p">),</span> <span class="mi">200</span><span class="p">)</span>
     <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">k</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">catalogs</span><span class="p">):</span>
-        <span class="n">matches</span><span class="p">[</span><span class="s1">&#39;cat_order&#39;</span><span class="p">][</span><span class="n">matches</span><span class="p">[</span><span class="s1">&#39;catalog&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="n">k</span><span class="p">]</span> <span class="o">=</span> <span class="n">i</span>
+        <span class="n">matches</span><span class="p">[</span><span class="s2">&quot;cat_order&quot;</span><span class="p">][</span><span class="n">matches</span><span class="p">[</span><span class="s2">&quot;catalog&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="n">k</span><span class="p">]</span> <span class="o">=</span> <span class="n">i</span>
 
     <span class="n">matches</span> <span class="o">=</span> <span class="n">matches</span><span class="p">[</span>
-        <span class="p">((</span><span class="n">matches</span><span class="p">[</span><span class="s1">&#39;grating&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="s1">&#39;NONE&#39;</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">matches</span><span class="p">[</span><span class="s1">&#39;r_angle&#39;</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">r_angle</span><span class="p">))</span>
-        <span class="o">|</span> <span class="p">((</span><span class="n">matches</span><span class="p">[</span><span class="s1">&#39;grating&#39;</span><span class="p">]</span> <span class="o">!=</span> <span class="s1">&#39;NONE&#39;</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">matches</span><span class="p">[</span><span class="s1">&#39;r_angle&#39;</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">r_angle_grating</span><span class="p">))</span>
+        <span class="p">((</span><span class="n">matches</span><span class="p">[</span><span class="s2">&quot;grating&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;NONE&quot;</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">matches</span><span class="p">[</span><span class="s2">&quot;r_angle&quot;</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">r_angle</span><span class="p">))</span>
+        <span class="o">|</span> <span class="p">((</span><span class="n">matches</span><span class="p">[</span><span class="s2">&quot;grating&quot;</span><span class="p">]</span> <span class="o">!=</span> <span class="s2">&quot;NONE&quot;</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">matches</span><span class="p">[</span><span class="s2">&quot;r_angle&quot;</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">r_angle_grating</span><span class="p">))</span>
     <span class="p">]</span>
-    <span class="n">matches</span> <span class="o">=</span> <span class="n">matches</span><span class="p">[</span><span class="n">matches</span><span class="p">[</span><span class="s1">&#39;dr&#39;</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">dr</span><span class="p">]</span>
+    <span class="n">matches</span> <span class="o">=</span> <span class="n">matches</span><span class="p">[</span><span class="n">matches</span><span class="p">[</span><span class="s2">&quot;dr&quot;</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">dr</span><span class="p">]</span>
 
     <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">matches</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
         <span class="k">return</span> <span class="n">matches</span>
 
-    <span class="n">mg</span> <span class="o">=</span> <span class="n">matches</span><span class="o">.</span><span class="n">group_by</span><span class="p">([</span><span class="s1">&#39;obsid&#39;</span><span class="p">,</span> <span class="s1">&#39;x_id&#39;</span><span class="p">])</span>
+    <span class="n">mg</span> <span class="o">=</span> <span class="n">matches</span><span class="o">.</span><span class="n">group_by</span><span class="p">([</span><span class="s2">&quot;obsid&quot;</span><span class="p">,</span> <span class="s2">&quot;x_id&quot;</span><span class="p">])</span>
     <span class="n">indices</span> <span class="o">=</span> <span class="n">mg</span><span class="o">.</span><span class="n">groups</span><span class="o">.</span><span class="n">indices</span>
     <span class="n">idxs</span> <span class="o">=</span> <span class="p">[]</span>
     <span class="k">for</span> <span class="n">i0</span><span class="p">,</span> <span class="n">i1</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">indices</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="n">indices</span><span class="p">[</span><span class="mi">1</span><span class="p">:]):</span>
-        <span class="n">idxs_sort</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">lexsort</span><span class="p">((</span><span class="n">mg</span><span class="p">[</span><span class="s1">&#39;dr&#39;</span><span class="p">][</span><span class="n">i0</span><span class="p">:</span><span class="n">i1</span><span class="p">],</span> <span class="n">mg</span><span class="p">[</span><span class="s1">&#39;cat_order&#39;</span><span class="p">][</span><span class="n">i0</span><span class="p">:</span><span class="n">i1</span><span class="p">]))</span>
+        <span class="n">idxs_sort</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">lexsort</span><span class="p">((</span><span class="n">mg</span><span class="p">[</span><span class="s2">&quot;dr&quot;</span><span class="p">][</span><span class="n">i0</span><span class="p">:</span><span class="n">i1</span><span class="p">],</span> <span class="n">mg</span><span class="p">[</span><span class="s2">&quot;cat_order&quot;</span><span class="p">][</span><span class="n">i0</span><span class="p">:</span><span class="n">i1</span><span class="p">]))</span>
         <span class="n">idxs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">i0</span> <span class="o">+</span> <span class="n">idxs_sort</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
     <span class="n">result</span> <span class="o">=</span> <span class="n">mg</span><span class="p">[</span><span class="n">idxs</span><span class="p">]</span>
 
-    <span class="n">result</span><span class="p">[</span><span class="s1">&#39;select_name&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">name</span>
+    <span class="n">result</span><span class="p">[</span><span class="s2">&quot;select_name&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">name</span>
 
     <span class="k">return</span> <span class="n">result</span></div>
 
 
 <span class="n">CROSS_MATCHES_ARGS</span> <span class="o">=</span> <span class="p">{</span>
-    <span class="s1">&#39;astromon_21&#39;</span><span class="p">:</span> <span class="p">{</span>
-        <span class="s1">&#39;name&#39;</span><span class="p">:</span> <span class="s1">&#39;astromon_21&#39;</span><span class="p">,</span>
-        <span class="s1">&#39;method&#39;</span><span class="p">:</span> <span class="s1">&#39;simple&#39;</span><span class="p">,</span>
-        <span class="s1">&#39;catalogs&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s1">&#39;ICRS&#39;</span><span class="p">,</span> <span class="s1">&#39;Tycho2&#39;</span><span class="p">],</span>
-        <span class="s1">&#39;snr&#39;</span><span class="p">:</span> <span class="mi">3</span><span class="p">,</span>
-        <span class="s1">&#39;r_angle&#39;</span><span class="p">:</span> <span class="mf">120.</span><span class="p">,</span>
-        <span class="s1">&#39;r_angle_grating&#39;</span><span class="p">:</span> <span class="mf">120.</span><span class="p">,</span>
-        <span class="s1">&#39;near_neighbor_dist&#39;</span><span class="p">:</span> <span class="mf">6.</span><span class="p">,</span>
-        <span class="s1">&#39;dr&#39;</span><span class="p">:</span> <span class="mf">3.</span><span class="p">,</span>
+    <span class="s2">&quot;astromon_21&quot;</span><span class="p">:</span> <span class="p">{</span>
+        <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;astromon_21&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;method&quot;</span><span class="p">:</span> <span class="s2">&quot;simple&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;catalogs&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;ICRS&quot;</span><span class="p">,</span> <span class="s2">&quot;Tycho2&quot;</span><span class="p">],</span>
+        <span class="s2">&quot;snr&quot;</span><span class="p">:</span> <span class="mi">3</span><span class="p">,</span>
+        <span class="s2">&quot;r_angle&quot;</span><span class="p">:</span> <span class="mf">120.0</span><span class="p">,</span>
+        <span class="s2">&quot;r_angle_grating&quot;</span><span class="p">:</span> <span class="mf">120.0</span><span class="p">,</span>
+        <span class="s2">&quot;near_neighbor_dist&quot;</span><span class="p">:</span> <span class="mf">6.0</span><span class="p">,</span>
+        <span class="s2">&quot;dr&quot;</span><span class="p">:</span> <span class="mf">3.0</span><span class="p">,</span>
     <span class="p">},</span>
-    <span class="s1">&#39;astromon_22&#39;</span><span class="p">:</span> <span class="p">{</span>
-        <span class="s1">&#39;name&#39;</span><span class="p">:</span> <span class="s1">&#39;astromon_22&#39;</span><span class="p">,</span>
-        <span class="s1">&#39;method&#39;</span><span class="p">:</span> <span class="s1">&#39;simple&#39;</span><span class="p">,</span>
-        <span class="s1">&#39;catalogs&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s1">&#39;ICRS&#39;</span><span class="p">,</span> <span class="s1">&#39;Tycho2&#39;</span><span class="p">],</span>
-        <span class="s1">&#39;snr&#39;</span><span class="p">:</span> <span class="mi">3</span><span class="p">,</span>
-        <span class="s1">&#39;r_angle&#39;</span><span class="p">:</span> <span class="mf">120.</span><span class="p">,</span>
-        <span class="s1">&#39;r_angle_grating&#39;</span><span class="p">:</span> <span class="mf">24.</span><span class="p">,</span>
-        <span class="s1">&#39;near_neighbor_dist&#39;</span><span class="p">:</span> <span class="mf">6.</span><span class="p">,</span>
-        <span class="s1">&#39;dr&#39;</span><span class="p">:</span> <span class="mf">3.</span><span class="p">,</span>
-    <span class="p">}</span>
+    <span class="s2">&quot;astromon_22&quot;</span><span class="p">:</span> <span class="p">{</span>
+        <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;astromon_22&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;method&quot;</span><span class="p">:</span> <span class="s2">&quot;simple&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;catalogs&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;ICRS&quot;</span><span class="p">,</span> <span class="s2">&quot;Tycho2&quot;</span><span class="p">],</span>
+        <span class="s2">&quot;snr&quot;</span><span class="p">:</span> <span class="mi">3</span><span class="p">,</span>
+        <span class="s2">&quot;r_angle&quot;</span><span class="p">:</span> <span class="mf">120.0</span><span class="p">,</span>
+        <span class="s2">&quot;r_angle_grating&quot;</span><span class="p">:</span> <span class="mf">24.0</span><span class="p">,</span>
+        <span class="s2">&quot;near_neighbor_dist&quot;</span><span class="p">:</span> <span class="mf">6.0</span><span class="p">,</span>
+        <span class="s2">&quot;dr&quot;</span><span class="p">:</span> <span class="mf">3.0</span><span class="p">,</span>
+    <span class="p">},</span>
 <span class="p">}</span>
 <span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">*Standard* cross-match arguments.</span>
 <span class="sd">&quot;&quot;&quot;</span>
-<span class="n">CROSS_MATCHES_ARGS</span><span class="p">[</span><span class="s1">&#39;default&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">CROSS_MATCHES_ARGS</span><span class="p">[</span><span class="s1">&#39;astromon_21&#39;</span><span class="p">]</span>
+<span class="n">CROSS_MATCHES_ARGS</span><span class="p">[</span><span class="s2">&quot;default&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">CROSS_MATCHES_ARGS</span><span class="p">[</span><span class="s2">&quot;astromon_21&quot;</span><span class="p">]</span>
 
 <span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">*Standard* cross-matches (the keys of :any:`CROSS_MATCHES_ARGS`).</span>
@@ -872,9 +878,7 @@
 <span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">Available cross-matching algorithms to be used in :any:`compute_cross_matches`.</span>
 <span class="sd">&quot;&quot;&quot;</span>
-<span class="n">CROSS_MATCH_METHODS</span> <span class="o">=</span> <span class="p">{</span>
-    <span class="s1">&#39;simple&#39;</span><span class="p">:</span> <span class="n">simple_cross_match</span>
-<span class="p">}</span>
+<span class="n">CROSS_MATCH_METHODS</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;simple&quot;</span><span class="p">:</span> <span class="n">simple_cross_match</span><span class="p">}</span>
 
 
 <span class="k">def</span> <span class="nf">_set_formats</span><span class="p">(</span><span class="n">dat</span><span class="p">):</span>
@@ -885,17 +889,23 @@
 <span class="sd">    ----------</span>
 <span class="sd">    dat: `astropy.table.Table`</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">fmts</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;ra&#39;</span><span class="p">:</span> <span class="s1">&#39;.4f&#39;</span><span class="p">,</span>
-            <span class="s1">&#39;x_ra&#39;</span><span class="p">:</span> <span class="s1">&#39;.4f&#39;</span><span class="p">,</span>
-            <span class="s1">&#39;c_ra&#39;</span><span class="p">:</span> <span class="s1">&#39;.4f&#39;</span><span class="p">,</span>
-            <span class="s1">&#39;dec&#39;</span><span class="p">:</span> <span class="s1">&#39;.4f&#39;</span><span class="p">,</span>
-            <span class="s1">&#39;x_dec&#39;</span><span class="p">:</span> <span class="s1">&#39;.4f&#39;</span><span class="p">,</span>
-            <span class="s1">&#39;c_dec&#39;</span><span class="p">:</span> <span class="s1">&#39;.4f&#39;</span><span class="p">,</span>
-            <span class="s1">&#39;pileup&#39;</span><span class="p">:</span> <span class="s1">&#39;.4f&#39;</span><span class="p">}</span>
+    <span class="n">fmts</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">&quot;ra&quot;</span><span class="p">:</span> <span class="s2">&quot;.4f&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;x_ra&quot;</span><span class="p">:</span> <span class="s2">&quot;.4f&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;c_ra&quot;</span><span class="p">:</span> <span class="s2">&quot;.4f&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;dec&quot;</span><span class="p">:</span> <span class="s2">&quot;.4f&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;x_dec&quot;</span><span class="p">:</span> <span class="s2">&quot;.4f&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;c_dec&quot;</span><span class="p">:</span> <span class="s2">&quot;.4f&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;pileup&quot;</span><span class="p">:</span> <span class="s2">&quot;.4f&quot;</span><span class="p">,</span>
+    <span class="p">}</span>
     <span class="k">for</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">dat</span><span class="o">.</span><span class="n">itercols</span><span class="p">():</span>
-        <span class="k">if</span> <span class="p">(</span><span class="nb">hasattr</span><span class="p">(</span><span class="n">col</span><span class="p">,</span> <span class="s1">&#39;name&#39;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">col</span><span class="o">.</span><span class="n">name</span> <span class="ow">in</span> <span class="n">dat</span><span class="o">.</span><span class="n">colnames</span>
-                <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">dat</span><span class="p">[</span><span class="n">col</span><span class="o">.</span><span class="n">name</span><span class="p">],</span> <span class="s1">&#39;dtype&#39;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">col</span><span class="o">.</span><span class="n">dtype</span><span class="o">.</span><span class="n">kind</span> <span class="o">==</span> <span class="s1">&#39;f&#39;</span><span class="p">):</span>
-            <span class="n">dat</span><span class="p">[</span><span class="n">col</span><span class="o">.</span><span class="n">name</span><span class="p">]</span><span class="o">.</span><span class="n">info</span><span class="o">.</span><span class="n">format</span> <span class="o">=</span> <span class="n">fmts</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">col</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="s1">&#39;.2f&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="p">(</span>
+            <span class="nb">hasattr</span><span class="p">(</span><span class="n">col</span><span class="p">,</span> <span class="s2">&quot;name&quot;</span><span class="p">)</span>
+            <span class="ow">and</span> <span class="n">col</span><span class="o">.</span><span class="n">name</span> <span class="ow">in</span> <span class="n">dat</span><span class="o">.</span><span class="n">colnames</span>
+            <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">dat</span><span class="p">[</span><span class="n">col</span><span class="o">.</span><span class="n">name</span><span class="p">],</span> <span class="s2">&quot;dtype&quot;</span><span class="p">)</span>
+            <span class="ow">and</span> <span class="n">col</span><span class="o">.</span><span class="n">dtype</span><span class="o">.</span><span class="n">kind</span> <span class="o">==</span> <span class="s2">&quot;f&quot;</span>
+        <span class="p">):</span>
+            <span class="n">dat</span><span class="p">[</span><span class="n">col</span><span class="o">.</span><span class="n">name</span><span class="p">]</span><span class="o">.</span><span class="n">info</span><span class="o">.</span><span class="n">format</span> <span class="o">=</span> <span class="n">fmts</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">col</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="s2">&quot;.2f&quot;</span><span class="p">)</span>
 </pre></div>
 
             <div class="clearer"></div>
