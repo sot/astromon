@@ -98,7 +98,7 @@ counterparts. The name of the standard cross-match specifies the algorithm and t
 parameters that have been used to cross-match.</p>
 <p>If you want a <em>non-standard</em> cross-match, with your own set of parameters, refer to the
 <a class="reference internal" href="#astromon.cross_match.compute_cross_matches" title="astromon.cross_match.compute_cross_matches"><code class="xref any py py-func docutils literal notranslate"><span class="pre">compute_cross_matches</span></code></a> function.</p>
-<p>This function returns a <a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.1)"><code class="xref any docutils literal notranslate"><span class="pre">Table</span></code></a> indexed by OBSID and adds a
+<p>This function returns a <a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.2)"><code class="xref any docutils literal notranslate"><span class="pre">Table</span></code></a> indexed by OBSID and adds a
 few columns on the fly:</p>
 <ul class="simple">
 <li><p>time</p></li>
@@ -140,7 +140,7 @@ the argument value</p></li>
 <dd class="field-even"><p></p>
 </dd>
 <dt class="field-odd">Return type</dt>
-<dd class="field-odd"><p><a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.1)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.table.Table</span></code></a></p>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.2)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.table.Table</span></code></a></p>
 </dd>
 </dl>
 </dd></dl>
@@ -171,7 +171,7 @@ The default is <cite>$ASTROMON_FILE</cite> or <cite>$SKA/data/astromon/astromon.
 <dd class="field-even"><p></p>
 </dd>
 <dt class="field-odd">Return type</dt>
-<dd class="field-odd"><p><a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.1)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.table.Table</span></code></a></p>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.2)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.table.Table</span></code></a></p>
 </dd>
 </dl>
 </dd></dl>
@@ -201,7 +201,7 @@ The default is <cite>$ASTROMON_FILE</cite> or <cite>$SKA/data/astromon/astromon.
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>table_name</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.11)"><em>str</em></a>) – The name of the table.</p></li>
-<li><p><strong>data</strong> (<a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.1)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.table.Table</span></code></a>) – </p></li>
+<li><p><strong>data</strong> (<a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.2)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.table.Table</span></code></a>) – </p></li>
 <li><p><strong>dbfile</strong> (<a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.11)"><code class="xref any docutils literal notranslate"><span class="pre">pathlib.Path</span></code></a>) – File where tables are stored.
 The default is <cite>$ASTROMON_FILE</cite> or <cite>$SKA/data/astromon/astromon.h5</cite></p></li>
 </ul>
@@ -236,12 +236,12 @@ algorithm is the <cite>name=”simple”</cite> cross-match
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>name</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.11)"><em>str</em></a>) – Can be the name one of the <a class="reference internal" href="#astromon.cross_match.CROSS_MATCHES" title="astromon.cross_match.CROSS_MATCHES"><code class="xref any py py-data docutils literal notranslate"><span class="pre">standard</span> <span class="pre">cross-matches</span></code></a>
 or the name of the algorithm to use (only ‘simple’ is implemented). Default: ‘simple’.</p></li>
-<li><p><strong>astromon_obs</strong> (<a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.1)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.table.Table</span></code></a>) – Table of astromon observations as returned by
+<li><p><strong>astromon_obs</strong> (<a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.2)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.table.Table</span></code></a>) – Table of astromon observations as returned by
 <a class="reference internal" href="#astromon.db.get_table" title="astromon.db.get_table"><code class="xref any py py-func docutils literal notranslate"><span class="pre">db.get_table(&quot;astromon_obs&quot;)</span></code></a>.  The default is to get it from <cite>dbfile</cite>.</p></li>
-<li><p><strong>astromon_xray_src</strong> (<a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.1)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.table.Table</span></code></a>) – Table of x-ray sources as returned by
+<li><p><strong>astromon_xray_src</strong> (<a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.2)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.table.Table</span></code></a>) – Table of x-ray sources as returned by
 <a class="reference internal" href="#astromon.db.get_table" title="astromon.db.get_table"><code class="xref any py py-func docutils literal notranslate"><span class="pre">db.get_table(&quot;astromon_xray_src&quot;)</span></code></a> or
 <a class="reference internal" href="#astromon.observation.Observation.get_sources" title="astromon.observation.Observation.get_sources"><code class="xref any py py-meth docutils literal notranslate"><span class="pre">observation.Observation.get_sources</span></code></a>.  The default is to get it from <cite>dbfile</cite>.</p></li>
-<li><p><strong>astromon_cat_src</strong> (<a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.1)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.table.Table</span></code></a>) – Table of catalog counterparts as returned by
+<li><p><strong>astromon_cat_src</strong> (<a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.2)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.table.Table</span></code></a>) – Table of catalog counterparts as returned by
 <a class="reference internal" href="#astromon.db.get_table" title="astromon.db.get_table"><code class="xref any py py-func docutils literal notranslate"><span class="pre">db.get_table(&quot;astromon_cat_src&quot;)</span></code></a>
 or <a class="reference internal" href="#astromon.cross_match.rough_match" title="astromon.cross_match.rough_match"><code class="xref any py py-func docutils literal notranslate"><span class="pre">rough_match</span></code></a>. The default is to get it from <cite>dbfile</cite>.</p></li>
 <li><p><strong>dbfile</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.11)"><em>str</em></a>) – HDF5 or SQLite file where the tables are. The default is to let <a class="reference internal" href="#astromon.db.get_table" title="astromon.db.get_table"><code class="xref any py py-func docutils literal notranslate"><span class="pre">db.get_table</span></code></a> decide.</p></li>
@@ -282,7 +282,7 @@ Default is to consider all.</p></li>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>matches</strong> (<a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.1)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.table.Table</span></code></a>) – Table of cross-matches as returned by <a class="reference internal" href="#astromon.db.get_cross_matches" title="astromon.db.get_cross_matches"><code class="xref any py py-func docutils literal notranslate"><span class="pre">db.get_cross_matches</span></code></a> or <a class="reference internal" href="#module-astromon.cross_match" title="astromon.cross_match"><code class="xref any py py-mod docutils literal notranslate"><span class="pre">cross_match</span></code></a></p></li>
+<li><p><strong>matches</strong> (<a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.2)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.table.Table</span></code></a>) – Table of cross-matches as returned by <a class="reference internal" href="#astromon.db.get_cross_matches" title="astromon.db.get_cross_matches"><code class="xref any py py-func docutils literal notranslate"><span class="pre">db.get_cross_matches</span></code></a> or <a class="reference internal" href="#module-astromon.cross_match" title="astromon.cross_match"><code class="xref any py py-mod docutils literal notranslate"><span class="pre">cross_match</span></code></a></p></li>
 <li><p><strong>snr</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.11)"><em>float</em></a>) – Filter matches based on signal-to-noise. Selects matches[‘snr’] &lt;= snr.</p></li>
 <li><p><strong>dr</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.11)"><em>float</em></a>) – Filter matches based on angular offset. Selects matches[‘dr’] &lt;= dr.</p></li>
 <li><p><strong>r_angle</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.11)"><em>float</em></a>) – Filter matches based on distance to optical axis.
@@ -313,7 +313,7 @@ according to their type:
 <p>This is not used in standard processing and is here for convenience.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
-<dd class="field-odd"><p><strong>matches</strong> (<a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.1)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.table.Table</span></code></a>) – Table of astromon cros-matches as returned by <a class="reference internal" href="#module-astromon.cross_match" title="astromon.cross_match"><code class="xref any py py-mod docutils literal notranslate"><span class="pre">cross_match</span></code></a> and
+<dd class="field-odd"><p><strong>matches</strong> (<a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.2)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.table.Table</span></code></a>) – Table of astromon cros-matches as returned by <a class="reference internal" href="#module-astromon.cross_match" title="astromon.cross_match"><code class="xref any py py-mod docutils literal notranslate"><span class="pre">cross_match</span></code></a> and
 <a class="reference internal" href="#astromon.db.get_cross_matches" title="astromon.db.get_cross_matches"><code class="xref any py py-func docutils literal notranslate"><span class="pre">db.get_cross_matches</span></code></a>. Required.</p>
 </dd>
 </dl>
@@ -325,7 +325,7 @@ according to their type:
 <dd><p>Returns a mask to remove x-ray sources that are close to excluded regions.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
-<dd class="field-odd"><p><strong>matches</strong> (<a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.1)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.table.Table</span></code></a>) – Table of astromon cros-matches as returned by <a class="reference internal" href="#module-astromon.cross_match" title="astromon.cross_match"><code class="xref any py py-mod docutils literal notranslate"><span class="pre">cross_match</span></code></a> and
+<dd class="field-odd"><p><strong>matches</strong> (<a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.2)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.table.Table</span></code></a>) – Table of astromon cros-matches as returned by <a class="reference internal" href="#module-astromon.cross_match" title="astromon.cross_match"><code class="xref any py py-mod docutils literal notranslate"><span class="pre">cross_match</span></code></a> and
 <a class="reference internal" href="#astromon.db.get_cross_matches" title="astromon.db.get_cross_matches"><code class="xref any py py-func docutils literal notranslate"><span class="pre">db.get_cross_matches</span></code></a>. Required.</p>
 </dd>
 </dl>
@@ -336,7 +336,7 @@ according to their type:
 <span class="sig-prename descclassname"><span class="pre">astromon.cross_match.</span></span><span class="sig-name descname"><span class="pre">rough_match</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="pre">sources</span></em>, <em class="sig-param"><span class="pre">time</span></em>, <em class="sig-param"><span class="pre">radius=&lt;Quantity</span> <span class="pre">3.</span> <span class="pre">arcsec&gt;</span></em>, <em class="sig-param"><span class="pre">catalogs=('Tycho2'</span></em>, <em class="sig-param"><span class="pre">'ICRS'</span></em>, <em class="sig-param"><span class="pre">'USNO-B1.0'</span></em>, <em class="sig-param"><span class="pre">'2MASS'</span></em>, <em class="sig-param"><span class="pre">'SDSS')</span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/astromon/cross_match.html#rough_match"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#astromon.cross_match.rough_match" title="Permalink to this definition">¶</a></dt>
 <dd><p>Find sources in a set of <a class="reference internal" href="astromon.html#catalog-list"><span class="std std-ref">catalogs</span></a> around the x-ray sources given
 in <cite>sources</cite>,  within an angular separation of at most <cite>radius</cite>
-(in <a class="reference external" href="https://docs.astropy.org/en/stable/units/index.html#astropy-units" title="(in Astropy v5.1)"><code class="xref any docutils literal notranslate"><span class="pre">astropy</span> <span class="pre">units</span></code></a>).</p>
+(in <a class="reference external" href="https://docs.astropy.org/en/stable/units/index.html#astropy-units" title="(in Astropy v5.2)"><code class="xref any docutils literal notranslate"><span class="pre">astropy</span> <span class="pre">units</span></code></a>).</p>
 <p>This function uses the ‘ra’, ‘dec’, ‘id’ and ‘obsid’ columns of the <cite>sources</cite> table.
 The obsid column is optional and is used only to check that the query corresponds to a single
 OBSID.</p>
@@ -347,17 +347,17 @@ cartesian product of the x-ray sources and the catalog sources tables
 (length ~ n_x_ray_sources^2). This is intended to be used with few x-ray sources at a time.</p>
 <p>The alternative to this decision would have been to use a custom join function, which can
 lead to wrong results if the sources happen to be closer than <cite>2*radius</cite>. See warning on
-<a class="reference external" href="https://docs.astropy.org/en/stable/table/operations.html#astropy-table-join-functions" title="(in Astropy v5.1)"><span class="xref std std-ref">Custom Join functions</span></a>. Using a cartesian
+<a class="reference external" href="https://docs.astropy.org/en/stable/table/operations.html#astropy-table-join-functions" title="(in Astropy v5.2)"><span class="xref std std-ref">Custom Join functions</span></a>. Using a cartesian
 join allows one to get rough matches without a requirement in <cite>near_neighbor_dist</cite>.</p>
 </div>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>sources</strong> (<a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.1)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.table.Table</span></code></a>) – Table of x-ray sources as returned by
+<li><p><strong>sources</strong> (<a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.2)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.table.Table</span></code></a>) – Table of x-ray sources as returned by
 <a class="reference internal" href="#astromon.db.get_table" title="astromon.db.get_table"><code class="xref any py py-func docutils literal notranslate"><span class="pre">db.get_table(&quot;astromon_xray_src&quot;)</span></code></a> or
 <a class="reference internal" href="#astromon.observation.Observation.get_sources" title="astromon.observation.Observation.get_sources"><code class="xref any py py-meth docutils literal notranslate"><span class="pre">observation.Observation.get_sources</span></code></a>. Required.</p></li>
 <li><p><strong>time</strong> (<a class="reference external" href="https://sot.github.io/cxotime/index.html" title="(in cxotime v0.1)"><code class="xref any docutils literal notranslate"><span class="pre">CxoTime</span></code></a>-compatible) – Time of the observation. Required to account for proper motion.</p></li>
-<li><p><strong>radius</strong> (<a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.units.Quantity.html#astropy.units.Quantity" title="(in Astropy v5.1)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.units.Quantity</span></code></a>) – Radius around the x-ray sources to look for counterparts.</p></li>
+<li><p><strong>radius</strong> (<a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.units.Quantity.html#astropy.units.Quantity" title="(in Astropy v5.2)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.units.Quantity</span></code></a>) – Radius around the x-ray sources to look for counterparts.</p></li>
 <li><p><strong>catalogs</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.11)"><em>list</em></a>) – A list of catalog names.
 Default is (‘Tycho2’, ‘ICRS’, ‘USNO-B1.0’, ‘2MASS’, ‘SDSS’)</p></li>
 </ul>
@@ -398,12 +398,12 @@ smaller than the one used in <a class="reference internal" href="#astromon.cross
 <dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>astromon_obs</strong> (<a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.1)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.table.Table</span></code></a>) – Table of astromon observations as returned by
+<li><p><strong>astromon_obs</strong> (<a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.2)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.table.Table</span></code></a>) – Table of astromon observations as returned by
 <a class="reference internal" href="#astromon.db.get_table" title="astromon.db.get_table"><code class="xref any py py-func docutils literal notranslate"><span class="pre">db.get_table(&quot;astromon_obs&quot;)</span></code></a>. Required.</p></li>
-<li><p><strong>astromon_xray_src</strong> (<a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.1)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.table.Table</span></code></a>) – Table of x-ray sources as returned by
+<li><p><strong>astromon_xray_src</strong> (<a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.2)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.table.Table</span></code></a>) – Table of x-ray sources as returned by
 <a class="reference internal" href="#astromon.db.get_table" title="astromon.db.get_table"><code class="xref any py py-func docutils literal notranslate"><span class="pre">db.get_table(&quot;astromon_xray_src&quot;)</span></code></a> or
 <a class="reference internal" href="#astromon.observation.Observation.get_sources" title="astromon.observation.Observation.get_sources"><code class="xref any py py-meth docutils literal notranslate"><span class="pre">observation.Observation.get_sources</span></code></a>. Required.</p></li>
-<li><p><strong>astromon_cat_src</strong> (<a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.1)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.table.Table</span></code></a>) – Table of catalog counterparts as returned by
+<li><p><strong>astromon_cat_src</strong> (<a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.2)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.table.Table</span></code></a>) – Table of catalog counterparts as returned by
 <a class="reference internal" href="#astromon.db.get_table" title="astromon.db.get_table"><code class="xref any py py-func docutils literal notranslate"><span class="pre">db.get_table(&quot;astromon_cat_src&quot;)</span></code></a>
 or <a class="reference internal" href="#astromon.cross_match.rough_match" title="astromon.cross_match.rough_match"><code class="xref any py py-func docutils literal notranslate"><span class="pre">rough_match</span></code></a>. Required.</p></li>
 <li><p><strong>name</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.11)"><em>str</em></a>) – The name of the algorithm to use or the name of a standard set of arguments.
@@ -607,7 +607,7 @@ instructed otherwise.</p>
 <dd class="field-even"><p></p>
 </dd>
 <dt class="field-odd">Return type</dt>
-<dd class="field-odd"><p><a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.1)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.table.Table</span></code></a></p>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.2)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.table.Table</span></code></a></p>
 </dd>
 </dl>
 </dd></dl>
@@ -656,7 +656,7 @@ instructed otherwise.</p>
 and the offsets one would get when using a reference CALALIGN.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
-<dd class="field-odd"><p><strong>all_matches</strong> (<a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.1)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.table.Table</span></code></a>) – The table of x-ray sources. The only required columns are ‘obsid’ and ‘x_id’</p>
+<dd class="field-odd"><p><strong>all_matches</strong> (<a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.2)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.table.Table</span></code></a>) – The table of x-ray sources. The only required columns are ‘obsid’ and ‘x_id’</p>
 </dd>
 <dt class="field-even">Returns</dt>
 <dd class="field-even"><p><p>A table with keys:</p>
@@ -675,7 +675,7 @@ and the offsets one would get when using a reference CALALIGN.</p>
 </p>
 </dd>
 <dt class="field-odd">Return type</dt>
-<dd class="field-odd"><p><a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.1)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.table.Table</span></code></a></p>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.astropy.org/en/stable/api/astropy.table.Table.html#astropy.table.Table" title="(in Astropy v5.2)"><code class="xref any docutils literal notranslate"><span class="pre">astropy.table.Table</span></code></a></p>
 </dd>
 </dl>
 </dd></dl>
