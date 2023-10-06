@@ -614,12 +614,13 @@ def create_figures_cal(
             dy_median=dy_median if draw_median else None,
             dz_median=dz_median if draw_median else None,
         )
-        plot_cdf(
-            bins,
-            cdf,
-            quantiles,
-            title=f"{det} ({len(m)} points)",
-            filename=outdir / f"offsets-{det}-cdf{tag}.png",
+        for ptype in ["png", "pdf"]:
+            plot_cdf(
+                bins,
+                cdf,
+                quantiles,
+                title=f"{det} ({len(m)} points)",
+                filename=outdir / f"offsets-{det}-cdf{tag}.{ptype}",
         )
     return result
 
