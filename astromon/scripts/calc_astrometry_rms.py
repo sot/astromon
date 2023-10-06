@@ -110,8 +110,9 @@ def main():
 
         for detector in ["ACIS-S", "ACIS-I", "HRC-S", "HRC-I"]:
             det = dat[ok]["detector"] == detector
-            percentile = np.percentile(dat[ok]["dr"][det], 90)
-            print(f"90 percentile radius for {detector} is {percentile:.2f} arcsec")
+            if np.any(det):
+                percentile = np.percentile(dat[ok]["dr"][det], 90)
+                print(f"90 percentile radius for {detector} is {percentile:.2f} arcsec")
 
         print(
             "{:.1f} percent outside a 1 arcsec radius".format(
