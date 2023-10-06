@@ -621,7 +621,7 @@ def create_figures_cal(
                 quantiles,
                 title=f"{det} ({len(m)} points)",
                 filename=outdir / f"offsets-{det}-cdf{tag}.{ptype}",
-        )
+            )
     return result
 
 
