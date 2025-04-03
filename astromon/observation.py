@@ -187,7 +187,7 @@ class Observation:
                 logger.warning(f"CIAO could not be initialized: {e}")
 
     def __del__(self):
-        if self._clear:
+        if hasattr(self, "_clear") and self._clear:
             logger.info(f"Clearing {self.workdir}")
             shutil.rmtree(self.workdir, ignore_errors=True)
 
