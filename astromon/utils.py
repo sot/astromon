@@ -1,6 +1,7 @@
 import functools
 import logging
 import os
+import re
 import subprocess
 import tempfile
 from contextlib import AbstractContextManager
@@ -8,7 +9,10 @@ from pathlib import Path
 
 import numpy as np
 import Ska.Shell
-from astropy.table import hstack, join
+from astropy.io import fits
+from astropy.table import Table, hstack, join
+from cxotime import CxoTime
+from Quaternion import Quat
 
 __all__ = [
     "communicate",
@@ -16,7 +20,6 @@ __all__ = [
     "chdir",
     "ciao_context",
     "logging_call_decorator",
-    "FlowException",
     "calalign_from_files",
     "get_calalign_offsets",
 ]
@@ -31,13 +34,10 @@ class MissingTableException(Exception):
     """
 
 
-class FlowException(Exception):
-    """
-    Exception class to interrupt the execution flow.
-
-    This exception class is used by :any:`logging_call_decorator` and is silently ignored unless
-    instructed otherwise.
-    """
+class CiaoProcessFailure(RuntimeError):
+    def __init__(self, *args, lines=(), **kwargs):
+        super().__init__(*args, **kwargs)
+        self.lines = tuple(lines)
 
 
 def communicate(process, logger=None, level="WARNING", text=False, logging_tag=""):
@@ -59,6 +59,7 @@ def communicate(process, logger=None, level="WARNING", text=False, logging_tag="
     if logger is None:
         logger = logging.getLogger()
 
+    lines = []
     while True:
         if process.poll() is not None:
             break
@@ -66,12 +67,18 @@ def communicate(process, logger=None, level="WARNING", text=False, logging_tag="
         line = line if text else line.decode()
         line = line.rstrip("\n")
         logger.log(level, f"{logging_tag} {line}")
+        if line:
+            lines.append(line)
 
     # in case the buffer is still not empty after the process ended
     for line in process.stdout.readlines():
         line = line if text else line.decode()  # noqa: PLW2901
         line = line.rstrip("\n")  # noqa: PLW2901
         logger.log(level, f"{logging_tag} {line}")
+        if line:
+            lines.append(line)
+
+    return lines
 
 
 class Ciao:
@@ -146,17 +153,23 @@ class Ciao:
             cmd.append(f"{k}={kwargs[k]}")
         self.logger.info(logging_tag + " " + " ".join(cmd))
         process = subprocess.Popen(cmd, stdout=stdout, stderr=stderr, env=self.env)
-        communicate(
+        lines = communicate(
             process, self.logger, level=20, logging_tag=logging_tag
         )  # 20 is logging.INFO
         if process.returncode:
-            raise Exception(f"{logging_tag} {name} failed")
+            raise CiaoProcessFailure(f"{logging_tag} {name} failed", lines=lines)
 
     def pget(self, command, param="value", logging_tag=""):
         """
         Call CIAO's pget and return the standard output.
         """
         self.logger.info(f"{logging_tag} pget {command} {param}")
+        out = (
+            subprocess.check_output(["pget", command, param], env=self.env)
+            .decode()
+            .strip()
+        )
+        self.logger.info(f"{logging_tag} pget {out}")
         return (
             subprocess.check_output(["pget", command, param], env=self.env)
             .decode()
@@ -289,9 +302,6 @@ class LoggingCallDecorator:
                     self.log_level, f"{instance}{func.__name__}({args_str}) Finished"
                 )
                 return result
-            except FlowException:
-                if not self.ignore_exceptions:
-                    raise
             except Exception as e:
                 self.logger.log(
                     self.log_level, f"{instance}{func.__name__}({args_str}) Except: {e}"
@@ -323,11 +333,6 @@ def calalign_from_files(calalign_dir=None):
     -------
     :any:`astropy.table.Table`
     """
-    import re
-
-    from astropy.io import fits
-    from astropy.table import Table
-    from cxotime import CxoTime
 
     if calalign_dir is None:
         calalign_dir = "/data/caldb/data/chandra/pcad/align"
@@ -412,8 +417,6 @@ def get_offsets(aca_misalign):
     (np.array, np.array)
         Two arrays with shape (aca_misalign.shape[1:])
     """
-    import numpy as np
-    from Quaternion import Quat
 
     aca_misalign = np.atleast_1d(aca_misalign)
     dys = []
