@@ -4,7 +4,6 @@
 import argparse
 import collections
 import functools
-import json
 
 # import sys
 import logging
@@ -254,6 +253,32 @@ class Observation:
         obsid_info.update(self._get_sequence_summary())
         return obsid_info
 
+    def file_glob(self, pattern):
+        files = {}
+        if self.archive_dir is not None:
+            files.update(
+                {
+                    pth.relative_to(self.archive_dir): pth
+                    for pth in self.archive_dir.glob(pattern)
+                }
+            )
+        files.update(
+            {pth.relative_to(self.workdir): pth for pth in self.workdir.glob(pattern)}
+        )
+        return list(files.values())
+
+    def file_path(self, path):
+        if Path(path).is_absolute():
+            raise Exception(
+                f"argument to Observation.file_path must be a relative path ({path})"
+            )
+        wp = self.workdir / path
+        if self.archive_dir is not None:
+            ap = self.archive_dir / path
+            if not wp.exists() and ap.exists():
+                return ap
+        return wp
+
     @Cache("seq_summary", fmt="json", dir_attribute="cache_dir")
     def _get_sequence_summary(self):
         def parse_name_value(child):
@@ -288,12 +313,11 @@ class Observation:
         """
         Get the contents of the obs0 file as a dictionary.
         """
-        (self.workdir).mkdir(exist_ok=True, parents=True)
-        obspar_file = list((self.workdir).glob("*obs0*"))
+        obspar_file = self.file_glob("*obs0*")
         if not obspar_file:
             logger.debug(f"{self} No obspar file for OBSID {self.obsid}. Downloading")
             self.download(["obspar"])
-        obspar_file = list((self.workdir).glob("*obs0*"))
+        obspar_file = self.file_glob("*obs0*")
         if len(obspar_file) == 0:
             raise Exception(f"{self} No obspar file for OBSID {self.obsid}.")
         obspar_file = str(obspar_file[0])
@@ -333,7 +357,7 @@ class Observation:
             logger.debug(f"{self} {secondary} exists, skipping download")
             return
 
-        repro = self.workdir / "repro"
+        repro = self.file_path("repro")
         if repro.exists():
             logger.debug(f"{self} {repro} exists, skipping download")
             return
@@ -380,7 +404,7 @@ class Observation:
                 # if instrument is NONE, there will be no files, no point in trying
                 continue
             logger.info(f"{self}   {ftype=}")
-            dest_files = list((self.workdir / dest).glob(f"*{ftype}*"))
+            dest_files = self.file_glob(f"{dest}/*{ftype}*")
             if dest_files:
                 logger.info(f"{self}     skipping download of *{ftype}*")
                 continue
@@ -459,8 +483,7 @@ class Observation:
         """
         Reprocess data.
         """
-        images = self.workdir / "images"
-        if images.exists():
+        if self.file_path("images").exists():
             # Skip repro, already done
             return
 
@@ -480,7 +503,7 @@ class Observation:
         """
 
         if evt is None:
-            evtfiles = list((self.workdir / "primary").glob("*_evt2_filtered.fits*"))
+            evtfiles = self.file_glob("primary/*_evt2_filtered.fits*")
             if len(evtfiles) != 1:
                 raise Exception(f"Expected 1 evt file, there are {len(evtfiles)}")
             evt = evtfiles[0]
@@ -495,11 +518,11 @@ class Observation:
         n_events = int(output)
         if n_events <= 0:
             raise SkippedWithWarning(
-                f"No events in {evt.absolute().relative_to(self.workdir.absolute())}"
+                f"No events in {evt.absolute().relative_to(evt.parent.parent.absolute())}"
             )
 
         # are there more? is it always level1?
-        fov_files = list((self.workdir / "primary").glob("*_fov1.fits*"))
+        fov_files = self.file_glob("primary/*_fov1.fits*")
         if len(fov_files) != 1:
             raise Exception(f"Expected 1 FOV file, there are {len(fov_files)}")
         fov_file = fov_files[0]
@@ -560,17 +583,41 @@ class Observation:
         """
         Run wavdetect.
         """
-
-        imgdir = self.workdir / "images"
-        detdir = self.workdir / "sources"
-        detdir.mkdir(parents=True, exist_ok=True)
-
         band = "wide" if self.is_hrc else "broad"
         root = f"{self.obsid}_{edition}"
 
-        outfile = detdir / (root + ".src")
+        # this only checks that the output file sources/{self.obsid}_{edition}.src exists
+        # but this function also creates:
+        #    sources/{self.obsid}_{edition}.cell
+        #    sources/{self.obsid}_{edition}.img
+        #    sources/{self.obsid}_{edition}.nbkg
+        outfile = self.file_path(f"sources/{root}.src")
         if outfile.exists() and skip_exist:
+            logger.debug(f"{self} Wavdetect {edition} file already there. Skipping.")
             return
+        else:
+            if not skip_exist:
+                logger.debug("Not skipping if wavdetect file exists")
+            if not outfile.exists():
+                logger.debug(
+                    f"{self} Wavdetect {edition} file not there ({outfile}). Will process."
+                )
+
+        required_files = {
+            "image_file": self.file_path(f"images/{self.obsid}_{band}_thresh.img"),
+            "psf_file": self.file_path(f"images/{self.obsid}_{band}_thresh.psfmap"),
+            "exposure_file": self.file_path(
+                f"images/{self.obsid}_{band}_thresh.expmap"
+            ),
+        }
+        if missing := [
+            f"{k} ({v})" for k, v in required_files.items() if not v.exists()
+        ]:
+            filenames = ", ".join(missing)
+            raise RuntimeError(f"Missing file(s) required for wavdetect: {filenames}")
+
+        detdir = self.file_path("sources")
+        detdir.mkdir(parents=True, exist_ok=True)
 
         scales = scales.split()
         # if wavdetect fails, it tries again removing the largest two scales
@@ -578,11 +625,9 @@ class Observation:
             try:
                 self.ciao(
                     "wavdetect",
-                    infile=imgdir / (self.obsid + "_" + band + "_thresh.img"),
-                    expfile=imgdir
-                    / (self.obsid + "_" + band + "_thresh.expmap"),  # exposure map
-                    psffile=imgdir
-                    / (self.obsid + "_" + band + "_thresh.psfmap"),  # PSF
+                    infile=required_files["image_file"],
+                    expfile=required_files["exposure_file"],  # exposure map
+                    psffile=required_files["psf_file"],  # PSF
                     outfile=outfile,
                     scellfile=detdir / (root + ".cell"),
                     imagefile=detdir / (root + ".img"),
@@ -601,15 +646,32 @@ class Observation:
         """
         Run celldetect.
         """
-        # Find sources in the small field
-        imgdir = self.workdir / "images"
+        # checks that the file sources/{self.obsid}_celldetect.src does not exist
+        if self.file_path(f"sources/{self.obsid}_celldetect.src").exists():
+            logger.debug(f"{self} Celldetect file already there. Skipping.")
+            return
+
+        # output is in the workdir
+        out = self.workdir / "sources" / f"{self.obsid}_celldetect.src"
         band = "wide" if self.is_hrc else "broad"
+
+        required_files = {
+            "image_file": self.file_path(f"images/{self.obsid}_{band}_thresh.img"),
+            "psf_file": self.file_path(f"images/{self.obsid}_{band}_thresh.psfmap"),
+        }
+        if missing := [
+            f"{k} ({v})" for k, v in required_files.items() if not v.exists()
+        ]:
+            filenames = ", ".join(missing)
+            raise RuntimeError(f"Missing file(s) required for celldetect: {filenames}")
+
+        out.parent.mkdir(parents=True, exist_ok=True)
+
         self.ciao(
             "celldetect",
-            imgdir / f"{self.obsid}_{band}_thresh.img",
-            self.workdir / "sources" / f"{self.obsid}_celldetect.src",
-            psffile=imgdir
-            / f"{self.obsid}_{band}_thresh.psfmap",  # either this or set fixedcell=
+            required_files["image_file"],
+            out,
+            psffile=required_files["psf_file"],  # either this or set fixedcell=
             thresh=snr,
             maxlogicalwindow=2048,
             clobber="yes",
@@ -626,13 +688,15 @@ class Observation:
         if self._rebin and self.is_hrc:
             pixel *= 2
         try:
-            evt = list((self.workdir / "primary").glob("*evt2.fits*"))[0]
+            evt = self.file_glob("primary/*evt2.fits*")[0]
         except Exception:
             raise SkippedWithWarning("evt2 file not found") from None
 
-        evt2 = str(evt).replace("evt2", "evt2_filtered")
+        evt2 = self.file_path(
+            str(evt.relative_to(evt.parent.parent)).replace("evt2", "evt2_filtered")
+        )
 
-        if Path(evt2).exists():
+        if evt2.exists():
             logger.info(f"{self}   file {evt2} exists, skipping")
             return
 
@@ -676,14 +740,14 @@ class Observation:
         if self._rebin and self.is_hrc:
             pixel *= 2
         try:
-            evt = list((self.workdir / "primary").glob("*evt2.fits*"))[0]
+            evt = self.file_glob("primary/*evt2.fits*")[0]
         except Exception:
             raise Exception("evt2 file not found   ") from None
 
-        src = self.workdir / "sources" / f"{self.obsid}_baseline.src"
+        src = self.file_path(f"sources/{self.obsid}_baseline.src")
         if not src.exists():
             raise Exception("src file not found   ")
-        src2 = str(src).replace("baseline", "filtered")
+        out = self.file_path(f"sources/{self.obsid}_filtered.src")
 
         self.ciao("dmkeypar", evt, "RA_PNT", logging_tag=str(self))
         ra = self.ciao.pget("dmkeypar", logging_tag=str(self))
@@ -695,18 +759,18 @@ class Observation:
         y = self.ciao.pget("dmcoords", "y", logging_tag=str(self))
         filters = [f"psfratio=:{psfratio}", f"(x,y)=circle({x},{y},{radius / pixel})"]
         filters = ",".join(filters)
-        self.ciao("dmcopy", f"{src}[{filters}]", src2, logging_tag=str(self))
+        self.ciao("dmcopy", f"{src}[{filters}]", out, logging_tag=str(self))
 
-        return src2
+        return out
 
     @logging_call_decorator
     def calculate_centroids(self):
         """
         Re-compute centroids.
         """
-        src_hdus = fits.open(self.workdir / "sources" / f"{self.obsid}_baseline.src")
+        src_hdus = fits.open(self.file_path(f"sources/{self.obsid}_baseline.src"))
         band = "wide" if self.is_hrc else "broad"
-        img = self.workdir / "images" / f"{self.obsid}_{band}_flux.img"
+        img = self.file_path(f"images/{self.obsid}_{band}_flux.img")
 
         if not img.exists():
             raise Exception(f"Image file not found {img}")
@@ -783,7 +847,7 @@ class Observation:
         obspar = self.get_obspar()
         q = Quat(equatorial=(obspar["ra_pnt"], obspar["dec_pnt"], obspar["roll_pnt"]))
 
-        hdu_list = fits.open(self.workdir / "sources" / f"{self.obsid}_{version}.src")
+        hdu_list = fits.open(self.file_path(f"sources/{self.obsid}_{version}.src"))
         sources = table.Table(hdu_list[1].data)
 
         if len(sources) == 0:
@@ -848,7 +912,7 @@ class Observation:
         return sources[cols]
 
     def _pileup_value(self, src):
-        pileup_file = self.workdir / "images" / f"{self.obsid}_pileup_max.img"
+        pileup_file = self.file_path(f"images/{self.obsid}_pileup_smeared.img")
         if not pileup_file.exists():
             return np.zeros(len(src))
         hdus = fits.open(pileup_file)
@@ -864,7 +928,7 @@ class Observation:
         return hdus[0].data[(pix[1], pix[0])]
 
     def _on_acis_streak(self, src):
-        acis_streaks_file = self.workdir / "images" / f"{self.obsid}_acis_streaks.txt"
+        acis_streaks_file = self.file_path(f"images/{self.obsid}_acis_streaks.txt")
         result = np.zeros(len(src), dtype=bool)
         if acis_streaks_file.exists():
             reg = regions.Regions.read(acis_streaks_file)
@@ -896,7 +960,7 @@ class Observation:
     @Cache("calalign", fmt="json", dir_attribute="cache_dir")
     def get_calalign(self):
         self.download(["acal"])
-        cal_file = list((self.workdir / "secondary").glob("*acal*fits*"))
+        cal_file = self.file_glob("secondary/*acal*fits*")
         if cal_file:
             hdus = fits.open(cal_file[0])
             calalign = {
