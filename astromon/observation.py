@@ -27,6 +27,7 @@ from astropy.coordinates import SkyCoord
 from astropy.io import ascii, fits
 from astropy.wcs import WCS, FITSFixedWarning
 
+from astromon.cache import Cache
 from astromon.utils import Ciao, FlowException, chdir, logging_call_decorator
 
 __all__ = ["Observation"]
@@ -175,16 +176,17 @@ class Observation:
             else None
         )
 
+        self.cache_dir = self.workdir / "cache"
+
         if archive_regex is None:
             self.archive_regex = [
                 "*.par.gz",
-                "seq_summary.json",
+                "cache",
                 # '*evt2_filtered.fits.gz',
                 "*_wide_flux.img",
                 "*_broad_flux.img",
                 "*_acis_streaks.txt",
                 "*.src",
-                "calalign.json",
             ]
         else:
             self.archive_regex = archive_regex
@@ -252,6 +254,7 @@ class Observation:
         obsid_info.update(self._get_sequence_summary())
         return obsid_info
 
+    @Cache("seq_summary", fmt="json", dir_attribute="cache_dir")
     def _get_sequence_summary(self):
         def parse_name_value(child):
             names = ["Title", "PI", "Observer", "Subject Category", "Cycle"]
@@ -262,10 +265,6 @@ class Observation:
                     return {_name: _value}
             return {}
 
-        filename = (self.workdir) / "seq_summary.json"
-        if filename.exists():
-            with open(filename) as fh:
-                return json.load(fh)
         obspar = self.get_obspar()
         url = "https://icxc.harvard.edu/cgi-bin/mp/target.cgi?{seq_num}"
         r = requests.get(url.format(**obspar))
@@ -282,11 +281,9 @@ class Observation:
             info["Subject Category"] = "NO MATCH"
         info["category_id"] = CATEGORY_ID_MAP[info["Subject Category"].lower()]
 
-        with open(filename, "w") as fh:
-            json.dump(info, fh)
-
         return info
 
+    @Cache("obspar", fmt="json", dir_attribute="cache_dir")
     def get_obspar(self):
         """
         Get the contents of the obs0 file as a dictionary.
@@ -774,6 +771,7 @@ class Observation:
         self.run_wavdetect("baseline", skip_exist=True)
         self.run_celldetect()
 
+    @Cache("sources", fmt="table", dir_attribute="cache_dir")
     @logging_call_decorator
     def get_sources(self, version="celldetect"):
         """
@@ -895,20 +893,8 @@ class Observation:
             # 'bias': f'{instrument}0[*bias*]',
         }
 
+    @Cache("calalign", fmt="json", dir_attribute="cache_dir")
     def get_calalign(self):
-        calalign_file = None
-        if (self.workdir / "calalign.json").exists():
-            calalign_file = self.workdir / "calalign.json"
-        if (
-            self.archive_dir is not None
-            and (self.archive_dir / "calalign.json").exists()
-        ):
-            calalign_file = self.archive_dir / "calalign.json"
-
-        if calalign_file:
-            with open(calalign_file) as fh:
-                return json.load(fh)
-
         self.download(["acal"])
         cal_file = list((self.workdir / "secondary").glob("*acal*fits*"))
         if cal_file:
@@ -920,8 +906,6 @@ class Observation:
             calalign = {k: v.tolist() for k, v in calalign.items()}
             calalign["obsid"] = int(self.obsid)
             calalign["caldb_version"] = hdus[1].header["CALDBVER"]
-            with open(self.workdir / "calalign.json", "w") as fh:
-                json.dump(calalign, fh)
             return calalign
 
 
