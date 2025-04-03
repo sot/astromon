@@ -299,7 +299,7 @@ class Observation:
                 ["download_chandra_obsid", "-t", "-q"],
                 stdout=subprocess.PIPE,
                 env=self.ciao.env,
-                check=False,
+                check=True,
             )
             available_types = r.stdout.decode().strip().split(":")[-1].split()
             exclude = [t for t in available_types if t not in ftypes]
