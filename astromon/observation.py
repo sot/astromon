@@ -333,6 +333,9 @@ class Observation:
                     )
                     continue
                 src, dest = locs[ftype]
+            if src[:4] == "none":
+                # if instrument is NONE, there will be no files, no point in trying
+                continue
             logger.info(f"{self}   {ftype=}")
             dest_files = list((self.workdir / dest).glob(f"*{ftype}*"))
             if dest_files:
