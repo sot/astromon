@@ -685,7 +685,6 @@ class Observation:
             - ACIS observations with readmode other than "TIMED" and dtycycle different than 0.
         """
 
-        self.download()
         obsid_info = self.get_info()
 
         ok = (
@@ -704,6 +703,9 @@ class Observation:
         )
         if not ok:
             raise Skipped("does not fulfill observation requirements")
+
+        # try downloading only after checking requirements
+        self.download()
 
         # Repro
         # repro(self.obsid)
