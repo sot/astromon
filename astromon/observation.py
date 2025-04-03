@@ -174,6 +174,7 @@ class Observation:
             if archive_dir
             else None
         )
+
         if archive_regex is None:
             self.archive_regex = [
                 "*.par.gz",
@@ -200,6 +201,22 @@ class Observation:
     is_hrc = property(lambda self: self.get_obspar()["instrume"].lower() == "hrc")
 
     is_acis = property(lambda self: self.get_obspar()["instrume"].lower() == "acis")
+
+    def create_archive_symlinks(self):
+        """
+        Create symlinks from working directory to the archive.
+
+        Normally this should not be needed, but it might be convenient so one works only in the
+        working directory. It is a bit slow (about 0.07 seconds, which translates to 5 minutes when
+        creating instances for 5000 observations).
+        """
+        if self.archive_dir is not None:
+            for file in self.archive_dir.glob("**/*"):
+                if not file.is_dir():
+                    dest = self.workdir / file.relative_to(self.archive_dir)
+                    if not dest.exists():
+                        dest.parent.mkdir(parents=True, exist_ok=True)
+                        os.symlink(file, dest)
 
     def get_ciao(self):
         if self.use_ciao and self.ciao_ is None:
@@ -427,9 +444,18 @@ class Observation:
                 dest = destination / src.relative_to(self.workdir)
                 dest.parent.mkdir(exist_ok=True, parents=True)
                 if src.is_dir():
-                    shutil.copytree(src, dest, dirs_exist_ok=True)
+                    dest.mkdir(exist_ok=True, parents=True)
+                    for src_2 in src.glob("**/*"):
+                        dest_2 = destination / src_2.relative_to(self.workdir)
+                        try:
+                            shutil.copy(src_2, dest_2)
+                        except shutil.SameFileError:
+                            pass
                 else:
-                    shutil.copy(src, dest)
+                    try:
+                        shutil.copy(src, dest)
+                    except shutil.SameFileError:
+                        pass
 
     @logging_call_decorator
     def repro(self):
