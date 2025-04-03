@@ -254,7 +254,7 @@ class Observation:
             raise Exception(f"{self} No obspar file for OBSID {self.obsid}.")
         obspar_file = str(obspar_file[0])
         t = ascii.read(obspar_file)
-        self._obsid_info = {r[0]: r[3] for r in t}
+        self._obsid_info = dict(t[["col1", "col4"]].as_array().tolist())
         self._obsid_info["instrument"] = self._obsid_info["instrume"].lower()
         self._obsid_info["obsid"] = int(self.obsid)
         self._obsid_info["target"] = self._obsid_info["object"]
