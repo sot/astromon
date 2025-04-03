@@ -1,5 +1,4 @@
-"""
-"""
+""" """
 
 import logging
 import re
@@ -221,9 +220,9 @@ def _get(
     logging_tag="",
     raw=False,
 ):
-    assert (
-        ra is not None and dec is not None
-    ) or pos is not None, "pos or ra/dec required"
+    assert (ra is not None and dec is not None) or pos is not None, (
+        "pos or ra/dec required"
+    )
     if pos is None:
         pos = coords.SkyCoord(ra=ra, dec=dec, unit="deg", frame="icrs", obstime=time)
     else:
@@ -280,10 +279,10 @@ def rough_match(
         return []
 
     if "obsid" in sources.dtype.names:
-        assert (
-            len(np.unique(sources["obsid"])) <= 1
-        ), "rough_match only handles one OBSID at a time"
-        logging_tag = f'OBSID={sources["obsid"][0]} '
+        assert len(np.unique(sources["obsid"])) <= 1, (
+            "rough_match only handles one OBSID at a time"
+        )
+        logging_tag = f"OBSID={sources['obsid'][0]} "
     else:
         logging_tag = ""
 

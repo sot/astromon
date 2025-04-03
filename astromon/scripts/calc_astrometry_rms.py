@@ -48,7 +48,7 @@ def main():
         dat = dat[~no_version]
 
     select_name = np.unique(dat["select_name"])
-    assert len(select_name) <= 1, f"More than one selection"
+    assert len(select_name) <= 1, "More than one selection"
     assert len(dat), "no data"
     select_name = select_name[0]
 

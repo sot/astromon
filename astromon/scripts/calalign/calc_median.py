@@ -18,9 +18,9 @@ from astromon import db
 
 matplotlib.style.use("bmh")
 
-assert (
-    db.FILE.name[-3:] == ".h5"
-), "Using old astromon file, define ASTROMON_FILE env var."
+assert db.FILE.name[-3:] == ".h5", (
+    "Using old astromon file, define ASTROMON_FILE env var."
+)
 
 
 def get_bins(years, bins_per_year=2):
@@ -97,7 +97,7 @@ def plot_corr_srcs(xcorr, medians, start, stop, ms=1, **kwargs):
     ax1.set_xlabel("Year")
     ax0.set_ylabel(r"$\Delta$y (arcsec)")
     ax1.set_ylabel(r"$\Delta$z (arcsec)")
-    ax0.set_title(f"X-ray - Catalog astrometry")
+    ax0.set_title("X-ray - Catalog astrometry")
 
 
 def get_parser():
@@ -153,7 +153,7 @@ def main():
         "16 Cyg",
         "M87",
         "Orion",
-        "HD 97950" "HD4915",
+        "HD 97950HD4915",
     ]
     bad_targets = [x.replace(" ", "").lower() for x in bad_targets]
     for ii, target in enumerate(matches["target"]):

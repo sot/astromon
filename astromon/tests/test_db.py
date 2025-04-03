@@ -71,9 +71,9 @@ def test_save_and_get():
             tables_h5[name] = db.get_table(name, dbfile)
 
         for name in names:
-            assert len(tables[name]) == len(
-                tables_h5[name]
-            ), f"{name} table has different lengths"
+            assert len(tables[name]) == len(tables_h5[name]), (
+                f"{name} table has different lengths"
+            )
             # string types are different
             for colname in tables[name].colnames:
                 if tables[name][colname].dtype.char not in ["U", "S"]:

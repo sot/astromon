@@ -269,7 +269,7 @@ def save(table_name, data, dbfile):
             missing = [name for name in dtype.names if name not in data.dtype.names]
             if missing:
                 raise Exception(
-                    f'Saving table {table_name} with missing columns: {", ".join(missing)}'
+                    f"Saving table {table_name} with missing columns: {', '.join(missing)}"
                 )
             b = np.zeros(len(data), dtype=dtype)
             b[names] = data[names].as_array().astype(dtype[names])

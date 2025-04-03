@@ -122,9 +122,9 @@ class Ciao:
             workdir = Path(workdir)
             workdir.mkdir(parents=True, exist_ok=True)
             self.env["ASCDS_WORK_PATH"] = str(workdir)
-            assert ":" not in str(
-                workdir.absolute()
-            ), "CIAO workdir cannot contain colon"
+            assert ":" not in str(workdir.absolute()), (
+                "CIAO workdir cannot contain colon"
+            )
             pf = "{};{}:{}".format(
                 str(workdir.absolute()),
                 self.env["ASCDS_INSTALL"] + "/param",
@@ -176,9 +176,9 @@ def set_ciao_context(directory):
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     os.environ["ASCDS_WORK_PATH"] = str(directory)
-    assert ":" not in str(
-        directory.absolute()
-    ), "CIAO context directory can not contain colon"
+    assert ":" not in str(directory.absolute()), (
+        "CIAO context directory can not contain colon"
+    )
     pf = "{};{}:{}".format(
         str(directory.absolute()),
         os.environ["ASCDS_INSTALL"] + "/param",

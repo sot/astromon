@@ -59,7 +59,7 @@ def apply_calalign_shift(tstart, tstop, in_file, out_file, dy, dz, date, clobber
         row["FTS_MISALIGN"] = in_aca.T @ R.T @ in_aca @ in_fts
 
         msg = (
-            f'{row["INSTR_ID"].strip()} alignment shift (dy, dz) = ({dy:.2f}, {dz:.2f})'
+            f"{row['INSTR_ID'].strip()} alignment shift (dy, dz) = ({dy:.2f}, {dz:.2f})"
         )
         # print(msg)
         hdus[0].header["HISTORY"] = msg

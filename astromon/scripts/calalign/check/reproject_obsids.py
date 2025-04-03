@@ -36,7 +36,7 @@ def celldetect(evt, src, si, asol):
 
     CIAO(
         "dmcopy",
-        f"{evt}[(x,y)=circle({x},{y},{radius/pixel})]",
+        f"{evt}[(x,y)=circle({x},{y},{radius / pixel})]",
         evt2,
         clobber="yes",
     )
@@ -51,12 +51,12 @@ def celldetect(evt, src, si, asol):
         background="none",
         asol=asol,
     )
-    assert (
-        workdir / f"{root}_{band}_thresh.img"
-    ).exists(), f"{workdir}/{root}_{band}_thresh.img does not exist"
-    assert (
-        workdir / f"{root}_{band}_thresh.psfmap"
-    ).exists(), f"{workdir}/{root}_{band}_thresh.psfmap does not exist"
+    assert (workdir / f"{root}_{band}_thresh.img").exists(), (
+        f"{workdir}/{root}_{band}_thresh.img does not exist"
+    )
+    assert (workdir / f"{root}_{band}_thresh.psfmap").exists(), (
+        f"{workdir}/{root}_{band}_thresh.psfmap does not exist"
+    )
 
     CIAO(
         "celldetect",
@@ -80,7 +80,9 @@ def main():
     for _, obsid, i in obsids_to_check.OBS:
         try:
             obsdir = (
-                Path("reprodata").absolute() / f"obs{obsid//1000:02d}" / f"{obsid:05d}"
+                Path("reprodata").absolute()
+                / f"obs{obsid // 1000:02d}"
+                / f"{obsid:05d}"
             )
             obsdir.mkdir(parents=True, exist_ok=True)
             CIAO = Ciao(

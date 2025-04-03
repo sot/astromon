@@ -62,9 +62,9 @@ def save(data, db_file):
     else:
         logger.info(f"{n} observations , {n_skip} skipped.")
     for k in skipped:
-        logger.warning(f'WARNING: {len(skipped[k])} {k} ({", ".join(skipped[k])})')
+        logger.warning(f"WARNING: {len(skipped[k])} {k} ({', '.join(skipped[k])})")
     for k in errors:
-        logger.warning(f'ERROR: {len(errors[k])} {k} ({", ".join(errors[k])})')
+        logger.warning(f"ERROR: {len(errors[k])} {k} ({', '.join(errors[k])})")
 
     data = [d for d in data if "astromon_obs" in d and len(d["astromon_obs"]) > 0]
     if len(data) == 0:
@@ -86,7 +86,7 @@ def save(data, db_file):
             data[name] = vstack(data[name], metadata_conflicts="silent")
 
     logger.debug(
-        f'About to write {len(data["astromon_obs"])} observations to {db_file}'
+        f"About to write {len(data['astromon_obs'])} observations to {db_file}"
     )
     with db.connect(db_file, mode="r+") as con:
         for name in names:
@@ -321,8 +321,8 @@ def main():
             if n_exceptions:
                 exceptions_str = str(obsids[exceptions])[1:-1]
                 logger.info(
-                    f'skipping {n_exceptions} OBSID{"s" if n_exceptions > 1 else ""} '
-                    f'that {"are" if n_exceptions > 1 else "is"} on file already: {exceptions_str}'
+                    f"skipping {n_exceptions} OBSID{'s' if n_exceptions > 1 else ''} "
+                    f"that {'are' if n_exceptions > 1 else 'is'} on file already: {exceptions_str}"
                 )
             obsids = obsids[~exceptions].astype(str)
         except utils.MissingTableException:
@@ -332,7 +332,7 @@ def main():
         logger.info("All OBSIDs already processed")
         return
 
-    logger.info(f'will process the following obsids: {", ".join(obsids)}')
+    logger.info(f"will process the following obsids: {', '.join(obsids)}")
     task_args = [
         (int(obsid), args.workdir, args.log_level.upper(), args.archive_dir)
         for obsid in obsids

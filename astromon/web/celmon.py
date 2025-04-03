@@ -114,7 +114,7 @@ def plot_offsets_q_history(
         )
 
     # plt.legend(loc='upper left')
-    plt.title(f"dY")
+    plt.title("dY")
     plt.ylabel("offset (arcsec)")
     plt.ylim((-1.1, 1.1))
     plt.grid()
@@ -154,7 +154,7 @@ def plot_offsets_q_history(
         )
 
     # plt.legend(loc='upper left')
-    plt.title(f"dZ")
+    plt.title("dZ")
     plt.ylabel("offset (arcsec)")
     plt.ylim((-1.1, 1.1))
     plt.grid()
@@ -241,7 +241,7 @@ def plot_cdf_3(
         plt.text(
             r + 0.02,
             0.1,
-            f"{r:.2} arcsec, {q*100:.0f}%",
+            f"{r:.2} arcsec, {q * 100:.0f}%",
             rotation="vertical",
             horizontalalignment="left",
         )
@@ -286,7 +286,7 @@ def plot_cdf(
         plt.text(
             r + 0.02,
             0.1,
-            f"{r:.2} arcsec, {q*100:.0f}%",
+            f"{r:.2} arcsec, {q * 100:.0f}%",
             rotation="vertical",
             horizontalalignment="left",
         )
@@ -451,7 +451,7 @@ def create_figures_mta(outdir, calalign_dir=None, use_reference_calalign=False):
     )
 
     _, _, quantiles = cdf_(matches)
-    result.update({f'q{100*q["q"]:.0f}': q["offset"] for q in quantiles})
+    result.update({f"q{100 * q['q']:.0f}": q["offset"] for q in quantiles})
     result["max_offset"] = np.abs(np.max(matches["dr"]))
     plot_offsets_history(
         all_matches,
@@ -506,7 +506,7 @@ def create_figures_mta(outdir, calalign_dir=None, use_reference_calalign=False):
         result.update(
             {
                 det.replace("-", "_"): {
-                    f'q{100*q["q"]:.0f}': q["offset"] for q in quantiles
+                    f"q{100 * q['q']:.0f}": q["offset"] for q in quantiles
                 }
             }
         )
@@ -581,7 +581,7 @@ def create_figures_cal(
     }
 
     bins, cdf, quantiles = cdf_(matches)
-    result.update({f'q{100*q["q"]:.0f}': q["offset"] for q in quantiles})
+    result.update({f"q{100 * q['q']:.0f}": q["offset"] for q in quantiles})
     result["max_offset"] = np.abs(np.max(matches["dr"]))
     plot_offsets_history(
         matches,
@@ -601,7 +601,7 @@ def create_figures_cal(
         result.update(
             {
                 det.replace("-", "_"): {
-                    f'q{100*q["q"]:.0f}': q["offset"] for q in quantiles
+                    f"q{100 * q['q']:.0f}": q["offset"] for q in quantiles
                 }
             }
         )

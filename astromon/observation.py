@@ -151,7 +151,7 @@ class Observation:
         self._clear = workdir is None
         self.tmp = tempfile.TemporaryDirectory() if workdir is None else None
         self.obsid = str(obsid)
-        subdir = f"obs{int(obsid)//1000:02d}"
+        subdir = f"obs{int(obsid) // 1000:02d}"
         self.workdir = (
             Path(self.tmp.name if workdir is None else workdir).expanduser()
             / subdir
@@ -364,7 +364,7 @@ class Observation:
         elif self._source == "arc5gl":
             return self._download_arc5gl(ftypes)
         if self._source is None:
-            raise Exception(f"No data source has been specified as fallback")
+            raise Exception("No data source has been specified as fallback")
         raise Exception(f'Unknown data source: "{self._source}"')
 
     @logging_call_decorator
@@ -572,7 +572,7 @@ class Observation:
         try:
             evt = list((self.workdir / "primary").glob("*evt2.fits*"))[0]
         except Exception:
-            raise SkippedWithWarning(f"evt2 file not found") from None
+            raise SkippedWithWarning("evt2 file not found") from None
 
         evt2 = str(evt).replace("evt2", "evt2_filtered")
 
@@ -598,10 +598,10 @@ class Observation:
         )
         x = self.ciao.pget("dmcoords", "x", logging_tag=str(self))
         y = self.ciao.pget("dmcoords", "y", logging_tag=str(self))
-        logger.info(f"{self} filtering circle({x},{y},{radius/pixel}).")
+        logger.info(f"{self} filtering circle({x},{y},{radius / pixel}).")
         self.ciao(
             "dmcopy",
-            f"{evt}[(x,y)=circle({x},{y},{radius/pixel})]",
+            f"{evt}[(x,y)=circle({x},{y},{radius / pixel})]",
             evt2,
             logging_tag=str(self),
         )
@@ -620,11 +620,11 @@ class Observation:
         try:
             evt = list((self.workdir / "primary").glob("*evt2.fits*"))[0]
         except Exception:
-            raise Exception(f"evt2 file not found   ") from None
+            raise Exception("evt2 file not found   ") from None
 
         src = self.workdir / "sources" / f"{self.obsid}_baseline.src"
         if not src.exists():
-            raise Exception(f"src file not found   ")
+            raise Exception("src file not found   ")
         src2 = str(src).replace("baseline", "filtered")
 
         self.ciao("dmkeypar", evt, "RA_PNT", logging_tag=str(self))
@@ -635,7 +635,7 @@ class Observation:
         self.ciao("dmcoords", evt, op="cel", celfmt="deg", ra=ra, dec=dec)
         x = self.ciao.pget("dmcoords", "x", logging_tag=str(self))
         y = self.ciao.pget("dmcoords", "y", logging_tag=str(self))
-        filters = [f"psfratio=:{psfratio}", f"(x,y)=circle({x},{y},{radius/pixel})"]
+        filters = [f"psfratio=:{psfratio}", f"(x,y)=circle({x},{y},{radius / pixel})"]
         filters = ",".join(filters)
         self.ciao("dmcopy", f"{src}[{filters}]", src2, logging_tag=str(self))
 
@@ -685,7 +685,7 @@ class Observation:
         obsid_info = self.get_info()
 
         ok = (
-            not int(obsid_info["obsid"]) in _multi_obi_obsids
+            int(obsid_info["obsid"]) not in _multi_obi_obsids
             # and obsid_info['category_id'] not in [110]
             and obsid_info["obs_mode"] == "POINTING"
             # and obsid_info['grating'] == 'NONE'
@@ -699,7 +699,7 @@ class Observation:
             )
         )
         if not ok:
-            raise Skipped(f"does not fulfill observation requirements")
+            raise Skipped("does not fulfill observation requirements")
 
         # Repro
         # repro(self.obsid)
@@ -823,8 +823,8 @@ class Observation:
             "bpix": (f"{instrument}1[*bpix*]", "primary"),
             "flt": (f"{instrument}1[*flt*]", "secondary"),
             "stat": (f"{instrument}1[*stat*]", "secondary"),
-            "asol": (f"asp1[*asol*]", "secondary"),
-            "acal": (f"asp1[*acal*]", "secondary"),
+            "asol": ("asp1[*asol*]", "secondary"),
+            "acal": ("asp1[*acal*]", "secondary"),
             "dtf": (f"{instrument}1[*dtf1*]", "primary"),
             # 'pbk': f'{instrument}0[*pbk0*]',
             # 'bias': f'{instrument}0[*bias*]',
