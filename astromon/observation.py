@@ -3,6 +3,7 @@
 
 import argparse
 import collections
+import functools
 import json
 
 # import sys
@@ -106,6 +107,19 @@ class SkippedWithWarning(FlowException):
     """
 
 
+@functools.cache
+def ciao_fails(ciao_prefix, workdir):
+    try:
+        Ciao(
+            prefix=ciao_prefix,
+            workdir=workdir,
+            logger="astromon",
+        )
+        return ""
+    except Exception as e:
+        return f"CIAO could not be initialized: {e}"
+
+
 class Observation:
     """
     Class to encapsulate calls to CIAO and arc5gl.
@@ -143,7 +157,8 @@ class Observation:
         archive_regex=None,
         use_ciao=True,
     ):
-        use_ciao = use_ciao or ciao_prefix
+        self.use_ciao = use_ciao or ciao_prefix
+        self.ciao_prefix = ciao_prefix
         self._clear = workdir is None
         self.tmp = tempfile.TemporaryDirectory() if workdir is None else None
         self.obsid = str(obsid)
@@ -175,20 +190,31 @@ class Observation:
         self._source = source
         logger.info(f"{self} starting. Context: {self.workdir}")
         self._rebin = False
-        self.ciao = None
-        if use_ciao:
-            try:
-                self.ciao = Ciao(
-                    prefix=ciao_prefix,
-                    workdir=self.workdir / "param",
-                    logger="astromon",
-                )
-            except Exception as e:
-                logger.warning(f"CIAO could not be initialized: {e}")
+        self.ciao_ = None
+        # ciao is initialized only if needed, but we make this check at the very beginning
+        # so the user gets a warning at the top if calling CIAO will likely fail
+        if self.use_ciao and (msg := ciao_fails(ciao_prefix, workdir)):
+            self.use_ciao = False
+            logger.warning(msg)
 
     is_hrc = property(lambda self: self.get_obspar()["instrume"].lower() == "hrc")
 
     is_acis = property(lambda self: self.get_obspar()["instrume"].lower() == "acis")
+
+    def get_ciao(self):
+        if self.use_ciao and self.ciao_ is None:
+            try:
+                self.ciao_ = Ciao(
+                    prefix=self.ciao_prefix,
+                    workdir=self.workdir / "param",
+                    logger="astromon",
+                )
+            except Exception as e:
+                self.use_ciao = False
+                logger.warning(f"CIAO could not be initialized: {e}")
+        return self.ciao_
+
+    ciao = property(get_ciao)
 
     def __del__(self):
         if hasattr(self, "_clear") and self._clear:
