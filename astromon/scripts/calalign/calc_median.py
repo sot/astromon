@@ -18,10 +18,6 @@ from astromon import db
 
 matplotlib.style.use("bmh")
 
-assert db.FILE.name[-3:] == ".h5", (
-    "Using old astromon file, define ASTROMON_FILE env var."
-)
-
 
 def get_bins(years, bins_per_year=2):
     years = np.atleast_1d(years)
@@ -78,7 +74,7 @@ def filter_xcorr(xcorr, *, snr=None, r_angle=None, start=None, stop=None, **kwar
     return xcorr[ok]
 
 
-def plot_corr_srcs(xcorr, medians, start, stop, ms=1, **kwargs):
+def plot_corr_srcs(xcorr, medians, start, stop, ms=1, **_kwargs):
     """Plot astrometry offsets and return a new table with offsets included."""
     x = np.zeros((2, len(medians)))
     x[0] = medians["start"].frac_year
@@ -157,7 +153,7 @@ def main():
     ]
     bad_targets = [x.replace(" ", "").lower() for x in bad_targets]
     for ii, target in enumerate(matches["target"]):
-        target = target.replace(" ", "").lower()
+        target = target.replace(" ", "").lower()  # noqa: PLW2901
         for bad_target in bad_targets:
             if target.startswith(bad_target):
                 ok[ii] = False
@@ -169,8 +165,6 @@ def main():
     years_dz_binned, dz_binned, dz_bins = binned_median(
         matches["year"], matches["dz"], bins_per_year=args.bins_per_year
     )
-
-    assert np.all(dy_bins == dy_bins)
 
     medians = Table()
     medians["start"] = CxoTime(dy_bins[:-1], format="frac_year")

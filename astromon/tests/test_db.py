@@ -136,7 +136,7 @@ def test_regions():
         regions_ref = Table(
             [[1, 2], [0.0, 1.0], [0.0, 0.0], [5, 5], [0, 0], ["me", "them"], ["", ""]],
             dtype=db.ASTROMON_REGION_DTYPE,
-            names=[name for name in db.ASTROMON_REGION_DTYPE.names],
+            names=list(db.ASTROMON_REGION_DTYPE.names),
         )
         assert regions.colnames == regions_ref.colnames, "col names"
         dtypes_differ = [
@@ -157,7 +157,7 @@ def test_regions():
         regions_ref = Table(
             [[2], [1.0], [0.0], [5], [0], ["them"], [""]],
             dtype=db.ASTROMON_REGION_DTYPE,
-            names=[name for name in db.ASTROMON_REGION_DTYPE.names],
+            names=list(db.ASTROMON_REGION_DTYPE.names),
         )
         assert regions.colnames == regions_ref.colnames, "col names"
         dtypes_differ = [
@@ -216,7 +216,7 @@ def test_regions():
         regions_ref = Table(
             [[3, 4], [0.0, 1.0], [0.0, 0.0], [5, 5], [0, 0], ["me", "them"], ["", ""]],
             dtype=db.ASTROMON_REGION_DTYPE,
-            names=[name for name in db.ASTROMON_REGION_DTYPE.names],
+            names=list(db.ASTROMON_REGION_DTYPE.names),
         )
         assert regions.colnames == regions_ref.colnames, "col names"
         for name in regions.colnames:

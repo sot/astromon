@@ -1,8 +1,7 @@
 #!/usr/bin/env python
 
 """
-Compute the Celestial location radius RMS corresponding to the PRD requirement
-of 1.0 arcsec.
+Compute the Celestial location radius RMS corresponding to the PRD requirement of 1.0 arcsec.
 """
 
 import argparse
@@ -48,8 +47,10 @@ def main():
         dat = dat[~no_version]
 
     select_name = np.unique(dat["select_name"])
-    assert len(select_name) <= 1, "More than one selection"
-    assert len(dat), "no data"
+    if len(select_name) > 1:
+        raise Exception("More than one selection")
+    if len(dat) == 0:
+        raise Exception("no data")
     select_name = select_name[0]
 
     if args.use_latest_calalign:
@@ -62,8 +63,8 @@ def main():
         with open(args.offsets_file) as fh:
             offsets = json.load(fh)
         times = CxoTime([of["tstart"] for of in offsets])
-        dy = np.array([0.0] + list([of["dy"] for of in offsets]))
-        dz = np.array([0.0] + list([of["dz"] for of in offsets]))
+        dy = np.array([0.0] + [of["dy"] for of in offsets])
+        dz = np.array([0.0] + [of["dz"] for of in offsets])
         time_bin = np.digitize(dat["time"].cxcsec, times.cxcsec)
         dat["dy"] -= dy[time_bin]
         dat["dz"] -= dz[time_bin]

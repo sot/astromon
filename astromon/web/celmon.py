@@ -68,8 +68,10 @@ def plot_offsets_q_history(
     dz_median,
     filename="offsets-q-history.png",
 ):
-    assert dy_median is not None
-    assert dz_median is not None
+    if dy_median is None:
+        raise RuntimeError("dy_median is None")
+    if dz_median is None:
+        raise RuntimeError("dz_median is None")
 
     after = matches["after_caldb"]
     # tmax = np.min(matches["time"][after])
@@ -189,7 +191,7 @@ def cdf_(matches, quantiles=(0.68, 0.90, 0.99)):
 def plot_cdf_3(
     all_matches,
     col,
-    quantiles=[],
+    quantiles=(),
     groupby="year_bin_2",
     title="",
     filename=None,
@@ -229,9 +231,9 @@ def plot_cdf_3(
         linewidth=2,
     )
     # print(quantiles)
-    for q in quantiles:
-        r = q["offset"]
-        q = q["q"]
+    for quant in quantiles:
+        r = quant["offset"]
+        q = quant["q"]
         if r > plt.xlim()[1]:
             continue
         plt.plot([0.0, r], [q, q], "--", color="b", linewidth=1)
@@ -274,9 +276,9 @@ def plot_cdf(
     plt.xlim((0, 1.1))
     plt.ylim((0, 1.0))
 
-    for q in quantiles:
-        r = q["offset"]
-        q = q["q"]
+    for quant in quantiles:
+        r = quant["offset"]
+        q = quant["q"]
         if r > plt.xlim()[1]:
             continue
         plt.plot([0.0, r], [q, q], "--", color="b", linewidth=1)
@@ -369,7 +371,7 @@ def plot_cdf_2(
     else:
         plt.xlim((bins[0], bins[-1]))
 
-    for j, i in enumerate(range(0, imax)):
+    for i in range(imax):
         b = bmax - i
         if b not in g[groupby]:
             continue

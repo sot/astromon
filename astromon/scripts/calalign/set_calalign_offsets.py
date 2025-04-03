@@ -34,7 +34,9 @@ def apply_calalign_shift(tstart, tstop, in_file, out_file, dy, dz, date, clobber
 
     hdus[0].header["HISTORY"] = "CALALIGN updated"
 
-    assert hdus[1].name == "CALALIGN"
+    if hdus[1].name != "CALALIGN":
+        raise ValueError(f"Expected and HDU named CALALIGN, got {hdus[1].name}")
+
     for row in hdus[1].data:
         sy = np.sin(dy * A2R)
         cy = np.cos(dy * A2R)

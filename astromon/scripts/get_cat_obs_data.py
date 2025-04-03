@@ -61,10 +61,10 @@ def save(data, db_file):
         logger.warning(f"WARNING: {n} observations , {n_skip} skipped.")
     else:
         logger.info(f"{n} observations , {n_skip} skipped.")
-    for k in skipped:
-        logger.warning(f"WARNING: {len(skipped[k])} {k} ({', '.join(skipped[k])})")
-    for k in errors:
-        logger.warning(f"ERROR: {len(errors[k])} {k} ({', '.join(errors[k])})")
+    for key, val in skipped.items():
+        logger.warning(f"WARNING: {len(val)} {key} ({', '.join(val)})")
+    for key, val in errors.items():
+        logger.warning(f"ERROR: {len(val)} {key} ({', '.join(val)})")
 
     data = [d for d in data if "astromon_obs" in d and len(d["astromon_obs"]) > 0]
     if len(data) == 0:
@@ -94,7 +94,7 @@ def save(data, db_file):
                 db.save(name, data[name], con)
 
 
-def process(obsid, workdir, log_level, archive_dir):
+def process(obsid, workdir, log_level, archive_dir):  # noqa: PLR0915
     """
     This is where the actual work is done.
     """
@@ -260,7 +260,7 @@ def get_parser():
     return parser
 
 
-def main():
+def main():  # noqa: PLR0912, PLR0915
     """
     Main routine that deals with processing arguments, output and such.
     """

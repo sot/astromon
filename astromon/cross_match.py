@@ -89,7 +89,7 @@ def get_vizier(
         vizier_result = vizier.query_region(
             pos, radius=radius, catalog=cat_identifier, cache=False
         )
-        vizier_result = [r for r in vizier_result]
+        vizier_result = list(vizier_result)
     else:
         vizier_result = [
             _get_vizier(
@@ -134,79 +134,79 @@ def get_vizier(
 
 
 VIZIER_CATALOGS = {
-    "Tycho2": dict(
-        catalog="Tycho2",
-        cat_identifier="I/259/tyc2",
-        name_cols=["TYC1", "TYC2", "TYC3"],
-        columns={
+    "Tycho2": {
+        "catalog": "Tycho2",
+        "cat_identifier": "I/259/tyc2",
+        "name_cols": ["TYC1", "TYC2", "TYC3"],
+        "columns": {
             "ra": "_RAJ2000_{time.frac_year:.3f}",
             "dec": "_DEJ2000_{time.frac_year:.3f}",
             "mag": "VTmag",
         },
-    ),
+    },
     # https://vizier.u-strasbg.fr/viz-bin/VizieR?-source=I/323
-    "ICRS": dict(
-        catalog="ICRS",
-        cat_identifier="I/323",
-        name_cols=["ICRF"],
-        columns={"ra": "_RAJ2000", "dec": "_DEJ2000"},
-    ),
+    "ICRS": {
+        "catalog": "ICRS",
+        "cat_identifier": "I/323",
+        "name_cols": ["ICRF"],
+        "columns": {"ra": "_RAJ2000", "dec": "_DEJ2000"},
+    },
     # https://vizier.u-strasbg.fr/viz-bin/VizieR?-source=I/284
-    "USNO-B1.0": dict(
-        catalog="USNO-B1.0",
-        cat_identifier="USNO-B1.0",
-        name_cols=["USNO-B1.0"],
-        columns={"ra": "_RAJ2000", "dec": "_DEJ2000", "mag": "R1mag"},
-    ),
+    "USNO-B1.0": {
+        "catalog": "USNO-B1.0",
+        "cat_identifier": "USNO-B1.0",
+        "name_cols": ["USNO-B1.0"],
+        "columns": {"ra": "_RAJ2000", "dec": "_DEJ2000", "mag": "R1mag"},
+    },
     # http://vizier.u-strasbg.fr/viz-bin/VizieR?-source=I/239
-    "HIP": dict(
-        catalog="HIP",
-        cat_identifier="I/239/hip_main",
-        name_cols=["HIP"],
-        columns={"ra": "_RAJ2000", "dec": "_DEJ2000", "mag": "Vmag"},
-    ),
+    "HIP": {
+        "catalog": "HIP",
+        "cat_identifier": "I/239/hip_main",
+        "name_cols": ["HIP"],
+        "columns": {"ra": "_RAJ2000", "dec": "_DEJ2000", "mag": "Vmag"},
+    },
     # http://vizier.u-strasbg.fr/viz-bin/VizieR?-source=I/311
     # https://heasarc.gsfc.nasa.gov/W3Browse/all/hipnewcat.html
-    "HIP2": dict(
-        catalog="HIP",
-        cat_identifier="I/311/hip2",
-        name_cols=["HIP"],
-        columns={
+    "HIP2": {
+        "catalog": "HIP",
+        "cat_identifier": "I/311/hip2",
+        "name_cols": ["HIP"],
+        "columns": {
             "ra": "_RAJ2000",
             "dec": "_DEJ2000",
             "mag": "Vmag",
         },
-    ),
+    },
     # http://vizier.u-strasbg.fr/viz-bin/VizieR?-source=I/322
-    "UCAC4": dict(
-        catalog="UCAC4",
-        cat_identifier="I/322",
-        name_cols=["UCAC4"],
-        columns={"ra": "_RAJ2000", "dec": "_DEJ2000", "mag": "f.mag"},
-    ),
-    "2MASS": dict(
-        catalog="2MASS",
-        cat_identifier="II/246/out",
-        name_cols=["_2MASS"],
-        columns={"ra": "_RAJ2000", "dec": "_DEJ2000", "mag": "Kmag"},
-    ),
-    "SDSS": dict(
-        catalog="SDSS",
-        cat_identifier="II/294",
-        name_cols=["SDSS"],
-        columns={
+    "UCAC4": {
+        "catalog": "UCAC4",
+        "cat_identifier": "I/322",
+        "name_cols": ["UCAC4"],
+        "columns": {"ra": "_RAJ2000", "dec": "_DEJ2000", "mag": "f.mag"},
+    },
+    "2MASS": {
+        "catalog": "2MASS",
+        "cat_identifier": "II/246/out",
+        "name_cols": ["_2MASS"],
+        "columns": {"ra": "_RAJ2000", "dec": "_DEJ2000", "mag": "Kmag"},
+    },
+    "SDSS": {
+        "catalog": "SDSS",
+        "cat_identifier": "II/294",
+        "name_cols": ["SDSS"],
+        "columns": {
             "ra": "_RAJ2000_{time.frac_year:.3f}",
             "dec": "_DEJ2000_{time.frac_year:.3f}",
             "mag": "rmag",
         },
-    ),
+    },
     # https://vizier.u-strasbg.fr/viz-bin/VizieR-3?-source=I/345/gaia2
-    "Gaia2": dict(
-        catalog="Gaia2",
-        cat_identifier="I/345/gaia2",
-        name_cols=["Source"],
-        columns={"ra": "_RA_ICRS", "dec": "_DE_ICRS", "mag": "Gmag"},
-    ),
+    "Gaia2": {
+        "catalog": "Gaia2",
+        "cat_identifier": "I/345/gaia2",
+        "name_cols": ["Source"],
+        "columns": {"ra": "_RA_ICRS", "dec": "_DE_ICRS", "mag": "Gmag"},
+    },
 }
 
 
@@ -220,13 +220,12 @@ def _get(
     logging_tag="",
     raw=False,
 ):
-    assert (ra is not None and dec is not None) or pos is not None, (
-        "pos or ra/dec required"
-    )
+    if (ra is None or dec is None) and pos is None:
+        raise Exception("pos or ra/dec required")
     if pos is None:
         pos = coords.SkyCoord(ra=ra, dec=dec, unit="deg", frame="icrs", obstime=time)
-    else:
-        assert ra is None and dec is None, "ra/dec not required if giving pos"
+    elif ra is not None or dec is not None:
+        raise Exception("ra/dec not required if giving pos")
     params = VIZIER_CATALOGS[catalog].copy()
     columns = {}
     for name, col in params["columns"].items():
@@ -242,6 +241,8 @@ def rough_match(
     catalogs=("Tycho2", "ICRS", "USNO-B1.0", "2MASS", "SDSS"),
 ):
     """
+    Find sources in a set of :ref:`catalogs <catalog-list>` around the x-ray sources given.
+
     Find sources in a set of :ref:`catalogs <catalog-list>` around the x-ray sources given
     in `sources`,  within an angular separation of at most `radius`
     (in :any:`astropy units <astropy:astropy-units>`).
@@ -279,9 +280,8 @@ def rough_match(
         return []
 
     if "obsid" in sources.dtype.names:
-        assert len(np.unique(sources["obsid"])) <= 1, (
-            "rough_match only handles one OBSID at a time"
-        )
+        if len(np.unique(sources["obsid"])) > 1:
+            raise Exception("rough_match only handles one OBSID at a time")
         logging_tag = f"OBSID={sources['obsid'][0]} "
     else:
         logging_tag = ""
@@ -295,7 +295,7 @@ def rough_match(
         _get(pos=pos, time=time, radius=radius, catalog=name, logging_tag=logging_tag)
         for name in catalogs
     ]
-    res = table.vstack([r for r in res], metadata_conflicts="silent")
+    res = table.vstack(list(res), metadata_conflicts="silent")
 
     if len(sources) and len(res):
         sources["coord_xray"] = coords.SkyCoord(
@@ -362,9 +362,9 @@ def get_bad_target_mask(matches):
     ]
     bad_targets = [x.replace(" ", "").lower() for x in bad_targets]
     for ii, target in enumerate(matches["target"]):
-        target = target.replace(" ", "").lower()
+        trgt = target.replace(" ", "").lower()
         for bad_target in bad_targets:
-            if target.startswith(bad_target):
+            if trgt.startswith(bad_target):
                 ok[ii] = False
     return ~ok
 
@@ -394,7 +394,7 @@ def get_excluded_regions_mask(matches, regions=None):
     return np.any(in_region, axis=0)
 
 
-def filter_matches(
+def filter_matches(  # noqa: PLR0912
     matches,
     snr=None,
     dr=None,
@@ -472,9 +472,9 @@ def filter_matches(
 
     if sim_z is not None:
         sim_z_offset = np.zeros(len(matches))
-        for det in SIM_Z:
+        for det, det_sim_z in SIM_Z.items():
             msk = matches["detector"] == det
-            sim_z_offset[msk] = matches["sim_z"][msk] - SIM_Z[det]
+            sim_z_offset[msk] = matches["sim_z"][msk] - det_sim_z
         ok &= np.abs(sim_z_offset) <= sim_z
 
     if exclude_categories:
@@ -768,7 +768,7 @@ def simple_cross_match(
     mg = matches.group_by(["obsid", "x_id"])
     indices = mg.groups.indices
     idxs = []
-    for i0, i1 in zip(indices[:-1], indices[1:]):
+    for i0, i1 in zip(indices[:-1], indices[1:], strict=False):
         idxs_sort = np.lexsort((mg["dr"][i0:i1], mg["cat_order"][i0:i1]))
         idxs.append(i0 + idxs_sort[0])
     result = mg[idxs]

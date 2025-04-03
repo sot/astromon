@@ -51,12 +51,10 @@ def celldetect(evt, src, si, asol):
         background="none",
         asol=asol,
     )
-    assert (workdir / f"{root}_{band}_thresh.img").exists(), (
-        f"{workdir}/{root}_{band}_thresh.img does not exist"
-    )
-    assert (workdir / f"{root}_{band}_thresh.psfmap").exists(), (
-        f"{workdir}/{root}_{band}_thresh.psfmap does not exist"
-    )
+    if not (workdir / f"{root}_{band}_thresh.img").exists():
+        raise Exception(f"{workdir}/{root}_{band}_thresh.img does not exist")
+    if not (workdir / f"{root}_{band}_thresh.psfmap").exists():
+        raise Exception(f"{workdir}/{root}_{band}_thresh.psfmap does not exist")
 
     CIAO(
         "celldetect",
@@ -71,10 +69,10 @@ def celldetect(evt, src, si, asol):
 
 def run_cmd(*cmd):
     print(" ".join(cmd))
-    subprocess.run(cmd)
+    subprocess.run(cmd, check=False)
 
 
-def main():
+def main():  # noqa: PLR0915
     RUNASP = "/proj/sot/ska/jgonzalez/aca_cal_align/update_2022-feb/runasp/runasp.py"
 
     for _, obsid, i in obsids_to_check.OBS:
@@ -165,13 +163,15 @@ def main():
             if not new_src2.exists():
                 print(f"making new src list for {obsid}")
                 celldetect(evt=corr_evt2, src=new_src2, si=si, asol=new_asol)
-                assert new_src2.exists(), "Failed creating new source list"
+                if not new_src2.exists():
+                    raise Exception("Failed creating new source list")
 
             old_src2 = obsdir / "reproject" / "old_src2.fits"
             if not old_src2.exists():
                 print(f"making old src list for {obsid}")
                 celldetect(evt=uncorr_evt2, src=old_src2, si=si, asol=old_asol)
-                assert old_src2.exists(), "Failed creating old source list"
+                if not old_src2.exists():
+                    raise Exception("Failed creating old source list")
         except Exception as e:
             print(f"failed {obsid}: {e}")
             exc_type, exc_value, exc_traceback = sys.exc_info()

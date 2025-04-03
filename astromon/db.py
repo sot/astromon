@@ -256,10 +256,12 @@ def save(table_name, data, dbfile):
         The default is `$ASTROMON_FILE` or `$SKA/data/astromon/astromon.h5`
     """
     with connect(dbfile, mode="r+") as h5:
-        # sanity checks: assert that file is open for writing
-        assert h5.isopen, f"{h5.filename} is not open"
-        assert h5.mode in ["r+", "w"], f"{h5.filename} is not open for writing"
-        assert isinstance(data, table.Table), "input to _save_hdf5 must be a table"
+        if not h5.isopen:
+            raise RuntimeError(f"{h5.filename} is not open")
+        if h5.mode not in ["r+", "w"]:
+            raise RuntimeError(f"{h5.filename} is not open for writing")
+        if not isinstance(data, table.Table):
+            raise TypeError("input to _save_hdf5 must be a table")
 
         if table_name in DTYPES:
             dtype = DTYPES[table_name]

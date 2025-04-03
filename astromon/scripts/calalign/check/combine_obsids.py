@@ -31,7 +31,7 @@ IMG_CENTER_LABEL = {
 }
 
 
-def do_events():
+def do_events():  # noqa: PLR0915
     print("doing events")
     reprodir = Path("reprodata")
     obsdirs = sorted(reprodir.glob("*/*"))
