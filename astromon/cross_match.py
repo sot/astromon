@@ -768,7 +768,7 @@ def simple_cross_match(
     mg = matches.group_by(["obsid", "x_id"])
     indices = mg.groups.indices
     idxs = []
-    for i0, i1 in zip(indices[:-1], indices[1:], strict=False):
+    for i0, i1 in zip(indices[:-1], indices[1:], strict=True):
         idxs_sort = np.lexsort((mg["dr"][i0:i1], mg["cat_order"][i0:i1]))
         idxs.append(i0 + idxs_sort[0])
     result = mg[idxs]

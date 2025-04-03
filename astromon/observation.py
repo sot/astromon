@@ -744,11 +744,11 @@ class Observation:
             for c in zip(
                 ["RA", "DEC", "COMPONENT", "NET_COUNTS", "SNR", "PSFRATIO"],
                 ["ra", "dec", "id", "net_counts", "snr", "psfratio"],
-                strict=False,
+                strict=True,
             )
             if c[0] in sources.colnames
         ]
-        sources.rename_columns(*list(zip(*columns, strict=False)))
+        sources.rename_columns(*list(zip(*columns, strict=True)))
 
         sources["obsid"] = int(self.obsid)
         sources["y_angle"], sources["z_angle"] = radec_to_yagzag(
