@@ -175,7 +175,6 @@ class Observation:
         self._source = source
         logger.info(f"{self} starting. Context: {self.workdir}")
         self._rebin = False
-        self._is_hrc = self.get_obspar()["instrume"].lower() == "hrc"
         self.ciao = None
         if use_ciao:
             try:
@@ -186,6 +185,10 @@ class Observation:
                 )
             except Exception as e:
                 logger.warning(f"CIAO could not be initialized: {e}")
+
+    is_hrc = property(lambda self: self.get_obspar()["instrume"].lower() == "hrc")
+
+    is_acis = property(lambda self: self.get_obspar()["instrume"].lower() == "acis")
 
     def __del__(self):
         if hasattr(self, "_clear") and self._clear:
@@ -459,18 +462,18 @@ class Observation:
 
         outdir.mkdir(exist_ok=True)
 
-        band = "wide" if self._is_hrc is True else "broad"
+        band = "wide" if self.is_hrc is True else "broad"
         self.ciao(
             "fluximage",
             infile=evt,
             outroot=outdir / self.obsid,
             bands=band,
-            binsize=(4 if self._rebin else 1) if self._is_hrc is True else 1,
+            binsize=(4 if self._rebin else 1) if self.is_hrc is True else 1,
             psfecf=0.9,
             background="none",
             logging_tag=str(self),
         )
-        if self.get_obspar()["instrume"] == "ACIS":
+        if self.is_acis:
             pileup_file = outdir / (self.obsid + "_pileup.img")
             pileup_max_file = outdir / (self.obsid + "_pileup_max.img")
             self.ciao(
@@ -513,7 +516,7 @@ class Observation:
         detdir = self.workdir / "sources"
         detdir.mkdir(parents=True, exist_ok=True)
 
-        band = "wide" if self._is_hrc else "broad"
+        band = "wide" if self.is_hrc else "broad"
         root = f"{self.obsid}_{edition}"
 
         outfile = detdir / (root + ".src")
@@ -551,7 +554,7 @@ class Observation:
         """
         # Find sources in the small field
         imgdir = self.workdir / "images"
-        band = "wide" if self._is_hrc else "broad"
+        band = "wide" if self.is_hrc else "broad"
         self.ciao(
             "celldetect",
             imgdir / f"{self.obsid}_{band}_thresh.img",
@@ -570,8 +573,8 @@ class Observation:
         Filter x-ray events outside a radius around the optical axis.
         """
         # I'm using a fixed pixel size of 0.5 arcsec, but this might need fixing
-        pixel = 1 if self._is_hrc else 0.5
-        if self._rebin and self._is_hrc:
+        pixel = 1 if self.is_hrc else 0.5
+        if self._rebin and self.is_hrc:
             pixel *= 2
         try:
             evt = list((self.workdir / "primary").glob("*evt2.fits*"))[0]
@@ -620,8 +623,8 @@ class Observation:
         Filter detected sources outside a radius around the optical axis.
         """
         # I'm using a fixed pixel size of 0.5 arcsec, but this might need fixing
-        pixel = 1 if self._is_hrc else 0.5
-        if self._rebin and self._is_hrc:
+        pixel = 1 if self.is_hrc else 0.5
+        if self._rebin and self.is_hrc:
             pixel *= 2
         try:
             evt = list((self.workdir / "primary").glob("*evt2.fits*"))[0]
@@ -653,7 +656,7 @@ class Observation:
         Re-compute centroids.
         """
         src_hdus = fits.open(self.workdir / "sources" / f"{self.obsid}_baseline.src")
-        band = "wide" if self._is_hrc else "broad"
+        band = "wide" if self.is_hrc else "broad"
         img = self.workdir / "images" / f"{self.obsid}_{band}_flux.img"
 
         if not img.exists():
