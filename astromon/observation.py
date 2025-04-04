@@ -153,6 +153,7 @@ class Observation:
             / subdir
             / self.obsid
         )
+        self.workdir.mkdir(parents=True, exist_ok=True)
         self.archive_dir = (
             (Path(archive_dir).expanduser() / subdir / self.obsid)
             if archive_dir
