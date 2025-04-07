@@ -556,11 +556,31 @@ class Observation:
             clobber="yes",  # clobber will overwrite partially archived results
         )
         if self.is_acis:
+            # for estimating pileup we will not use the filtered image
+            # this is because when events are filtered out, the pileup estimate will be wrong
+            # in our case, sources can come in and out of the selected region, and for the pileup
+            # estimate we want all of them, so we make a new unfiltered image.
+            evt2 = list((self.workdir / "primary").glob("*_evt2.fits*"))[0]
+            unfiltered_image = outdir / f"{self.obsid}_unfiltered.img"
+            regions_file = outdir / f"{self.obsid}_regions.fits"
             pileup_file = outdir / (self.obsid + "_pileup.img")
-            pileup_max_file = outdir / (self.obsid + "_pileup_max.img")
+            pileup_smeared_file = outdir / (self.obsid + "_pileup_smeared.img")
+            self.ciao(
+                "skyfov",
+                evt2,
+                regions_file,
+                logging_tag=str(self),
+            )
+            self.ciao(
+                "dmcopy",
+                f"{evt}[sky=region({regions_file})][bin sky=1]",
+                unfiltered_image,
+                clobber="yes",
+                logging_tag=str(self),
+            )
             self.ciao(
                 "pileup_map",
-                infile=outdir / (self.obsid + "_" + band + "_thresh.img"),
+                infile=unfiltered_image,
                 outfile=pileup_file,
                 clobber="yes",
                 logging_tag=str(self),
@@ -568,9 +588,9 @@ class Observation:
             self.ciao(
                 "dmimgfilt",
                 infile=pileup_file,
-                outfile=pileup_max_file,
+                outfile=pileup_smeared_file,
                 fun="max",
-                mask="circle(0,0,3)",
+                mask="circle(0,0,4)",
                 clobber="yes",
                 logging_tag=str(self),
             )
