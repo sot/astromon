@@ -501,6 +501,20 @@ class Observation:
         """
         Create image. Also creates the exposure map and psfmap.
         """
+        outdir = self.file_path("images")
+        output_files = [
+            f"images/{self.obsid}_broad_thresh.img",
+            f"images/{self.obsid}.fov",
+            f"images/{self.obsid}_broad_thresh.expmap",
+            f"images/{self.obsid}_broad_thresh.psfmap",
+            f"images/{self.obsid}_broad_flux.img",
+        ]
+        missing_output = [fn for fn in output_files if not self.file_path(fn).exists()]
+        if not missing_output:
+            logger.info(f"{self}   directory {outdir} exists, skipping")
+            return
+
+        self.download(["evt2", "fov", "asol", "msk", "bpix", "dtf"])
 
         if evt is None:
             evtfiles = self.file_glob("primary/*_evt2_filtered.fits*")
@@ -527,11 +541,6 @@ class Observation:
             raise Exception(f"Expected 1 FOV file, there are {len(fov_files)}")
         fov_file = fov_files[0]
 
-        outdir = self.workdir / "images"
-        if outdir.exists():
-            logger.info(f"{self}   directory {outdir} exists, skipping")
-            return
-
         outdir.mkdir(exist_ok=True)
 
         band = "wide" if self.is_hrc is True else "broad"
@@ -544,6 +553,7 @@ class Observation:
             psfecf=0.9,
             background="none",
             logging_tag=str(self),
+            clobber="yes",  # clobber will overwrite partially archived results
         )
         if self.is_acis:
             pileup_file = outdir / (self.obsid + "_pileup.img")
@@ -683,6 +693,8 @@ class Observation:
         """
         Filter x-ray events outside a radius around the optical axis.
         """
+        self.download(["evt2"])
+
         # I'm using a fixed pixel size of 0.5 arcsec, but this might need fixing
         pixel = 1 if self.is_hrc else 0.5
         if self._rebin and self.is_hrc:
@@ -735,6 +747,8 @@ class Observation:
         """
         Filter detected sources outside a radius around the optical axis.
         """
+        self.download(["evt2"])
+
         # I'm using a fixed pixel size of 0.5 arcsec, but this might need fixing
         pixel = 1 if self.is_hrc else 0.5
         if self._rebin and self.is_hrc:
@@ -822,12 +836,6 @@ class Observation:
         )
         if not ok:
             raise Skipped("does not fulfill observation requirements")
-
-        # try downloading only after checking requirements
-        self.download()
-
-        # Repro
-        # repro(self.obsid)
 
         # Analysis
         self.filter_events()
