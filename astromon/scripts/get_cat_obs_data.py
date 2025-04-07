@@ -15,7 +15,6 @@ from multiprocessing import Pool, set_start_method
 from pathlib import Path
 
 import numpy as np
-import pyyaks.logger
 import stk
 from astropy.table import Column, Table, vstack
 from chandra_aca.transform import radec_to_yagzag
@@ -23,6 +22,7 @@ from cxotime import CxoTime
 from cxotime import units as u
 from Quaternion import Quat
 from Ska.arc5gl import Arc5gl
+from ska_helpers.logging import basic_logger
 
 from astromon import db, utils
 from astromon.cross_match import compute_cross_matches, rough_match
@@ -98,7 +98,9 @@ def process(obsid, workdir, log_level, archive_dir):  # noqa: PLR0915
     """
     This is where the actual work is done.
     """
-    logger = pyyaks.logger.get_logger(name="astromon", level=log_level)
+    logger = basic_logger(
+        "astromon", level=log_level, format="%(asctime)s %(funcName)-25s: %(message)s"
+    )
     try:
         logger.info(f"OBSID={obsid} *** Processing OBSID {obsid} ***")
         observation = Observation(obsid, workdir, archive_dir=archive_dir)
@@ -269,7 +271,11 @@ def main():  # noqa: PLR0912, PLR0915
     parser = get_parser()
     args = parser.parse_args()
 
-    logger = pyyaks.logger.get_logger(name="astromon", level=args.log_level.upper())
+    logger = logging.basic_logger(
+        "astromon",
+        level=args.log_level.upper(),
+        format="%(asctime)s %(funcName)-25s: %(message)s",
+    )
 
     if args.workdir:
         workdir = Path(args.workdir)
