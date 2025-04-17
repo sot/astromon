@@ -199,6 +199,8 @@ class Observation:
             self.use_ciao = False
             logger.warning(msg)
 
+    is_multi_obi = property(lambda self: int(self.get_obspar()["obsid"]) in _multi_obi_obsids)
+
     is_hrc = property(lambda self: self.get_obspar()["instrume"].lower() == "hrc")
 
     is_acis = property(lambda self: self.get_obspar()["instrume"].lower() == "acis")
