@@ -469,10 +469,16 @@ class Observation:
                 if src.is_dir():
                     dest.mkdir(exist_ok=True, parents=True)
                     for src_2 in src.glob("**/*"):
+                        if src_2.is_dir():
+                            # Only files are copied. Parent directories are created automatically.
+                            # empty directories are not copied
+                            continue
                         dest_2 = destination / src_2.relative_to(self.workdir)
+                        dest_2.parent.mkdir(exist_ok=True, parents=True)
                         try:
                             shutil.copy(src_2, dest_2)
                         except shutil.SameFileError:
+                            # links to the same file are not copied
                             pass
                 else:
                     try:
