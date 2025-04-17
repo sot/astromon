@@ -501,18 +501,22 @@ class Observation:
         """
         Create image. Also creates the exposure map and psfmap.
         """
+        band = "wide" if self.is_hrc is True else "broad"
+
         outdir = self.file_path("images")
         output_files = [
-            f"images/{self.obsid}_broad_thresh.img",
+            f"images/{self.obsid}_{band}_thresh.img",
             f"images/{self.obsid}.fov",
-            f"images/{self.obsid}_broad_thresh.expmap",
-            f"images/{self.obsid}_broad_thresh.psfmap",
-            f"images/{self.obsid}_broad_flux.img",
+            f"images/{self.obsid}_{band}_thresh.expmap",
+            f"images/{self.obsid}_{band}_thresh.psfmap",
+            f"images/{self.obsid}_{band}_flux.img",
         ]
         missing_output = [fn for fn in output_files if not self.file_path(fn).exists()]
         if not missing_output:
             logger.info(f"{self}   directory {outdir} exists, skipping")
             return
+
+        logger.info(f"Making images ({','.join([Path(m).name for m in missing_output])})")
 
         self.download(["evt2", "fov", "asol", "msk", "bpix", "dtf"])
 
@@ -543,7 +547,6 @@ class Observation:
 
         outdir.mkdir(exist_ok=True)
 
-        band = "wide" if self.is_hrc is True else "broad"
         self.ciao(
             "fluximage",
             infile=evt,
