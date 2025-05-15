@@ -199,7 +199,9 @@ class Observation:
             self.use_ciao = False
             logger.warning(msg)
 
-    is_multi_obi = property(lambda self: int(self.get_obspar()["obsid"]) in _multi_obi_obsids)
+    is_multi_obi = property(
+        lambda self: int(self.get_obspar()["obsid"]) in _multi_obi_obsids
+    )
 
     is_hrc = property(lambda self: self.get_obspar()["instrume"].lower() == "hrc")
 
@@ -524,7 +526,9 @@ class Observation:
             logger.info(f"{self}   directory {outdir} exists, skipping")
             return
 
-        logger.info(f"Making images ({','.join([Path(m).name for m in missing_output])})")
+        logger.info(
+            f"Making images ({','.join([Path(m).name for m in missing_output])})"
+        )
 
         self.download(["evt2", "fov", "asol", "msk", "bpix", "dtf"])
 
@@ -1025,10 +1029,7 @@ class Observation:
             raise Exception(f"Expected 1 asol file, there are {len(asol_files)}")
         asol = asol_files[0]
 
-        args = [
-            evt,
-            f"asolfile={asol}"
-        ]
+        args = [evt, f"asolfile={asol}"]
         # if I do not unlearn, the following two calls in succession will hang
         # obs.dmcoords("theta", option="sky", x=4069.94266994267, y=4076.716625716626)
         # obs.dmcoords("theta", option="cel", celfmt="deg", ra=20.46451186, dec=-28.34952557)
