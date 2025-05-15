@@ -991,6 +991,52 @@ class Observation:
             calalign["caldb_version"] = hdus[1].header["CALDBVER"]
             return calalign
 
+    def dmcoords(self, name, **kwargs):
+        """
+        Call dmcoords with the given arguments.
+
+        Examples
+        --------
+
+        Get the off-axis angle, given (x, y) "sky" coordinates:
+
+            obs.dmcoords("theta", option="sky", x=4069.94266994267, y=4076.716625716626)
+
+        Get the off-axis angle, given (ra, dec) in celestial ("cel") coordinates:
+
+            obs.dmcoords("theta", option="cel", celfmt="deg", ra=20.46451186, dec=-28.34952557)
+
+        Parameters
+        ----------
+        name: str
+            Name of the output parameter.
+        kwargs: dict
+            Arguments to pass to dmcoords.
+        """
+        self.download(["evt2", "asol"])
+
+        evtfiles = self.file_glob("primary/*_evt2_filtered.fits*")
+        if len(evtfiles) != 1:
+            raise Exception(f"Expected 1 evt file, there are {len(evtfiles)}")
+        evt = evtfiles[0]
+
+        asol_files = self.file_glob(f"secondary/*{self.obsid}_*asol*fits*")
+        if len(asol_files) != 1:
+            raise Exception(f"Expected 1 asol file, there are {len(asol_files)}")
+        asol = asol_files[0]
+
+        args = [
+            evt,
+            f"asolfile={asol}"
+        ]
+        # if I do not unlearn, the following two calls in succession will hang
+        # obs.dmcoords("theta", option="sky", x=4069.94266994267, y=4076.716625716626)
+        # obs.dmcoords("theta", option="cel", celfmt="deg", ra=20.46451186, dec=-28.34952557)
+        self.ciao("punlearn", "dmcoords", logging_tag=str(self))
+        self.ciao("dmcoords", *args, logging_tag=str(self), **kwargs)
+        value = self.ciao.pget("dmcoords", name, logging_tag=str(self))
+        return np.array(value).astype(float)
+
 
 def get_parser():
     """
