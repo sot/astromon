@@ -4,6 +4,7 @@ import inspect
 # import logging
 # import functools
 import json
+import pickle
 from pathlib import Path
 
 from astropy.table import Table
@@ -94,6 +95,9 @@ class Cache:
                         return self.clear_cache_(filename, self.fmt, *args, **kwargs)
 
                     def clear_all(enh):
+                        """
+                        Clear all cache files for this function (for all stored parameters).
+                        """
                         if self.dir_attribute is None:
                             cache_location = self.cache_location
                         else:
@@ -104,6 +108,9 @@ class Cache:
                             filename.unlink(missing_ok=True)
 
                     def files(enh):
+                        """
+                        List all cache files for this function (for all stored parameters).
+                        """
                         if self.dir_attribute is None:
                             cache_location = self.cache_location
                         else:
@@ -179,6 +186,30 @@ class TableCache:
         return Path(filename)
 
 
+class PickleCache:
+    @staticmethod
+    def save(result, filename, force=False):
+        if filename.exists() and not force:
+            return
+        if not filename.parent.exists():
+            filename.parent.mkdir(parents=True, exist_ok=True)
+        with open(filename, "wb") as fh:
+            pickle.dump(result, fh)
+
+    @staticmethod
+    def load(filename):
+        if filename.exists():
+            with open(filename, "rb") as fh:
+                return pickle.load(fh)
+
+    @staticmethod
+    def sanitize_filename(filename):
+        filename = str(filename)
+        if not (filename.endswith((".pkl", ".pickle"))):
+            filename = filename + ".pkl"
+        return Path(filename)
+
+
 class JsonCache:
     @staticmethod
     def save(result, filename, force=False):
@@ -206,4 +237,5 @@ class JsonCache:
 FORMATS = {
     "table": TableCache,
     "json": JsonCache,
+    "pickle": PickleCache,
 }
