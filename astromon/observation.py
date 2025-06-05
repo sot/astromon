@@ -168,7 +168,10 @@ class Observation:
             / subdir
             / self.obsid
         )
-        self.workdir.mkdir(parents=True, exist_ok=True)
+        # checking if the workdir exists before creating seems to be faster that passing the
+        # exist_ok=True argument to mkdir
+        if not self.workdir.exists():
+            self.workdir.mkdir(parents=True)
         self.archive_dir = (
             (Path(archive_dir).expanduser() / subdir / self.obsid)
             if archive_dir
