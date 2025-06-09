@@ -26,7 +26,19 @@ from ska_helpers.logging import basic_logger
 
 from astromon import db, utils
 from astromon.cross_match import compute_cross_matches, rough_match
-from astromon.observation import Observation, Skipped, SkippedWithWarning
+from astromon.observation import Observation, ReturnCode
+
+
+class Skipped(Exception):
+    """
+    Exception class used to abort and silently skip processing an observation.
+    """
+
+
+class SkippedWithWarning(Exception):
+    """
+    Exception class used to abort, issue a warning, and skip processing an observation.
+    """
 
 
 def get_obsids(tstart, tstop):
@@ -94,22 +106,35 @@ def save(data, db_file):
                 db.save(name, data[name], con)
 
 
-def process(obsid, workdir, log_level, archive_dir):  # noqa: PLR0915
+def process(obsid, workdir, log_level, archive_dir):  # noqa: PLR0915, PLR0912
     """
     This is where the actual work is done.
     """
     logger = basic_logger(
         "astromon", level=log_level, format="%(asctime)s %(funcName)-25s: %(message)s"
     )
+
+    exceptions = {
+        ReturnCode.SKIPPED: Skipped,
+        ReturnCode.WARNING: SkippedWithWarning,
+        ReturnCode.ERROR: Exception,
+    }
     try:
         logger.info(f"OBSID={obsid} *** Processing OBSID {obsid} ***")
         observation = Observation(obsid, workdir, archive_dir=archive_dir)
-        observation.process()
+
+        if not (rv := observation.process()):
+            raise exceptions.get(rv.return_code, Exception)(rv.msg)
+
         if archive_dir:
             observation.archive()
 
         obspar = Table([observation.get_info()])
         sources = observation.get_sources()
+
+        if len(sources) == 0:
+            raise SkippedWithWarning("No x-ray sources found")
+
         match_candidates = rough_match(
             sources, CxoTime(observation.get_obspar()["date_obs"])
         )

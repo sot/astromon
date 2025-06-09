@@ -5,6 +5,7 @@ import inspect
 # import functools
 import json
 import pickle
+from enum import Enum
 from pathlib import Path
 
 from astropy.table import Table
@@ -29,6 +30,12 @@ def is_writable(dirpath):
     finally:
         if test_file.exists():
             test_file.unlink()
+
+
+class InvalidateCache(Enum):
+    ALWAYS = 1
+    ON_ERROR = 2
+    NEVER = 3
 
 
 class Cache:

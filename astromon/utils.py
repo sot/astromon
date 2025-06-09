@@ -16,7 +16,6 @@ __all__ = [
     "chdir",
     "ciao_context",
     "logging_call_decorator",
-    "FlowException",
     "calalign_from_files",
     "get_calalign_offsets",
 ]
@@ -28,15 +27,6 @@ CIAO_ENV = {}
 class MissingTableException(Exception):
     """
     Exception class in case a table is missing in the DB file.
-    """
-
-
-class FlowException(Exception):
-    """
-    Exception class to interrupt the execution flow.
-
-    This exception class is used by :any:`logging_call_decorator` and is silently ignored unless
-    instructed otherwise.
     """
 
 
@@ -289,9 +279,6 @@ class LoggingCallDecorator:
                     self.log_level, f"{instance}{func.__name__}({args_str}) Finished"
                 )
                 return result
-            except FlowException:
-                if not self.ignore_exceptions:
-                    raise
             except Exception as e:
                 self.logger.log(
                     self.log_level, f"{instance}{func.__name__}({args_str}) Except: {e}"

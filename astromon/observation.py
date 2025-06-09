@@ -3,6 +3,7 @@
 
 import argparse
 import collections
+import dataclasses
 import functools
 
 # import sys
@@ -13,6 +14,7 @@ import shutil
 import subprocess
 import tempfile
 import warnings
+from enum import Enum
 from pathlib import Path
 
 import bs4
@@ -27,7 +29,7 @@ from astropy.io import ascii, fits
 from astropy.wcs import WCS, FITSFixedWarning
 
 from astromon.cache import Cache
-from astromon.utils import Ciao, FlowException, chdir, logging_call_decorator
+from astromon.utils import Ciao, chdir, logging_call_decorator
 
 __all__ = ["Observation"]
 
@@ -95,16 +97,37 @@ Mapping between observation category names and numerical values.
 """
 
 
-class Skipped(FlowException):
+class ReturnCode(Enum):
     """
-    Exception class used to abort and silently skip processing an observation.
+    Enum to represent the return codes of a function.
     """
+    OK = 0
+    SKIP = 1
+    WARNING = 2
+    ERROR = 3
 
 
-class SkippedWithWarning(FlowException):
+@dataclasses.dataclass
+class ReturnValue:
     """
-    Exception class used to abort, issue a warning, and skip processing an observation.
+    Class to encapsulate the return value of a function.
+
+    Parameters
+    ----------
+    value: any
+        The value returned by the function.
+    return_code: ReturnCode
+        The return code of the function call. One of OK, SKIP, WARNING or ERROR.
+    msg: str
+        Optional message to be logged or displayed.
     """
+
+    value: any = None
+    return_code: ReturnCode = ReturnCode.OK
+    msg: str = ""
+
+    def __bool__(self):
+        return self.return_code == ReturnCode.OK
 
 
 @functools.cache
@@ -329,7 +352,13 @@ class Observation:
             raise Exception(f"{self} No obspar file for OBSID {self.obsid}.")
         obspar_file = str(obspar_file[0])
         t = ascii.read(obspar_file)
-        self._obsid_info = dict(t[["col1", "col4"]].as_array().tolist())
+
+        types = {
+            "r": float,
+            "s": str,
+            "i": int,
+        }
+        self._obsid_info = {row["col1"]: types[row["col2"]](row["col4"]) for row in t}
         self._obsid_info["instrument"] = self._obsid_info["instrume"].lower()
         self._obsid_info["obsid"] = int(self.obsid)
         self._obsid_info["target"] = self._obsid_info["object"]
@@ -526,8 +555,11 @@ class Observation:
         ]
         missing_output = [fn for fn in output_files if not self.file_path(fn).exists()]
         if not missing_output:
-            logger.info(f"{self}   directory {outdir} exists, skipping")
-            return
+            msg = f"{self}   directory {outdir} exists, skipping"
+            logger.info(msg)
+            return ReturnValue(
+                msg=msg,
+            )
 
         logger.info(
             f"Making images ({','.join([Path(m).name for m in missing_output])})"
@@ -550,8 +582,10 @@ class Observation:
         output, _ = process.communicate()
         n_events = int(output)
         if n_events <= 0:
-            raise SkippedWithWarning(
-                f"No events in {evt.absolute().relative_to(evt.parent.parent.absolute())}"
+            msg = f"{self}   No events in {evt.absolute().relative_to(evt.parent.parent.absolute())}"
+            return ReturnValue(
+                return_code=ReturnCode.SKIP,
+                msg=msg,
             )
 
         # are there more? is it always level1?
@@ -606,6 +640,8 @@ class Observation:
             except Exception:
                 logger.warning(f"{self}   acis_streak_map failed")
 
+        return ReturnValue()
+
     @logging_call_decorator
     def run_wavdetect(self, edition, skip_exist=False, scales="1.4 2 4 8 16 32"):
         """
@@ -622,7 +658,7 @@ class Observation:
         outfile = self.file_path(f"sources/{root}.src")
         if outfile.exists() and skip_exist:
             logger.debug(f"{self} Wavdetect {edition} file already there. Skipping.")
-            return
+            return ReturnValue()
         else:
             if not skip_exist:
                 logger.debug("Not skipping if wavdetect file exists")
@@ -668,6 +704,7 @@ class Observation:
                 scales = scales[:-1]
                 if len(scales) < 3:
                     raise
+        return ReturnValue()
 
     @logging_call_decorator
     def run_celldetect(self, snr=3):
@@ -677,7 +714,7 @@ class Observation:
         # checks that the file sources/{self.obsid}_celldetect.src does not exist
         if self.file_path(f"sources/{self.obsid}_celldetect.src").exists():
             logger.debug(f"{self} Celldetect file already there. Skipping.")
-            return
+            return ReturnValue()
 
         # output is in the workdir
         out = self.workdir / "sources" / f"{self.obsid}_celldetect.src"
@@ -706,6 +743,8 @@ class Observation:
             logging_tag=str(self),
         )
 
+        return ReturnValue()
+
     @logging_call_decorator
     def filter_events(self, radius=180, psfratio=1):  # radius in arcsec
         """
@@ -717,18 +756,22 @@ class Observation:
         pixel = 1 if self.is_hrc else 0.5
         if self._rebin and self.is_hrc:
             pixel *= 2
-        try:
-            evt = self.file_glob("primary/*evt2.fits*")[0]
-        except Exception:
-            raise SkippedWithWarning("evt2 file not found") from None
+        event_files = self.file_glob("primary/*evt2.fits*")
+        if len(event_files) == 0:
+            return ReturnValue(
+                return_code=ReturnCode.SKIP,
+                msg=f"{self} evt2 file not found",
+            )
+        evt = event_files[0]
 
         evt2 = self.file_path(
             str(evt.relative_to(evt.parent.parent)).replace("evt2", "evt2_filtered")
         )
 
         if evt2.exists():
-            logger.info(f"{self}   file {evt2} exists, skipping")
-            return
+            msg = f"{self}   file {evt2} exists, skipping"
+            logger.info(msg)
+            return ReturnValue(msg=msg)
 
         self.ciao("dmkeypar", evt, "RA_PNT", logging_tag=str(self))
         ra = self.ciao.pget("dmkeypar", logging_tag=str(self))
@@ -758,7 +801,7 @@ class Observation:
             logging_tag=str(self),
         )
 
-        return evt2
+        return ReturnValue()
 
     @logging_call_decorator
     def filter_sources(self, radius=180, psfratio=1):  # radius in arcsec
@@ -792,8 +835,6 @@ class Observation:
         filters = [f"psfratio=:{psfratio}", f"(x,y)=circle({x},{y},{radius / pixel})"]
         filters = ",".join(filters)
         self.ciao("dmcopy", f"{src}[{filters}]", out, logging_tag=str(self))
-
-        return out
 
     @logging_call_decorator
     def calculate_centroids(self):
@@ -853,13 +894,22 @@ class Observation:
             )
         )
         if not ok:
-            raise Skipped("does not fulfill observation requirements")
+            return ReturnValue(
+                return_code=ReturnCode.SKIP,
+                msg=f"{self} does not fulfill observation requirements",
+            )
 
         # Analysis
-        self.filter_events()
-        self.make_images()
-        self.run_wavdetect("baseline", skip_exist=True)
-        self.run_celldetect()
+        if not (rv := self.filter_events()):
+            return rv
+        if not (rv := self.make_images()):
+            return rv
+        if not (rv := self.run_wavdetect("baseline", skip_exist=True)):
+            return rv
+        if not (rv := self.run_celldetect()):
+            return rv
+
+        return ReturnValue()
 
     @Cache("sources", fmt="table", dir_attribute="cache_dir")
     @logging_call_decorator
@@ -877,7 +927,23 @@ class Observation:
         sources = table.Table(hdu_list[1].data)
 
         if len(sources) == 0:
-            raise SkippedWithWarning("No x-ray sources found")
+            dtype = [
+                ("obsid", ">i8"),
+                ("id", ">i4"),
+                ("ra", ">f8"),
+                ("dec", ">f8"),
+                ("net_counts", ">f4"),
+                ("y_angle", ">f8"),
+                ("z_angle", ">f8"),
+                ("r_angle", ">f8"),
+                ("snr", ">f4"),
+                ("near_neighbor_dist", ">f8"),
+                ("psfratio", ">f4"),
+                ("pileup", ">f4"),
+                ("acis_streak", "?"),
+                ("caldb_version", "<U6"),
+            ]
+            return table.Table(dtype=dtype)
 
         sources["pileup"] = self._pileup_value(sources)
         sources["acis_streak"] = self._on_acis_streak(sources)
