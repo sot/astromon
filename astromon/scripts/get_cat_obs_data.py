@@ -15,7 +15,6 @@ from multiprocessing import Pool, set_start_method
 from pathlib import Path
 
 import numpy as np
-import pyyaks.logger
 import stk
 from astropy.table import Column, Table, vstack
 from chandra_aca.transform import radec_to_yagzag
@@ -23,10 +22,23 @@ from cxotime import CxoTime
 from cxotime import units as u
 from Quaternion import Quat
 from Ska.arc5gl import Arc5gl
+from ska_helpers.logging import basic_logger
 
 from astromon import db, utils
 from astromon.cross_match import compute_cross_matches, rough_match
-from astromon.observation import Observation, Skipped, SkippedWithWarning
+from astromon.observation import Observation, ReturnCode
+
+
+class Skipped(Exception):
+    """
+    Exception class used to abort and silently skip processing an observation.
+    """
+
+
+class SkippedWithWarning(Exception):
+    """
+    Exception class used to abort, issue a warning, and skip processing an observation.
+    """
 
 
 def get_obsids(tstart, tstop):
@@ -94,20 +106,35 @@ def save(data, db_file):
                 db.save(name, data[name], con)
 
 
-def process(obsid, workdir, log_level, archive_dir):  # noqa: PLR0915
+def process(obsid, workdir, log_level, archive_dir):  # noqa: PLR0915, PLR0912
     """
     This is where the actual work is done.
     """
-    logger = pyyaks.logger.get_logger(name="astromon", level=log_level)
+    logger = basic_logger(
+        "astromon", level=log_level, format="%(asctime)s %(funcName)-25s: %(message)s"
+    )
+
+    exceptions = {
+        ReturnCode.SKIP: Skipped,
+        ReturnCode.WARNING: SkippedWithWarning,
+        ReturnCode.ERROR: Exception,
+    }
     try:
         logger.info(f"OBSID={obsid} *** Processing OBSID {obsid} ***")
         observation = Observation(obsid, workdir, archive_dir=archive_dir)
-        observation.process()
+
+        if not (rv := observation.process()):
+            raise exceptions.get(rv.return_code, Exception)(rv.msg)
+
         if archive_dir:
             observation.archive()
 
         obspar = Table([observation.get_info()])
         sources = observation.get_sources()
+
+        if len(sources) == 0:
+            raise SkippedWithWarning("No x-ray sources found")
+
         match_candidates = rough_match(
             sources, CxoTime(observation.get_obspar()["date_obs"])
         )
@@ -269,7 +296,11 @@ def main():  # noqa: PLR0912, PLR0915
     parser = get_parser()
     args = parser.parse_args()
 
-    logger = pyyaks.logger.get_logger(name="astromon", level=args.log_level.upper())
+    logger = basic_logger(
+        "astromon",
+        level=args.log_level.upper(),
+        format="%(asctime)s %(funcName)-25s: %(message)s",
+    )
 
     if args.workdir:
         workdir = Path(args.workdir)

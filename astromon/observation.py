@@ -3,10 +3,9 @@
 
 import argparse
 import collections
-import json
+import functools
 
 # import sys
-import logging
 import os
 import re
 import shutil
@@ -20,19 +19,24 @@ import chardet
 import numpy as np
 import regions
 import requests
+import Ska.arc5gl
 from astropy import table
 from astropy import units as u
 from astropy.coordinates import SkyCoord
 from astropy.io import ascii, fits
 from astropy.wcs import WCS, FITSFixedWarning
+from chandra_aca.transform import radec_to_yagzag
+from Quaternion import Quat
+from ska_helpers.logging import basic_logger
 
-from astromon.utils import Ciao, FlowException, chdir, logging_call_decorator
+from astromon.stored_result import Storage, stored_result
+from astromon.task import TASKS, ReturnCode, ReturnValue, dependencies, run_tasks, task
+from astromon.utils import Ciao, chdir, logging_call_decorator
 
 __all__ = ["Observation"]
 
 
-logger = logging.getLogger("astromon")
-
+logger = basic_logger(__name__, level="WARNING")
 
 _multi_obi_obsids = [
     82,
@@ -94,16 +98,17 @@ Mapping between observation category names and numerical values.
 """
 
 
-class Skipped(FlowException):
-    """
-    Exception class used to abort and silently skip processing an observation.
-    """
-
-
-class SkippedWithWarning(FlowException):
-    """
-    Exception class used to abort, issue a warning, and skip processing an observation.
-    """
+@functools.cache
+def ciao_fails(ciao_prefix, workdir):
+    try:
+        Ciao(
+            prefix=ciao_prefix,
+            workdir=workdir,
+            logger="astromon",
+        )
+        return ""
+    except Exception as e:
+        return f"CIAO could not be initialized: {e}"
 
 
 class Observation:
@@ -143,7 +148,8 @@ class Observation:
         archive_regex=None,
         use_ciao=True,
     ):
-        use_ciao = use_ciao or ciao_prefix
+        self.use_ciao = use_ciao or ciao_prefix
+        self.ciao_prefix = ciao_prefix
         self._clear = workdir is None
         self.tmp = tempfile.TemporaryDirectory() if workdir is None else None
         self.obsid = str(obsid)
@@ -153,41 +159,85 @@ class Observation:
             / subdir
             / self.obsid
         )
+        # checking if the workdir exists before creating is faster than passing the
+        # exist_ok=True argument to mkdir, and there are thousands of observations
+        # so this is a significant speedup
+        if not self.workdir.exists():
+            self.workdir.mkdir(parents=True)
         self.archive_dir = (
             (Path(archive_dir).expanduser() / subdir / self.obsid)
             if archive_dir
             else None
         )
+        self.storage = Storage(
+            workdir=self.workdir,
+            archive_dir=self.archive_dir,
+        )
+
+        self.cache_dir = self.workdir / "cache"
+
         if archive_regex is None:
             self.archive_regex = [
                 "*.par.gz",
-                "seq_summary.json",
-                # '*evt2_filtered.fits.gz',
+                "cache",
                 "*_wide_flux.img",
                 "*_broad_flux.img",
                 "*_acis_streaks.txt",
                 "*.src",
-                "calalign.json",
             ]
         else:
             self.archive_regex = archive_regex
         self._source = source
         logger.info(f"{self} starting. Context: {self.workdir}")
         self._rebin = False
-        self._is_hrc = self.get_obspar()["instrume"].lower() == "hrc"
-        self.ciao = None
-        if use_ciao:
+        self.ciao_ = None
+        # ciao is initialized only if needed, but we make this check at the very beginning
+        # so the user gets a warning at the top if calling CIAO will likely fail
+        if self.use_ciao and (msg := ciao_fails(ciao_prefix, workdir)):
+            self.use_ciao = False
+            logger.warning(msg)
+
+    is_multi_obi = property(
+        lambda self: int(self.get_obspar()["obsid"]) in _multi_obi_obsids
+    )
+
+    is_hrc = property(lambda self: self.get_obspar()["instrume"].lower() == "hrc")
+
+    is_acis = property(lambda self: self.get_obspar()["instrume"].lower() == "acis")
+
+    def create_archive_symlinks(self):
+        """
+        Create symlinks from working directory to the archive.
+
+        Normally this should not be needed, but it might be convenient so one works only in the
+        working directory. It is a bit slow (about 0.07 seconds, which translates to 5 minutes when
+        creating instances for 5000 observations).
+        """
+        if self.archive_dir is not None:
+            for file in self.archive_dir.glob("**/*"):
+                if not file.is_dir():
+                    dest = self.workdir / file.relative_to(self.archive_dir)
+                    if not dest.exists():
+                        dest.parent.mkdir(parents=True, exist_ok=True)
+                        os.symlink(file, dest)
+
+    def get_ciao(self):
+        if self.use_ciao and self.ciao_ is None:
             try:
-                self.ciao = Ciao(
-                    prefix=ciao_prefix,
+                self.ciao_ = Ciao(
+                    prefix=self.ciao_prefix,
                     workdir=self.workdir / "param",
                     logger="astromon",
                 )
             except Exception as e:
+                self.use_ciao = False
                 logger.warning(f"CIAO could not be initialized: {e}")
+        return self.ciao_
+
+    ciao = property(get_ciao)
 
     def __del__(self):
-        if self._clear:
+        if hasattr(self, "_clear") and self._clear:
             logger.info(f"Clearing {self.workdir}")
             shutil.rmtree(self.workdir, ignore_errors=True)
 
@@ -205,6 +255,33 @@ class Observation:
         obsid_info.update(self._get_sequence_summary())
         return obsid_info
 
+    def file_glob(self, pattern):
+        files = {}
+        if self.archive_dir is not None:
+            files.update(
+                {
+                    pth.relative_to(self.archive_dir): pth
+                    for pth in self.archive_dir.glob(pattern)
+                }
+            )
+        files.update(
+            {pth.relative_to(self.workdir): pth for pth in self.workdir.glob(pattern)}
+        )
+        return list(files.values())
+
+    def file_path(self, path):
+        if Path(path).is_absolute():
+            raise Exception(
+                f"argument to Observation.file_path must be a relative path ({path})"
+            )
+        wp = self.workdir / path
+        if self.archive_dir is not None:
+            ap = self.archive_dir / path
+            if not wp.exists() and ap.exists():
+                return ap
+        return wp
+
+    @stored_result("seq_summary", fmt="json", subdir="cache")
     def _get_sequence_summary(self):
         def parse_name_value(child):
             names = ["Title", "PI", "Observer", "Subject Category", "Cycle"]
@@ -215,10 +292,6 @@ class Observation:
                     return {_name: _value}
             return {}
 
-        filename = (self.workdir) / "seq_summary.json"
-        if filename.exists():
-            with open(filename) as fh:
-                return json.load(fh)
         obspar = self.get_obspar()
         url = "https://icxc.harvard.edu/cgi-bin/mp/target.cgi?{seq_num}"
         r = requests.get(url.format(**obspar))
@@ -235,26 +308,29 @@ class Observation:
             info["Subject Category"] = "NO MATCH"
         info["category_id"] = CATEGORY_ID_MAP[info["Subject Category"].lower()]
 
-        with open(filename, "w") as fh:
-            json.dump(info, fh)
-
         return info
 
+    @stored_result("obspar", fmt="json", subdir="cache")
     def get_obspar(self):
         """
         Get the contents of the obs0 file as a dictionary.
         """
-        (self.workdir).mkdir(exist_ok=True, parents=True)
-        obspar_file = list((self.workdir).glob("*obs0*"))
+        obspar_file = self.file_glob("*obs0*")
         if not obspar_file:
             logger.debug(f"{self} No obspar file for OBSID {self.obsid}. Downloading")
             self.download(["obspar"])
-        obspar_file = list((self.workdir).glob("*obs0*"))
+        obspar_file = self.file_glob("*obs0*")
         if len(obspar_file) == 0:
             raise Exception(f"{self} No obspar file for OBSID {self.obsid}.")
         obspar_file = str(obspar_file[0])
         t = ascii.read(obspar_file)
-        self._obsid_info = {r[0]: r[3] for r in t}
+
+        types = {
+            "r": float,
+            "s": str,
+            "i": int,
+        }
+        self._obsid_info = {row["col1"]: types[row["col2"]](row["col4"]) for row in t}
         self._obsid_info["instrument"] = self._obsid_info["instrume"].lower()
         self._obsid_info["obsid"] = int(self.obsid)
         self._obsid_info["target"] = self._obsid_info["object"]
@@ -262,8 +338,6 @@ class Observation:
         self._obsid_info["dec"] = float(self._obsid_info["dec_nom"])
         self._obsid_info["ra"] = float(self._obsid_info["ra_nom"])
         self._obsid_info["roll"] = float(self._obsid_info["roll_nom"])
-
-        import re
 
         m = re.match(r"(\d+).(\d+).(\d+)", self._obsid_info["ascdsver"])
         if m:
@@ -289,7 +363,7 @@ class Observation:
             logger.debug(f"{self} {secondary} exists, skipping download")
             return
 
-        repro = self.workdir / "repro"
+        repro = self.file_path("repro")
         if repro.exists():
             logger.debug(f"{self} {repro} exists, skipping download")
             return
@@ -319,7 +393,6 @@ class Observation:
         """
         Download data from chandra public archive
         """
-        import Ska.arc5gl
 
         for ftype in ftypes:
             if ftype == "obspar":
@@ -332,14 +405,19 @@ class Observation:
                     )
                     continue
                 src, dest = locs[ftype]
+            if src[:4] == "none":
+                # if instrument is NONE, there will be no files, no point in trying
+                continue
             logger.info(f"{self}   {ftype=}")
-            dest_files = list((self.workdir / dest).glob(f"*{ftype}*"))
+            dest_files = self.file_glob(f"{dest}/*{ftype}*")
             if dest_files:
                 logger.info(f"{self}     skipping download of *{ftype}*")
                 continue
             logger.info(f"{self}     {src} -> {dest}")
-            (self.workdir / dest).mkdir(exist_ok=True, parents=True)
-            with chdir(self.workdir / dest):
+            dest = self.workdir / dest
+            if not dest.exists():
+                dest.mkdir(exist_ok=True, parents=True)
+            with chdir(dest):
                 arc5gl = Ska.arc5gl.Arc5gl()
                 arc5gl.sendline(f"obsid={self.obsid}")
                 arc5gl.sendline(f"get {src}")
@@ -379,12 +457,10 @@ class Observation:
             Optional. If not given, self.archive_dir is used.
             Long-term location where to store files.
         """
-        if not regex:
-            regex = self.archive_regex
-        if destination is None:
-            destination = self.archive_dir
-        else:
-            destination = Path(destination) / self.obsid
+        regex = regex if regex else self.archive_regex
+        destination = (
+            Path(destination) / self.obsid if destination else self.archive_dir
+        )
         if destination is None:
             raise Exception("archive destination was not specified")
         logger.debug(f"{self} Archiving to {destination}:")
@@ -392,19 +468,36 @@ class Observation:
             for src in self.workdir.rglob(f"**/{pattern}"):
                 logger.debug(f"{self}   - {src}")
                 dest = destination / src.relative_to(self.workdir)
-                dest.parent.mkdir(exist_ok=True, parents=True)
+                if not dest.parent.exists():
+                    dest.parent.mkdir(exist_ok=True, parents=True)
                 if src.is_dir():
-                    shutil.copytree(src, dest, dirs_exist_ok=True)
+                    if not dest.exists():
+                        dest.mkdir(exist_ok=True, parents=True)
+                    for src_2 in src.glob("**/*"):
+                        if src_2.is_dir():
+                            # Only files are copied. Parent directories are created automatically.
+                            # empty directories are not copied
+                            continue
+                        dest_2 = destination / src_2.relative_to(self.workdir)
+                        if not dest_2.parent.exists():
+                            dest_2.parent.mkdir(exist_ok=True, parents=True)
+                        try:
+                            shutil.copy(src_2, dest_2)
+                        except shutil.SameFileError:
+                            # links to the same file are not copied
+                            pass
                 else:
-                    shutil.copy(src, dest)
+                    try:
+                        shutil.copy(src, dest)
+                    except shutil.SameFileError:
+                        pass
 
     @logging_call_decorator
     def repro(self):
         """
         Reprocess data.
         """
-        images = self.workdir / "images"
-        if images.exists():
+        if self.file_path("images").exists():
             # Skip repro, already done
             return
 
@@ -418,239 +511,64 @@ class Observation:
         )
 
     @logging_call_decorator
-    def make_images(self, evt=None):
+    def make_images(self):
         """
         Create image. Also creates the exposure map and psfmap.
         """
-
-        if evt is None:
-            evtfiles = list((self.workdir / "primary").glob("*_evt2_filtered.fits*"))
-            if len(evtfiles) != 1:
-                raise Exception(f"Expected 1 evt file, there are {len(evtfiles)}")
-            evt = evtfiles[0]
-
-        process = subprocess.Popen(
-            ["dmlist", f"{evt}[2]", "count"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            env=self.ciao.env,
-        )
-        output, _ = process.communicate()
-        n_events = int(output)
-        if n_events <= 0:
-            raise SkippedWithWarning(
-                f"No events in {evt.absolute().relative_to(self.workdir.absolute())}"
-            )
-
-        # are there more? is it always level1?
-        fov_files = list((self.workdir / "primary").glob("*_fov1.fits*"))
-        if len(fov_files) != 1:
-            raise Exception(f"Expected 1 FOV file, there are {len(fov_files)}")
-        fov_file = fov_files[0]
-
-        outdir = self.workdir / "images"
-        if outdir.exists():
-            logger.info(f"{self}   directory {outdir} exists, skipping")
-            return
-
-        outdir.mkdir(exist_ok=True)
-
-        band = "wide" if self._is_hrc is True else "broad"
-        self.ciao(
-            "fluximage",
-            infile=evt,
-            outroot=outdir / self.obsid,
-            bands=band,
-            binsize=(4 if self._rebin else 1) if self._is_hrc is True else 1,
-            psfecf=0.9,
-            background="none",
-            logging_tag=str(self),
-        )
-        if self.get_obspar()["instrume"] == "ACIS":
-            pileup_file = outdir / (self.obsid + "_pileup.img")
-            pileup_max_file = outdir / (self.obsid + "_pileup_max.img")
-            self.ciao(
-                "pileup_map",
-                infile=outdir / (self.obsid + "_" + band + "_thresh.img"),
-                outfile=pileup_file,
-                clobber="yes",
-                logging_tag=str(self),
-            )
-            self.ciao(
-                "dmimgfilt",
-                infile=pileup_file,
-                outfile=pileup_max_file,
-                fun="max",
-                mask="circle(0,0,3)",
-                clobber="yes",
-                logging_tag=str(self),
-            )
-            try:
-                self.ciao(
-                    "acis_streak_map",
-                    infile=str(evt).replace("_filtered", ""),
-                    fovfile=fov_file,
-                    bkgroot=outdir / (self.obsid + "_acis_streaks_bkg.fits"),
-                    regfile=outdir / (self.obsid + "_acis_streaks.txt"),
-                    msigma="4",
-                    clobber="yes",
-                    logging_tag=str(self),
-                )
-            except Exception:
-                logger.warning(f"{self}   acis_streak_map failed")
+        return make_images.run(self, run_dependencies=True)
 
     @logging_call_decorator
-    def run_wavdetect(self, edition, skip_exist=False, scales="1.4 2 4 8 16 32"):
+    def run_wavdetect(self):
         """
         Run wavdetect.
         """
-
-        imgdir = self.workdir / "images"
-        detdir = self.workdir / "sources"
-        detdir.mkdir(parents=True, exist_ok=True)
-
-        band = "wide" if self._is_hrc else "broad"
-        root = f"{self.obsid}_{edition}"
-
-        outfile = detdir / (root + ".src")
-        if outfile.exists() and skip_exist:
-            return
-
-        scales = scales.split()
-        # if wavdetect fails, it tries again removing the largest two scales
-        for _ in range(2):
-            try:
-                self.ciao(
-                    "wavdetect",
-                    infile=imgdir / (self.obsid + "_" + band + "_thresh.img"),
-                    expfile=imgdir
-                    / (self.obsid + "_" + band + "_thresh.expmap"),  # exposure map
-                    psffile=imgdir
-                    / (self.obsid + "_" + band + "_thresh.psfmap"),  # PSF
-                    outfile=outfile,
-                    scellfile=detdir / (root + ".cell"),
-                    imagefile=detdir / (root + ".img"),
-                    defnbkgfile=detdir / (root + ".nbkg"),
-                    scales=" ".join(scales),
-                    clobber="yes",
-                    logging_tag=str(self),
-                )
-            except Exception:
-                scales = scales[:-1]
-                if len(scales) < 3:
-                    raise
+        return wavdetect.run(self, run_dependencies=True)
 
     @logging_call_decorator
-    def run_celldetect(self, snr=3):
+    def run_celldetect(self):
         """
         Run celldetect.
         """
-        # Find sources in the small field
-        imgdir = self.workdir / "images"
-        band = "wide" if self._is_hrc else "broad"
-        self.ciao(
-            "celldetect",
-            imgdir / f"{self.obsid}_{band}_thresh.img",
-            self.workdir / "sources" / f"{self.obsid}_celldetect.src",
-            psffile=imgdir
-            / f"{self.obsid}_{band}_thresh.psfmap",  # either this or set fixedcell=
-            thresh=snr,
-            maxlogicalwindow=2048,
-            clobber="yes",
-            logging_tag=str(self),
-        )
+        return celldetect.run(self, run_dependencies=True)
 
     @logging_call_decorator
-    def filter_events(self, radius=180, psfratio=1):  # radius in arcsec
+    def filter_events(self):
         """
         Filter x-ray events outside a radius around the optical axis.
         """
-        # I'm using a fixed pixel size of 0.5 arcsec, but this might need fixing
-        pixel = 1 if self._is_hrc else 0.5
-        if self._rebin and self._is_hrc:
-            pixel *= 2
-        try:
-            evt = list((self.workdir / "primary").glob("*evt2.fits*"))[0]
-        except Exception:
-            raise SkippedWithWarning("evt2 file not found") from None
-
-        evt2 = str(evt).replace("evt2", "evt2_filtered")
-
-        if Path(evt2).exists():
-            logger.info(f"{self}   file {evt2} exists, skipping")
-            return
-
-        self.ciao("dmkeypar", evt, "RA_PNT", logging_tag=str(self))
-        ra = self.ciao.pget("dmkeypar", logging_tag=str(self))
-        self.ciao("dmkeypar", evt, "DEC_PNT", logging_tag=str(self))
-        dec = self.ciao.pget("dmkeypar", logging_tag=str(self))
-
-        if not ra:
-            raise Exception("RA is not set")
-        if not dec:
-            raise Exception("DEC is not set")
-        self.ciao(
-            "dmcoords",
-            evt,
-            op="cel",
-            celfmt="deg",
-            ra=ra,
-            dec=dec,
-            logging_tag=str(self),
-        )
-        x = self.ciao.pget("dmcoords", "x", logging_tag=str(self))
-        y = self.ciao.pget("dmcoords", "y", logging_tag=str(self))
-        logger.info(f"{self} filtering circle({x},{y},{radius / pixel}).")
-        self.ciao(
-            "dmcopy",
-            f"{evt}[(x,y)=circle({x},{y},{radius / pixel})]",
-            evt2,
-            logging_tag=str(self),
-        )
-
-        return evt2
+        return filter_events.run(self, run_dependencies=True)
 
     @logging_call_decorator
-    def filter_sources(self, radius=180, psfratio=1):  # radius in arcsec
+    def filter_sources(self):
         """
         Filter detected sources outside a radius around the optical axis.
         """
-        # I'm using a fixed pixel size of 0.5 arcsec, but this might need fixing
-        pixel = 1 if self._is_hrc else 0.5
-        if self._rebin and self._is_hrc:
-            pixel *= 2
-        try:
-            evt = list((self.workdir / "primary").glob("*evt2.fits*"))[0]
-        except Exception:
-            raise Exception("evt2 file not found   ") from None
+        return filter_sources.run(self, run_dependencies=True)
 
-        src = self.workdir / "sources" / f"{self.obsid}_baseline.src"
-        if not src.exists():
-            raise Exception("src file not found   ")
-        src2 = str(src).replace("baseline", "filtered")
-
-        self.ciao("dmkeypar", evt, "RA_PNT", logging_tag=str(self))
-        ra = self.ciao.pget("dmkeypar", logging_tag=str(self))
-        self.ciao("dmkeypar", evt, "DEC_PNT", logging_tag=str(self))
-        dec = self.ciao.pget("dmkeypar", logging_tag=str(self))
-
-        self.ciao("dmcoords", evt, op="cel", celfmt="deg", ra=ra, dec=dec)
-        x = self.ciao.pget("dmcoords", "x", logging_tag=str(self))
-        y = self.ciao.pget("dmcoords", "y", logging_tag=str(self))
-        filters = [f"psfratio=:{psfratio}", f"(x,y)=circle({x},{y},{radius / pixel})"]
-        filters = ",".join(filters)
-        self.ciao("dmcopy", f"{src}[{filters}]", src2, logging_tag=str(self))
-
-        return src2
-
+    @dependencies(
+        optional_files={
+            "sources": "sources/{obsid}_baseline.src",
+            "images": "images/{obsid}_{band}_flux.img",
+        },
+        variables={
+            "band": lambda obs: "wide" if obs.is_hrc else "broad",
+        },
+    )
     @logging_call_decorator
     def calculate_centroids(self):
         """
         Re-compute centroids.
         """
-        src_hdus = fits.open(self.workdir / "sources" / f"{self.obsid}_baseline.src")
-        band = "wide" if self._is_hrc else "broad"
-        img = self.workdir / "images" / f"{self.obsid}_{band}_flux.img"
+        dtype = [("x", float), ("y", float)]
+        if not (
+            wavdetect.get_result(self).return_code == ReturnCode.OK
+            and make_images.get_result(self).return_code == ReturnCode.OK
+        ):
+            return np.array([], dtype=dtype)
+
+        src_hdus = fits.open(self.file_path(f"sources/{self.obsid}_baseline.src"))
+        band = "wide" if self.is_hrc else "broad"
+        img = self.file_path(f"images/{self.obsid}_{band}_flux.img")
 
         if not img.exists():
             raise Exception(f"Image file not found {img}")
@@ -672,22 +590,25 @@ class Observation:
                 )
             ).astype(float)
             result.append([x, y])
-        return np.array(result, dtype=[("x", float), ("y", float)])
+        return np.array(result, dtype=dtype)
 
-    @logging_call_decorator
-    def process(self):
+    @property
+    def is_selected(self):
         """
-        Main routine to process a single obsid with "standard" steps.
+        Check if the observation fulfills the requirements for astromon processing.
 
         This function skips:
             - observations with obs_mode other than "POINTING".
             - ACIS observations with readmode other than "TIMED" and dtycycle different than 0.
-        """
 
-        self.download()
+        Returns
+        -------
+        bool
+            True if the observation is suitable for astromon processing, False otherwise.
+        """
         obsid_info = self.get_info()
 
-        ok = (
+        return (
             int(obsid_info["obsid"]) not in _multi_obi_obsids
             # and obsid_info['category_id'] not in [110]
             and obsid_info["obs_mode"] == "POINTING"
@@ -701,34 +622,81 @@ class Observation:
                 )
             )
         )
-        if not ok:
-            raise Skipped("does not fulfill observation requirements")
-
-        # Repro
-        # repro(self.obsid)
-
-        # Analysis
-        self.filter_events()
-        self.make_images()
-        self.run_wavdetect("baseline", skip_exist=True)
-        self.run_celldetect()
 
     @logging_call_decorator
-    def get_sources(self, version="celldetect"):
+    def process(self):
+        """
+        Main routine to process a single obsid with "standard" steps.
+        """
+
+        if not self.is_selected:
+            return ReturnValue(
+                return_code=ReturnCode.SKIP,
+                msg="observation does not fulfill requirements",
+            )
+
+        band = "wide" if self.is_hrc else "broad"
+        rv = run_tasks(
+            self,
+            requested_files=[
+                f"images/{self.obsid}_{band}_flux.img",
+                f"sources/{self.obsid}_celldetect.src",
+                f"sources/{self.obsid}_baseline.src",
+            ],
+        )
+        if any(v.return_code.value >= ReturnCode.ERROR.value for v in rv.values()):
+            return [
+                v for v in rv.values() if v.return_code.value >= ReturnCode.ERROR.value
+            ][0]
+        elif any(v.return_code.value >= ReturnCode.SKIP.value for v in rv.values()):
+            return [
+                v for v in rv.values() if v.return_code.value >= ReturnCode.SKIP.value
+            ][0]
+        else:
+            return ReturnValue(return_code=ReturnCode.OK)
+
+    @stored_result("sources", fmt="table", subdir="cache")
+    @dependencies(
+        optional_files={
+            "sources": "sources/{obsid}_{version}.src",
+            "pileup": "images/{obsid}_pileup_smeared.img",
+            "acis_streaks": "images/{obsid}_acis_streaks.txt",
+        },
+    )
+    @logging_call_decorator
+    def get_sources(self, *, version="celldetect"):
         """
         Returns a table of sources formatted for the astromon_xray_source SQL table
         """
-        from chandra_aca.transform import radec_to_yagzag
-        from Quaternion import Quat
+        # default dtype to be used when returning an empty list
+        dtype = [
+            ("obsid", ">i8"),
+            ("id", ">i4"),
+            ("ra", ">f8"),
+            ("dec", ">f8"),
+            ("net_counts", ">f4"),
+            ("y_angle", ">f8"),
+            ("z_angle", ">f8"),
+            ("r_angle", ">f8"),
+            ("snr", ">f4"),
+            ("near_neighbor_dist", ">f8"),
+            ("psfratio", ">f4"),
+            ("pileup", ">f4"),
+            ("acis_streak", "?"),
+            ("caldb_version", "<U6"),
+        ]
+
+        if TASKS.tasks[version].get_cache(self).return_code != ReturnCode.OK:
+            return table.Table(dtype=dtype)
 
         obspar = self.get_obspar()
         q = Quat(equatorial=(obspar["ra_pnt"], obspar["dec_pnt"], obspar["roll_pnt"]))
 
-        hdu_list = fits.open(self.workdir / "sources" / f"{self.obsid}_{version}.src")
+        hdu_list = fits.open(self.file_path(f"sources/{self.obsid}_{version}.src"))
         sources = table.Table(hdu_list[1].data)
 
         if len(sources) == 0:
-            raise SkippedWithWarning("No x-ray sources found")
+            return table.Table(dtype=dtype)
 
         sources["pileup"] = self._pileup_value(sources)
         sources["acis_streak"] = self._on_acis_streak(sources)
@@ -789,7 +757,7 @@ class Observation:
         return sources[cols]
 
     def _pileup_value(self, src):
-        pileup_file = self.workdir / "images" / f"{self.obsid}_pileup_max.img"
+        pileup_file = self.file_path(f"images/{self.obsid}_pileup_smeared.img")
         if not pileup_file.exists():
             return np.zeros(len(src))
         hdus = fits.open(pileup_file)
@@ -805,7 +773,7 @@ class Observation:
         return hdus[0].data[(pix[1], pix[0])]
 
     def _on_acis_streak(self, src):
-        acis_streaks_file = self.workdir / "images" / f"{self.obsid}_acis_streaks.txt"
+        acis_streaks_file = self.file_path(f"images/{self.obsid}_acis_streaks.txt")
         result = np.zeros(len(src), dtype=bool)
         if acis_streaks_file.exists():
             reg = regions.Regions.read(acis_streaks_file)
@@ -834,22 +802,10 @@ class Observation:
             # 'bias': f'{instrument}0[*bias*]',
         }
 
+    @stored_result("calalign", fmt="json", subdir="cache")
     def get_calalign(self):
-        calalign_file = None
-        if (self.workdir / "calalign.json").exists():
-            calalign_file = self.workdir / "calalign.json"
-        if (
-            self.archive_dir is not None
-            and (self.archive_dir / "calalign.json").exists()
-        ):
-            calalign_file = self.archive_dir / "calalign.json"
-
-        if calalign_file:
-            with open(calalign_file) as fh:
-                return json.load(fh)
-
         self.download(["acal"])
-        cal_file = list((self.workdir / "secondary").glob("*acal*fits*"))
+        cal_file = self.file_glob("secondary/*acal*fits*")
         if cal_file:
             hdus = fits.open(cal_file[0])
             calalign = {
@@ -859,9 +815,337 @@ class Observation:
             calalign = {k: v.tolist() for k, v in calalign.items()}
             calalign["obsid"] = int(self.obsid)
             calalign["caldb_version"] = hdus[1].header["CALDBVER"]
-            with open(self.workdir / "calalign.json", "w") as fh:
-                json.dump(calalign, fh)
             return calalign
+
+    def dmcoords(self, name, **kwargs):
+        """
+        Call dmcoords with the given arguments.
+
+        Examples
+        --------
+
+        Get the off-axis angle, given (x, y) "sky" coordinates:
+
+            obs.dmcoords("theta", option="sky", x=4069.94266994267, y=4076.716625716626)
+
+        Get the off-axis angle, given (ra, dec) in celestial ("cel") coordinates:
+
+            obs.dmcoords("theta", option="cel", celfmt="deg", ra=20.46451186, dec=-28.34952557)
+
+        Parameters
+        ----------
+        name: str
+            Name of the output parameter.
+        kwargs: dict
+            Arguments to pass to dmcoords.
+        """
+        self.download(["evt2", "asol"])
+
+        evt = self.file_path(f"primary/{self.obsid}_evt2_filtered.fits.gz")
+        if not evt:
+            raise Exception("Expected ine evt file, there are none")
+
+        asol_files = self.file_glob(f"secondary/*{self.obsid}_*asol*fits*")
+        if len(asol_files) != 1:
+            raise Exception(f"Expected 1 asol file, there are {len(asol_files)}")
+        asol = asol_files[0]
+
+        args = [evt, f"asolfile={asol}"]
+        # if I do not unlearn, the following two calls in succession will hang
+        # obs.dmcoords("theta", option="sky", x=4069.94266994267, y=4076.716625716626)
+        # obs.dmcoords("theta", option="cel", celfmt="deg", ra=20.46451186, dec=-28.34952557)
+        self.ciao("punlearn", "dmcoords", logging_tag=str(self))
+        self.ciao("dmcoords", *args, logging_tag=str(self), **kwargs)
+        value = self.ciao.pget("dmcoords", name, logging_tag=str(self))
+        return np.array(value).astype(float)
+
+
+@task(
+    name="make_images",
+    inputs={
+        "events": "primary/*_evt2.fits*",
+        "filtered_events": "primary/{obsid}_evt2_filtered.fits.gz",
+        "fov": "primary/*_fov1.fits*",
+        "asol_file": "secondary/*asol*fits*",
+        "badpixfile": "primary/*_bpix1.fits*",
+        "maskfile": "secondary/*_msk1.fits*",
+    },
+    optional_inputs={
+        "dtffile": "primary/*_dtf1.fits*",
+    },
+    outputs={
+        "image_file": "images/{obsid}_{band}_thresh.img",
+        "fov": "images/{obsid}.fov",
+        "exposure_file": "images/{obsid}_{band}_thresh.expmap",
+        "psf_file": "images/{obsid}_{band}_thresh.psfmap",
+        "flux": "images/{obsid}_{band}_flux.img",
+        "pileup": "images/{obsid}_pileup.img",
+        "pileup_max": "images/{obsid}_pileup_max.img",
+        "acis_streaks_bkg": "images/{obsid}_acis_streaks_bkg.fits",
+        "acis_streaks": "images/{obsid}_acis_streaks.txt",
+    },
+    download=(["evt2", "fov", "asol", "msk", "bpix", "dtf"]),
+    variables={
+        "band": lambda obs: "wide" if obs.is_hrc else "broad",
+    },
+)
+def make_images(obs, inputs, outputs):
+    """
+    Create image. Also creates the exposure map and psfmap.
+    """
+    bin_size = (4 if obs._rebin else 1) if obs.is_hrc is True else 1
+
+    evt_filt = inputs["filtered_events"]
+    fov_file = inputs["fov"][0]
+
+    logging_tag = str(obs)
+    band = "wide" if obs.is_hrc is True else "broad"
+    ciao = obs.ciao
+    obsid = obs.obsid
+
+    process = subprocess.Popen(
+        ["dmlist", f"{evt_filt}[2]", "count"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        env=ciao.env,
+    )
+    output, _ = process.communicate()
+    n_events = int(output)
+    if n_events <= 0:
+        msg = f"{obsid}   No events in {evt_filt.relative_to(evt_filt.parent.parent)}"
+        return ReturnCode.SKIP, msg
+
+    kwargs = {}
+    if "dtffile" in inputs:
+        kwargs["dtffile"] = inputs["dtffile"][0]
+
+    ciao(
+        "fluximage",
+        infile=evt_filt,
+        outroot=outputs["image_file"].parent / f"{obsid}",
+        # not setting aspect solution file because there can be more than one,
+        # and fluximage does a better job at finding the correct one.
+        # asolfile=inputs["asol_file"][0],
+        badpixfile=inputs["badpixfile"][0],
+        maskfile=inputs["maskfile"][0],
+        bands=band,
+        binsize=bin_size,
+        psfecf=0.9,
+        background="none",
+        logging_tag=logging_tag,
+        clobber="yes",  # clobber will overwrite partially archived results
+        **kwargs,
+    )
+    if obs.is_acis:
+        pileup_file = outputs["pileup"]
+        pileup_max_file = outputs["pileup_max"]
+        ciao(
+            "pileup_map",
+            infile=outputs["image_file"],
+            outfile=pileup_file,
+            clobber="yes",
+            logging_tag=logging_tag,
+        )
+        ciao(
+            "dmimgfilt",
+            infile=pileup_file,
+            outfile=pileup_max_file,
+            fun="max",
+            mask="circle(0,0,3)",
+            clobber="yes",
+            logging_tag=logging_tag,
+        )
+        try:
+            ciao(
+                "acis_streak_map",
+                infile=inputs["events"],
+                fovfile=fov_file,
+                bkgroot=outputs["acis_streaks_bkg"],
+                regfile=outputs["acis_streaks"],
+                msigma="4",
+                clobber="yes",
+                logging_tag=logging_tag,
+            )
+        except Exception:
+            logger.warning(f"{obsid}   acis_streak_map failed")
+
+
+@task(
+    name="wavdetect",
+    inputs={
+        "image_file": "images/{obsid}_{band}_thresh.img",
+        "psf_file": "images/{obsid}_{band}_thresh.psfmap",
+        "exposure_file": "images/{obsid}_{band}_thresh.expmap",
+    },
+    outputs={
+        "src": "sources/{obsid}_baseline.src",
+        "cell": "sources/{obsid}_baseline.cell",
+        "img": "sources/{obsid}_baseline.img",
+        "nbkg": "sources/{obsid}_baseline.nbkg",
+    },
+    variables={
+        "band": lambda obs: "wide" if obs.is_hrc else "broad",
+    },
+)
+def wavdetect(obs, inputs, outputs):
+    """
+    Run wavdetect.
+    """
+    # possible parameter:
+    scales = ["1.4", "2", "4", "8", "16", "32"]
+
+    # if wavdetect fails, it tries again removing the largest two scales
+    for _ in range(2):
+        try:
+            obs.ciao(
+                "wavdetect",
+                infile=inputs["image_file"],
+                expfile=inputs["exposure_file"],  # exposure map
+                psffile=inputs["psf_file"],  # PSF
+                outfile=outputs["src"],
+                scellfile=outputs["cell"],
+                imagefile=outputs["img"],
+                defnbkgfile=outputs["nbkg"],
+                scales=" ".join(scales),
+                clobber="yes",
+                logging_tag=str(obs),
+            )
+        except Exception:
+            scales = scales[:-1]
+            if len(scales) < 3:
+                raise
+    return ReturnCode.OK
+
+
+@task(
+    name="celldetect",
+    inputs={
+        "image_file": "images/{obsid}_{band}_thresh.img",
+        "psf_file": "images/{obsid}_{band}_thresh.psfmap",
+    },
+    outputs={
+        "src": "sources/{obsid}_celldetect.src",
+    },
+    variables={
+        "band": lambda obs: "wide" if obs.is_hrc else "broad",
+    },
+)
+def celldetect(obs, inputs, outputs):
+    """
+    Run celldetect.
+    """
+    # possible parameter:
+    snr = 3
+
+    obs.ciao(
+        "celldetect",
+        inputs["image_file"],
+        outputs["src"],
+        psffile=inputs["psf_file"],  # either this or set fixedcell=
+        thresh=snr,
+        maxlogicalwindow=2048,
+        clobber="yes",
+        logging_tag=str(obs),
+    )
+
+    return ReturnCode.OK
+
+
+@task(
+    name="filter_events",
+    inputs={
+        "events": "primary/*_evt2.fits*",
+        "fov": "primary/*_fov1.fits*",
+    },
+    outputs={
+        "events": "primary/{obsid}_evt2_filtered.fits.gz",
+    },
+    download=(["evt2", "fov"]),
+)
+def filter_events(obs, inputs, outputs):
+    """
+    Filter x-ray events outside a radius around the optical axis.
+    """
+    # possible parameter:
+    radius = 180  # radius in arcsec
+
+    # I'm using a fixed pixel size of 0.5 arcsec, but this might need fixing
+    pixel = 1 if obs.is_hrc else 0.5
+
+    evt = inputs["events"][0]
+    evt2 = outputs["events"]
+
+    obs.ciao("dmkeypar", evt, "RA_PNT", logging_tag=str(obs))
+    ra = obs.ciao.pget("dmkeypar", logging_tag=str(obs))
+    obs.ciao("dmkeypar", evt, "DEC_PNT", logging_tag=str(obs))
+    dec = obs.ciao.pget("dmkeypar", logging_tag=str(obs))
+
+    if not ra:
+        raise Exception("RA is not set")
+    if not dec:
+        raise Exception("DEC is not set")
+    obs.ciao("punlearn", "dmcoords", logging_tag=str(obs))
+    obs.ciao(
+        "dmcoords",
+        evt,
+        op="cel",
+        celfmt="deg",
+        ra=ra,
+        dec=dec,
+        logging_tag=str(obs),
+    )
+    x = obs.ciao.pget("dmcoords", "x", logging_tag=str(obs))
+    y = obs.ciao.pget("dmcoords", "y", logging_tag=str(obs))
+    logger.info(f"{obs} filtering circle({x},{y},{radius / pixel}).")
+    obs.ciao(
+        "dmcopy",
+        f"{evt}[(x,y)=circle({x},{y},{radius / pixel})]",
+        evt2,
+        logging_tag=str(obs),
+        clobber="yes",
+    )
+
+
+@task(
+    name="filter_sources",
+    inputs={
+        "events": "primary/{obsid}_evt2_filtered.fits.gz",
+        "src": "sources/{obsid}_baseline.src",
+    },
+    outputs={
+        "src": "sources/{obsid}_filtered.src",
+    },
+    download=(["evt2"]),
+)
+def filter_sources(obs, inputs, outputs):
+    """
+    Filter detected sources outside a radius around the optical axis.
+    """
+    # possible parameters:
+    radius = 180  # radius in arcsec
+    psfratio = 1
+
+    # I don't think the following should be a parameter
+    # I'm using a fixed pixel size of 0.5 arcsec, but this might need fixing
+    pixel = 1 if obs.is_hrc else 0.5
+
+    evt = inputs["events"]
+
+    obs.ciao("dmkeypar", evt, "RA_PNT", logging_tag=str(obs))
+    ra = obs.ciao.pget("dmkeypar", logging_tag=str(obs))
+    obs.ciao("dmkeypar", evt, "DEC_PNT", logging_tag=str(obs))
+    dec = obs.ciao.pget("dmkeypar", logging_tag=str(obs))
+
+    obs.ciao("punlearn", "dmcoords", logging_tag=str(obs))
+    obs.ciao("dmcoords", evt, op="cel", celfmt="deg", ra=ra, dec=dec)
+    x = obs.ciao.pget("dmcoords", "x", logging_tag=str(obs))
+    y = obs.ciao.pget("dmcoords", "y", logging_tag=str(obs))
+    filters = [f"psfratio=:{psfratio}", f"(x,y)=circle({x},{y},{radius / pixel})"]
+    filters = ",".join(filters)
+
+    obs.ciao(
+        "dmcopy", f"{inputs['src']}[{filters}]", outputs["src"], logging_tag=str(obs)
+    )
 
 
 def get_parser():
@@ -905,14 +1189,12 @@ def main():
     """
     Main routine to process a set of observations.
     """
-    from functools import partial
-    from multiprocessing import Pool
-
-    import pyyaks.logger
+    from functools import partial  # noqa: PLC0415
+    from multiprocessing import Pool  # noqa: PLC0415
 
     args = get_parser().parse_args()
 
-    pyyaks.logger.get_logger(name="astromon", level=args.log_level.upper())
+    logger.setLevel(args.log_level.upper())
 
     logger.info(f"workdir: {args.workdir}")
     if args.workdir is None:
