@@ -30,8 +30,6 @@ class MissingTableException(Exception):
     Exception class in case a table is missing in the DB file.
     """
 
-    pass
-
 
 class FlowException(Exception):
     """
@@ -40,8 +38,6 @@ class FlowException(Exception):
     This exception class is used by :any:`logging_call_decorator` and is silently ignored unless
     instructed otherwise.
     """
-
-    pass
 
 
 def communicate(process, logger=None, level="WARNING", text=False, logging_tag=""):
@@ -73,8 +69,8 @@ def communicate(process, logger=None, level="WARNING", text=False, logging_tag="
 
     # in case the buffer is still not empty after the process ended
     for line in process.stdout.readlines():
-        line = line if text else line.decode()
-        line = line.rstrip("\n")
+        line = line if text else line.decode()  # noqa: PLW2901
+        line = line.rstrip("\n")  # noqa: PLW2901
         logger.log(level, f"{logging_tag} {line}")
 
 
@@ -122,9 +118,8 @@ class Ciao:
             workdir = Path(workdir)
             workdir.mkdir(parents=True, exist_ok=True)
             self.env["ASCDS_WORK_PATH"] = str(workdir)
-            assert ":" not in str(
-                workdir.absolute()
-            ), "CIAO workdir cannot contain colon"
+            if ":" in str(workdir.absolute()):
+                raise RuntimeError("CIAO workdir cannot contain colon")
             pf = "{};{}:{}".format(
                 str(workdir.absolute()),
                 self.env["ASCDS_INSTALL"] + "/param",
@@ -176,9 +171,8 @@ def set_ciao_context(directory):
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     os.environ["ASCDS_WORK_PATH"] = str(directory)
-    assert ":" not in str(
-        directory.absolute()
-    ), "CIAO context directory can not contain colon"
+    if ":" in str(directory.absolute()):
+        raise RuntimeError("CIAO context directory cannot contain colon")
     pf = "{};{}:{}".format(
         str(directory.absolute()),
         os.environ["ASCDS_INSTALL"] + "/param",
@@ -380,20 +374,24 @@ def calalign_from_files(calalign_dir=None):
             if "CVED0001" in hdus[1].header
             else "2050:001:00:00:00.00"
         )
-        for cal in cals:
-            transforms.append(
-                {
-                    "start": CxoTime(cvsd),
-                    "stop": CxoTime(cved),
-                    "detector": cal["INSTR_ID"].strip(),
-                    "date": CxoTime(info["date"]),
-                    "version": info["version"],
-                    "caldb_version": caldb_info[info["version"]]["CalDB"],
-                    "since": caldb_info[info["version"]]["since"],
-                    "aca_misalign": cal["ACA_MISALIGN"],
-                    "fts_misalign": cal["FTS_MISALIGN"],
-                }
-            )
+        transforms.extend(
+            [
+                (
+                    {
+                        "start": CxoTime(cvsd),
+                        "stop": CxoTime(cved),
+                        "detector": cal["INSTR_ID"].strip(),
+                        "date": CxoTime(info["date"]),
+                        "version": info["version"],
+                        "caldb_version": caldb_info[info["version"]]["CalDB"],
+                        "since": caldb_info[info["version"]]["since"],
+                        "aca_misalign": cal["ACA_MISALIGN"],
+                        "fts_misalign": cal["FTS_MISALIGN"],
+                    }
+                )
+                for cal in cals
+            ]
+        )
 
     calalign = Table(transforms)
     calalign["dy"], calalign["dz"] = get_offsets(calalign["aca_misalign"])
@@ -517,10 +515,14 @@ def get_calalign_offsets(all_matches, ref_calalign=None, calalign_dir=None):
     reference.rename_columns(cols, ref_cols)
 
     # these should be true here:
-    assert len(all_matches) == len(actual)
-    assert len(all_matches) == len(reference)
-    assert np.all(reference["obsid"] == actual["obsid"])
-    assert np.all(reference["x_id"] == actual["x_id"])
+    if len(all_matches) != len(actual):
+        raise RuntimeError("len(all_matches) != len(actual)")
+    if len(all_matches) != len(reference):
+        raise RuntimeError("len(all_matches) != len(reference)")
+    if np.all(reference["obsid"] != actual["obsid"]):
+        raise RuntimeError("reference.obsid != actual.obsid")
+    if np.all(reference["x_id"] != actual["x_id"]):
+        raise RuntimeError("reference.x_id != actual.x_id")
 
     result = join(
         all_matches[["obsid", "x_id"]],
@@ -528,8 +530,10 @@ def get_calalign_offsets(all_matches, ref_calalign=None, calalign_dir=None):
         keys=["obsid", "x_id"],
     )
 
-    assert np.all(all_matches["obsid"] == result["obsid"])
-    assert np.all(all_matches["x_id"] == result["x_id"])
+    if np.all(all_matches["obsid"] != result["obsid"]):
+        raise RuntimeError("all_matches.obsid != result.obsid")
+    if np.all(all_matches["x_id"] != result["x_id"]):
+        raise RuntimeError("all_matches.x_id != result.x_id")
 
     # these are observations that happened after the reference calalign was added
     result["after_caldb"] = result["since"] < all_matches["time"]

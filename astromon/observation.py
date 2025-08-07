@@ -99,15 +99,11 @@ class Skipped(FlowException):
     Exception class used to abort and silently skip processing an observation.
     """
 
-    pass
-
 
 class SkippedWithWarning(FlowException):
     """
     Exception class used to abort, issue a warning, and skip processing an observation.
     """
-
-    pass
 
 
 class Observation:
@@ -151,7 +147,7 @@ class Observation:
         self._clear = workdir is None
         self.tmp = tempfile.TemporaryDirectory() if workdir is None else None
         self.obsid = str(obsid)
-        subdir = f"obs{int(obsid)//1000:02d}"
+        subdir = f"obs{int(obsid) // 1000:02d}"
         self.workdir = (
             Path(self.tmp.name if workdir is None else workdir).expanduser()
             / subdir
@@ -254,7 +250,8 @@ class Observation:
             logger.debug(f"{self} No obspar file for OBSID {self.obsid}. Downloading")
             self.download(["obspar"])
         obspar_file = list((self.workdir).glob("*obs0*"))
-        assert len(obspar_file) > 0
+        if len(obspar_file) == 0:
+            raise Exception(f"{self} No obspar file for OBSID {self.obsid}.")
         obspar_file = str(obspar_file[0])
         t = ascii.read(obspar_file)
         self._obsid_info = {r[0]: r[3] for r in t}
@@ -302,6 +299,7 @@ class Observation:
                 ["download_chandra_obsid", "-t", "-q"],
                 stdout=subprocess.PIPE,
                 env=self.ciao.env,
+                check=True,
             )
             available_types = r.stdout.decode().strip().split(":")[-1].split()
             exclude = [t for t in available_types if t not in ftypes]
@@ -336,7 +334,7 @@ class Observation:
                 src, dest = locs[ftype]
             logger.info(f"{self}   {ftype=}")
             dest_files = list((self.workdir / dest).glob(f"*{ftype}*"))
-            if len(dest_files):
+            if dest_files:
                 logger.info(f"{self}     skipping download of *{ftype}*")
                 continue
             logger.info(f"{self}     {src} -> {dest}")
@@ -364,7 +362,7 @@ class Observation:
         elif self._source == "arc5gl":
             return self._download_arc5gl(ftypes)
         if self._source is None:
-            raise Exception(f"No data source has been specified as fallback")
+            raise Exception("No data source has been specified as fallback")
         raise Exception(f'Unknown data source: "{self._source}"')
 
     @logging_call_decorator
@@ -427,7 +425,8 @@ class Observation:
 
         if evt is None:
             evtfiles = list((self.workdir / "primary").glob("*_evt2_filtered.fits*"))
-            assert len(evtfiles) == 1, f"Expected 1 evt file, there are {len(evtfiles)}"
+            if len(evtfiles) != 1:
+                raise Exception(f"Expected 1 evt file, there are {len(evtfiles)}")
             evt = evtfiles[0]
 
         process = subprocess.Popen(
@@ -445,7 +444,8 @@ class Observation:
 
         # are there more? is it always level1?
         fov_files = list((self.workdir / "primary").glob("*_fov1.fits*"))
-        assert len(fov_files) == 1, f"Expected 1 FOV file, there are {len(fov_files)}"
+        if len(fov_files) != 1:
+            raise Exception(f"Expected 1 FOV file, there are {len(fov_files)}")
         fov_file = fov_files[0]
 
         outdir = self.workdir / "images"
@@ -518,7 +518,7 @@ class Observation:
 
         scales = scales.split()
         # if wavdetect fails, it tries again removing the largest two scales
-        for i in range(2):
+        for _ in range(2):
             try:
                 self.ciao(
                     "wavdetect",
@@ -572,7 +572,7 @@ class Observation:
         try:
             evt = list((self.workdir / "primary").glob("*evt2.fits*"))[0]
         except Exception:
-            raise SkippedWithWarning(f"evt2 file not found") from None
+            raise SkippedWithWarning("evt2 file not found") from None
 
         evt2 = str(evt).replace("evt2", "evt2_filtered")
 
@@ -585,8 +585,10 @@ class Observation:
         self.ciao("dmkeypar", evt, "DEC_PNT", logging_tag=str(self))
         dec = self.ciao.pget("dmkeypar", logging_tag=str(self))
 
-        assert ra, "RA is not set"
-        assert dec, "dec is not set"
+        if not ra:
+            raise Exception("RA is not set")
+        if not dec:
+            raise Exception("DEC is not set")
         self.ciao(
             "dmcoords",
             evt,
@@ -598,10 +600,10 @@ class Observation:
         )
         x = self.ciao.pget("dmcoords", "x", logging_tag=str(self))
         y = self.ciao.pget("dmcoords", "y", logging_tag=str(self))
-        logger.info(f"{self} filtering circle({x},{y},{radius/pixel}).")
+        logger.info(f"{self} filtering circle({x},{y},{radius / pixel}).")
         self.ciao(
             "dmcopy",
-            f"{evt}[(x,y)=circle({x},{y},{radius/pixel})]",
+            f"{evt}[(x,y)=circle({x},{y},{radius / pixel})]",
             evt2,
             logging_tag=str(self),
         )
@@ -620,11 +622,11 @@ class Observation:
         try:
             evt = list((self.workdir / "primary").glob("*evt2.fits*"))[0]
         except Exception:
-            raise Exception(f"evt2 file not found   ") from None
+            raise Exception("evt2 file not found   ") from None
 
         src = self.workdir / "sources" / f"{self.obsid}_baseline.src"
         if not src.exists():
-            raise Exception(f"src file not found   ")
+            raise Exception("src file not found   ")
         src2 = str(src).replace("baseline", "filtered")
 
         self.ciao("dmkeypar", evt, "RA_PNT", logging_tag=str(self))
@@ -635,7 +637,7 @@ class Observation:
         self.ciao("dmcoords", evt, op="cel", celfmt="deg", ra=ra, dec=dec)
         x = self.ciao.pget("dmcoords", "x", logging_tag=str(self))
         y = self.ciao.pget("dmcoords", "y", logging_tag=str(self))
-        filters = [f"psfratio=:{psfratio}", f"(x,y)=circle({x},{y},{radius/pixel})"]
+        filters = [f"psfratio=:{psfratio}", f"(x,y)=circle({x},{y},{radius / pixel})"]
         filters = ",".join(filters)
         self.ciao("dmcopy", f"{src}[{filters}]", src2, logging_tag=str(self))
 
@@ -650,7 +652,8 @@ class Observation:
         band = "wide" if self._is_hrc else "broad"
         img = self.workdir / "images" / f"{self.obsid}_{band}_flux.img"
 
-        assert img.exists()
+        if not img.exists():
+            raise Exception(f"Image file not found {img}")
         src = table.Table(src_hdus[1].data)
         result = []
         for row in src:
@@ -685,7 +688,7 @@ class Observation:
         obsid_info = self.get_info()
 
         ok = (
-            not int(obsid_info["obsid"]) in _multi_obi_obsids
+            int(obsid_info["obsid"]) not in _multi_obi_obsids
             # and obsid_info['category_id'] not in [110]
             and obsid_info["obs_mode"] == "POINTING"
             # and obsid_info['grating'] == 'NONE'
@@ -699,7 +702,7 @@ class Observation:
             )
         )
         if not ok:
-            raise Skipped(f"does not fulfill observation requirements")
+            raise Skipped("does not fulfill observation requirements")
 
         # Repro
         # repro(self.obsid)
@@ -741,10 +744,11 @@ class Observation:
             for c in zip(
                 ["RA", "DEC", "COMPONENT", "NET_COUNTS", "SNR", "PSFRATIO"],
                 ["ra", "dec", "id", "net_counts", "snr", "psfratio"],
+                strict=True,
             )
             if c[0] in sources.colnames
         ]
-        sources.rename_columns(*list(zip(*columns)))
+        sources.rename_columns(*list(zip(*columns, strict=True)))
 
         sources["obsid"] = int(self.obsid)
         sources["y_angle"], sources["z_angle"] = radec_to_yagzag(
@@ -823,8 +827,8 @@ class Observation:
             "bpix": (f"{instrument}1[*bpix*]", "primary"),
             "flt": (f"{instrument}1[*flt*]", "secondary"),
             "stat": (f"{instrument}1[*stat*]", "secondary"),
-            "asol": (f"asp1[*asol*]", "secondary"),
-            "acal": (f"asp1[*acal*]", "secondary"),
+            "asol": ("asp1[*asol*]", "secondary"),
+            "acal": ("asp1[*acal*]", "secondary"),
             "dtf": (f"{instrument}1[*dtf1*]", "primary"),
             # 'pbk': f'{instrument}0[*pbk0*]',
             # 'bias': f'{instrument}0[*bias*]',

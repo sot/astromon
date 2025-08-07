@@ -256,10 +256,12 @@ def save(table_name, data, dbfile):
         The default is `$ASTROMON_FILE` or `$SKA/data/astromon/astromon.h5`
     """
     with connect(dbfile, mode="r+") as h5:
-        # sanity checks: assert that file is open for writing
-        assert h5.isopen, f"{h5.filename} is not open"
-        assert h5.mode in ["r+", "w"], f"{h5.filename} is not open for writing"
-        assert isinstance(data, table.Table), "input to _save_hdf5 must be a table"
+        if not h5.isopen:
+            raise RuntimeError(f"{h5.filename} is not open")
+        if h5.mode not in ["r+", "w"]:
+            raise RuntimeError(f"{h5.filename} is not open for writing")
+        if not isinstance(data, table.Table):
+            raise TypeError("input to _save_hdf5 must be a table")
 
         if table_name in DTYPES:
             dtype = DTYPES[table_name]
@@ -269,7 +271,7 @@ def save(table_name, data, dbfile):
             missing = [name for name in dtype.names if name not in data.dtype.names]
             if missing:
                 raise Exception(
-                    f'Saving table {table_name} with missing columns: {", ".join(missing)}'
+                    f"Saving table {table_name} with missing columns: {', '.join(missing)}"
                 )
             b = np.zeros(len(data), dtype=dtype)
             b[names] = data[names].as_array().astype(dtype[names])

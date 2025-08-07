@@ -68,8 +68,10 @@ def plot_offsets_q_history(
     dz_median,
     filename="offsets-q-history.png",
 ):
-    assert dy_median is not None
-    assert dz_median is not None
+    if dy_median is None:
+        raise RuntimeError("dy_median is None")
+    if dz_median is None:
+        raise RuntimeError("dz_median is None")
 
     after = matches["after_caldb"]
     # tmax = np.min(matches["time"][after])
@@ -114,7 +116,7 @@ def plot_offsets_q_history(
         )
 
     # plt.legend(loc='upper left')
-    plt.title(f"dY")
+    plt.title("dY")
     plt.ylabel("offset (arcsec)")
     plt.ylim((-1.1, 1.1))
     plt.grid()
@@ -154,7 +156,7 @@ def plot_offsets_q_history(
         )
 
     # plt.legend(loc='upper left')
-    plt.title(f"dZ")
+    plt.title("dZ")
     plt.ylabel("offset (arcsec)")
     plt.ylim((-1.1, 1.1))
     plt.grid()
@@ -189,7 +191,7 @@ def cdf_(matches, quantiles=(0.68, 0.90, 0.99)):
 def plot_cdf_3(
     all_matches,
     col,
-    quantiles=[],
+    quantiles=(),
     groupby="year_bin_2",
     title="",
     filename=None,
@@ -229,9 +231,9 @@ def plot_cdf_3(
         linewidth=2,
     )
     # print(quantiles)
-    for q in quantiles:
-        r = q["offset"]
-        q = q["q"]
+    for quant in quantiles:
+        r = quant["offset"]
+        q = quant["q"]
         if r > plt.xlim()[1]:
             continue
         plt.plot([0.0, r], [q, q], "--", color="b", linewidth=1)
@@ -241,7 +243,7 @@ def plot_cdf_3(
         plt.text(
             r + 0.02,
             0.1,
-            f"{r:.2} arcsec, {q*100:.0f}%",
+            f"{r:.2} arcsec, {q * 100:.0f}%",
             rotation="vertical",
             horizontalalignment="left",
         )
@@ -274,9 +276,9 @@ def plot_cdf(
     plt.xlim((0, 1.1))
     plt.ylim((0, 1.0))
 
-    for q in quantiles:
-        r = q["offset"]
-        q = q["q"]
+    for quant in quantiles:
+        r = quant["offset"]
+        q = quant["q"]
         if r > plt.xlim()[1]:
             continue
         plt.plot([0.0, r], [q, q], "--", color="b", linewidth=1)
@@ -286,7 +288,7 @@ def plot_cdf(
         plt.text(
             r + 0.02,
             0.1,
-            f"{r:.2} arcsec, {q*100:.0f}%",
+            f"{r:.2} arcsec, {q * 100:.0f}%",
             rotation="vertical",
             horizontalalignment="left",
         )
@@ -369,7 +371,7 @@ def plot_cdf_2(
     else:
         plt.xlim((bins[0], bins[-1]))
 
-    for j, i in enumerate(range(0, imax)):
+    for i in range(imax):
         b = bmax - i
         if b not in g[groupby]:
             continue
@@ -451,7 +453,7 @@ def create_figures_mta(outdir, calalign_dir=None, use_reference_calalign=False):
     )
 
     _, _, quantiles = cdf_(matches)
-    result.update({f'q{100*q["q"]:.0f}': q["offset"] for q in quantiles})
+    result.update({f"q{100 * q['q']:.0f}": q["offset"] for q in quantiles})
     result["max_offset"] = np.abs(np.max(matches["dr"]))
     plot_offsets_history(
         all_matches,
@@ -506,7 +508,7 @@ def create_figures_mta(outdir, calalign_dir=None, use_reference_calalign=False):
         result.update(
             {
                 det.replace("-", "_"): {
-                    f'q{100*q["q"]:.0f}': q["offset"] for q in quantiles
+                    f"q{100 * q['q']:.0f}": q["offset"] for q in quantiles
                 }
             }
         )
@@ -581,7 +583,7 @@ def create_figures_cal(
     }
 
     bins, cdf, quantiles = cdf_(matches)
-    result.update({f'q{100*q["q"]:.0f}': q["offset"] for q in quantiles})
+    result.update({f"q{100 * q['q']:.0f}": q["offset"] for q in quantiles})
     result["max_offset"] = np.abs(np.max(matches["dr"]))
     plot_offsets_history(
         matches,
@@ -601,7 +603,7 @@ def create_figures_cal(
         result.update(
             {
                 det.replace("-", "_"): {
-                    f'q{100*q["q"]:.0f}': q["offset"] for q in quantiles
+                    f"q{100 * q['q']:.0f}": q["offset"] for q in quantiles
                 }
             }
         )
