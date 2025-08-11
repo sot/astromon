@@ -1,18 +1,16 @@
-
 <!DOCTYPE html>
 
-<html>
+<html lang="en" data-content_root="../../">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>astromon.db &#8212; Astromon 1.1.0 documentation</title>
-    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css" />
-    <link rel="stylesheet" type="text/css" href="../../_static/bootstrap-astropy.css" />
+    <title>astromon.db &#8212; Astromon 1.2.0 documentation</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=fa44fd50" />
+    <link rel="stylesheet" type="text/css" href="../../_static/bootstrap-astropy.css?v=f4f7060c" />
     
-    <script data-url_root="../../" id="documentation_options" src="../../_static/documentation_options.js"></script>
-    <script src="../../_static/jquery.js"></script>
-    <script src="../../_static/underscore.js"></script>
-    <script src="../../_static/doctools.js"></script>
+    <script src="../../_static/documentation_options.js?v=6efca38a"></script>
+    <script src="../../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
     <script type="text/javascript" src="../../_static/sidebar.js"></script>
     <script type="text/javascript" src="../../_static/copybutton.js"></script>
     <link rel="index" title="Index" href="../../genindex.html" />
@@ -46,7 +44,7 @@
     <h3>Navigation</h3>
     <ul>
       <li>
-	<a href="../../index.html">Astromon 1.1.0 documentation</a>
+	<a href="../../index.html">Astromon 1.2.0 documentation</a>
 	 &#187;
       </li>
       <li><a href="../index.html" accesskey="U">Module code</a> &#187;</li>
@@ -188,7 +186,7 @@
 
 
 <span class="k">def</span> <span class="nf">create_table</span><span class="p">(</span><span class="n">table_name</span><span class="p">):</span>
-    <span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Create an empty table using standard dtypes.</span>
 
 <span class="sd">    Known table names:</span>
@@ -212,8 +210,10 @@
     <span class="k">return</span> <span class="n">table</span><span class="o">.</span><span class="n">Table</span><span class="p">(</span><span class="n">names</span><span class="o">=</span><span class="n">DTYPES</span><span class="p">[</span><span class="n">table_name</span><span class="p">]</span><span class="o">.</span><span class="n">names</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">DTYPES</span><span class="p">[</span><span class="n">table_name</span><span class="p">])</span>
 
 
-<div class="viewcode-block" id="get_table"><a class="viewcode-back" href="../../api.html#astromon.db.get_table">[docs]</a><span class="k">def</span> <span class="nf">get_table</span><span class="p">(</span><span class="n">table_name</span><span class="p">,</span> <span class="n">dbfile</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
-    <span class="sd">&quot;&quot;&quot;</span>
+<div class="viewcode-block" id="get_table">
+<a class="viewcode-back" href="../../api.html#astromon.db.get_table">[docs]</a>
+<span class="k">def</span> <span class="nf">get_table</span><span class="p">(</span><span class="n">table_name</span><span class="p">,</span> <span class="n">dbfile</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Get an entire table from the DB file.</span>
 
 <span class="sd">    Known table names:</span>
@@ -256,14 +256,15 @@
             <span class="n">names</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="nb">set</span><span class="p">([</span><span class="n">n</span><span class="o">.</span><span class="n">name</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">con</span><span class="o">.</span><span class="n">root</span><span class="p">]</span> <span class="o">+</span> <span class="nb">list</span><span class="p">(</span><span class="n">DTYPES</span><span class="o">.</span><span class="n">keys</span><span class="p">())))</span>
             <span class="k">raise</span> <span class="n">MissingTableException</span><span class="p">(</span>
                 <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">table_name</span><span class="si">}</span><span class="s2"> not in file. Available tables: </span><span class="si">{</span><span class="n">names</span><span class="si">}</span><span class="s2">&quot;</span>
-            <span class="p">)</span> <span class="kn">from</span> <span class="bp">None</span>
+            <span class="p">)</span> <span class="kn">from</span> <span class="kc">None</span>
 
     <span class="k">return</span> <span class="n">result</span></div>
 
 
+
 <span class="nd">@contextmanager</span>
 <span class="k">def</span> <span class="nf">connect</span><span class="p">(</span><span class="n">dbfile</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;r&quot;</span><span class="p">):</span>
-    <span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Context manager that returns a DB connection (or an HDF5 file).</span>
 
 <span class="sd">    Parameters</span>
@@ -304,8 +305,10 @@
                 <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">dbfile</span><span class="si">}</span><span class="s2"> closed (2)&quot;</span><span class="p">)</span>
 
 
-<div class="viewcode-block" id="save"><a class="viewcode-back" href="../../api.html#astromon.db.save">[docs]</a><span class="k">def</span> <span class="nf">save</span><span class="p">(</span><span class="n">table_name</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="n">dbfile</span><span class="p">):</span>
-    <span class="sd">&quot;&quot;&quot;</span>
+<div class="viewcode-block" id="save">
+<a class="viewcode-back" href="../../api.html#astromon.db.save">[docs]</a>
+<span class="k">def</span> <span class="nf">save</span><span class="p">(</span><span class="n">table_name</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="n">dbfile</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Insert data into a table, deleting previous entries for the same OBSID.</span>
 
 <span class="sd">    If the table does not exist, it is created using pre-existing table definitions.</span>
@@ -320,10 +323,12 @@
 <span class="sd">        The default is `$ASTROMON_FILE` or `$SKA/data/astromon/astromon.h5`</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">with</span> <span class="n">connect</span><span class="p">(</span><span class="n">dbfile</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;r+&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">h5</span><span class="p">:</span>
-        <span class="c1"># sanity checks: assert that file is open for writing</span>
-        <span class="k">assert</span> <span class="n">h5</span><span class="o">.</span><span class="n">isopen</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">h5</span><span class="o">.</span><span class="n">filename</span><span class="si">}</span><span class="s2"> is not open&quot;</span>
-        <span class="k">assert</span> <span class="n">h5</span><span class="o">.</span><span class="n">mode</span> <span class="ow">in</span> <span class="p">[</span><span class="s2">&quot;r+&quot;</span><span class="p">,</span> <span class="s2">&quot;w&quot;</span><span class="p">],</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">h5</span><span class="o">.</span><span class="n">filename</span><span class="si">}</span><span class="s2"> is not open for writing&quot;</span>
-        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">table</span><span class="o">.</span><span class="n">Table</span><span class="p">),</span> <span class="s2">&quot;input to _save_hdf5 must be a table&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">h5</span><span class="o">.</span><span class="n">isopen</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">h5</span><span class="o">.</span><span class="n">filename</span><span class="si">}</span><span class="s2"> is not open&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">h5</span><span class="o">.</span><span class="n">mode</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">[</span><span class="s2">&quot;r+&quot;</span><span class="p">,</span> <span class="s2">&quot;w&quot;</span><span class="p">]:</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">h5</span><span class="o">.</span><span class="n">filename</span><span class="si">}</span><span class="s2"> is not open for writing&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">table</span><span class="o">.</span><span class="n">Table</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s2">&quot;input to _save_hdf5 must be a table&quot;</span><span class="p">)</span>
 
         <span class="k">if</span> <span class="n">table_name</span> <span class="ow">in</span> <span class="n">DTYPES</span><span class="p">:</span>
             <span class="n">dtype</span> <span class="o">=</span> <span class="n">DTYPES</span><span class="p">[</span><span class="n">table_name</span><span class="p">]</span>
@@ -333,7 +338,7 @@
             <span class="n">missing</span> <span class="o">=</span> <span class="p">[</span><span class="n">name</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">dtype</span><span class="o">.</span><span class="n">names</span> <span class="k">if</span> <span class="n">name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">data</span><span class="o">.</span><span class="n">dtype</span><span class="o">.</span><span class="n">names</span><span class="p">]</span>
             <span class="k">if</span> <span class="n">missing</span><span class="p">:</span>
                 <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span>
-                    <span class="sa">f</span><span class="s1">&#39;Saving table </span><span class="si">{</span><span class="n">table_name</span><span class="si">}</span><span class="s1"> with missing columns: </span><span class="si">{</span><span class="s2">&quot;, &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">missing</span><span class="p">)</span><span class="si">}</span><span class="s1">&#39;</span>
+                    <span class="sa">f</span><span class="s2">&quot;Saving table </span><span class="si">{</span><span class="n">table_name</span><span class="si">}</span><span class="s2"> with missing columns: </span><span class="si">{</span><span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">missing</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
                 <span class="p">)</span>
             <span class="n">b</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">data</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
             <span class="n">b</span><span class="p">[</span><span class="n">names</span><span class="p">]</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="n">names</span><span class="p">]</span><span class="o">.</span><span class="n">as_array</span><span class="p">()</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">dtype</span><span class="p">[</span><span class="n">names</span><span class="p">])</span>
@@ -357,8 +362,11 @@
             <span class="n">h5</span><span class="o">.</span><span class="n">create_table</span><span class="p">(</span><span class="s2">&quot;/&quot;</span><span class="p">,</span> <span class="n">table_name</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span></div>
 
 
-<div class="viewcode-block" id="remove_regions"><a class="viewcode-back" href="../../api.html#astromon.db.remove_regions">[docs]</a><span class="k">def</span> <span class="nf">remove_regions</span><span class="p">(</span><span class="n">regions</span><span class="p">,</span> <span class="n">dbfile</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
-    <span class="sd">&quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="remove_regions">
+<a class="viewcode-back" href="../../api.html#astromon.db.remove_regions">[docs]</a>
+<span class="k">def</span> <span class="nf">remove_regions</span><span class="p">(</span><span class="n">regions</span><span class="p">,</span> <span class="n">dbfile</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Remove exclusion regions (by ID) from the astromon_regions table.</span>
 
 <span class="sd">    Raises an exception if the astromon_regions table is not in the dbfile.</span>
@@ -381,8 +389,11 @@
             <span class="n">h5</span><span class="o">.</span><span class="n">create_table</span><span class="p">(</span><span class="s2">&quot;/&quot;</span><span class="p">,</span> <span class="s2">&quot;astromon_regions&quot;</span><span class="p">,</span> <span class="n">all_regions</span><span class="o">.</span><span class="n">as_array</span><span class="p">())</span></div>
 
 
-<div class="viewcode-block" id="add_regions"><a class="viewcode-back" href="../../api.html#astromon.db.add_regions">[docs]</a><span class="k">def</span> <span class="nf">add_regions</span><span class="p">(</span><span class="n">regions</span><span class="p">,</span> <span class="n">dbfile</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
-    <span class="sd">&quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="add_regions">
+<a class="viewcode-back" href="../../api.html#astromon.db.add_regions">[docs]</a>
+<span class="k">def</span> <span class="nf">add_regions</span><span class="p">(</span><span class="n">regions</span><span class="p">,</span> <span class="n">dbfile</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Add exclusion regions to the astromon_regions table.</span>
 
 <span class="sd">    A unique region ID is automatically generated.</span>
@@ -418,8 +429,9 @@
         <span class="k">return</span> <span class="n">b</span></div>
 
 
+
 <span class="k">def</span> <span class="nf">set_formats</span><span class="p">(</span><span class="n">dat</span><span class="p">):</span>
-    <span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Sets format of columns with float dtype to show 2 decimals, except ra/dec/pileup (4 decimals).</span>
 
 <span class="sd">    Parameters</span>
@@ -445,8 +457,10 @@
             <span class="n">dat</span><span class="p">[</span><span class="n">col</span><span class="o">.</span><span class="n">name</span><span class="p">]</span><span class="o">.</span><span class="n">info</span><span class="o">.</span><span class="n">format</span> <span class="o">=</span> <span class="n">fmts</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">col</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="s2">&quot;.2f&quot;</span><span class="p">)</span>
 
 
-<div class="viewcode-block" id="get_cross_matches"><a class="viewcode-back" href="../../api.html#astromon.db.get_cross_matches">[docs]</a><span class="k">def</span> <span class="nf">get_cross_matches</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;astromon_21&quot;</span><span class="p">,</span> <span class="n">dbfile</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
-    <span class="sd">&quot;&quot;&quot;</span>
+<div class="viewcode-block" id="get_cross_matches">
+<a class="viewcode-back" href="../../api.html#astromon.db.get_cross_matches">[docs]</a>
+<span class="k">def</span> <span class="nf">get_cross_matches</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;astromon_21&quot;</span><span class="p">,</span> <span class="n">dbfile</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Get a standard cross-match of observations, x-ray sources and catalog counterparts in `dbfile`.</span>
 
 <span class="sd">    A *standard* cross-match is a pre-computed cross-match between x-ray sources and catalog</span>
@@ -532,13 +546,14 @@
         <span class="n">matches</span> <span class="o">=</span> <span class="n">matches</span><span class="p">[</span><span class="n">ok</span><span class="p">]</span>
     <span class="n">matches</span><span class="o">.</span><span class="n">add_index</span><span class="p">(</span><span class="s2">&quot;obsid&quot;</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">matches</span></div>
+
 </pre></div>
 
             <div class="clearer"></div>
           </div>
         </div>
       </div>
-      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
         <div class="sphinxsidebarwrapper"><h3>Page Contents</h3>
 
 
@@ -556,7 +571,7 @@
     <a href="#">Back to Top</a></p>
   <p>
     &copy; Copyright 2022, Jean Connelly, Tom Aldcroft, Javier Gonzalez.<br/>
-    Created using <a href="http://www.sphinx-doc.org/en/stable/">Sphinx</a> 4.2.0. &nbsp;
+    Created using <a href="http://www.sphinx-doc.org/en/stable/">Sphinx</a> 8.1.3. &nbsp;
   </p>
 </footer>
   </body>

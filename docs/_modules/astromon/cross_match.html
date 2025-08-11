@@ -1,18 +1,16 @@
-
 <!DOCTYPE html>
 
-<html>
+<html lang="en" data-content_root="../../">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>astromon.cross_match &#8212; Astromon 1.1.0 documentation</title>
-    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css" />
-    <link rel="stylesheet" type="text/css" href="../../_static/bootstrap-astropy.css" />
+    <title>astromon.cross_match &#8212; Astromon 1.2.0 documentation</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=fa44fd50" />
+    <link rel="stylesheet" type="text/css" href="../../_static/bootstrap-astropy.css?v=f4f7060c" />
     
-    <script data-url_root="../../" id="documentation_options" src="../../_static/documentation_options.js"></script>
-    <script src="../../_static/jquery.js"></script>
-    <script src="../../_static/underscore.js"></script>
-    <script src="../../_static/doctools.js"></script>
+    <script src="../../_static/documentation_options.js?v=6efca38a"></script>
+    <script src="../../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
     <script type="text/javascript" src="../../_static/sidebar.js"></script>
     <script type="text/javascript" src="../../_static/copybutton.js"></script>
     <link rel="index" title="Index" href="../../genindex.html" />
@@ -46,7 +44,7 @@
     <h3>Navigation</h3>
     <ul>
       <li>
-	<a href="../../index.html">Astromon 1.1.0 documentation</a>
+	<a href="../../index.html">Astromon 1.2.0 documentation</a>
 	 &#187;
       </li>
       <li><a href="../index.html" accesskey="U">Module code</a> &#187;</li>
@@ -62,8 +60,7 @@
           <div class="body" role="main">
             
   <h1>Source code for astromon.cross_match</h1><div class="highlight"><pre>
-<span></span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">&quot;&quot;&quot;</span>
+<span></span><span class="sd">&quot;&quot;&quot; &quot;&quot;&quot;</span>
 
 <span class="kn">import</span> <span class="nn">logging</span>
 <span class="kn">import</span> <span class="nn">re</span>
@@ -88,7 +85,7 @@
 
 
 <span class="k">def</span> <span class="nf">_get_vizier</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="n">ra</span><span class="p">,</span> <span class="n">dec</span><span class="p">,</span> <span class="n">time</span><span class="p">,</span> <span class="n">radius</span><span class="p">):</span>
-    <span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    This fetches the vizier url, but it doesn&#39;t parse the result.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">time</span> <span class="o">=</span> <span class="n">CxoTime</span><span class="p">(</span><span class="n">time</span><span class="p">)</span>
@@ -154,7 +151,7 @@
         <span class="n">vizier_result</span> <span class="o">=</span> <span class="n">vizier</span><span class="o">.</span><span class="n">query_region</span><span class="p">(</span>
             <span class="n">pos</span><span class="p">,</span> <span class="n">radius</span><span class="o">=</span><span class="n">radius</span><span class="p">,</span> <span class="n">catalog</span><span class="o">=</span><span class="n">cat_identifier</span><span class="p">,</span> <span class="n">cache</span><span class="o">=</span><span class="kc">False</span>
         <span class="p">)</span>
-        <span class="n">vizier_result</span> <span class="o">=</span> <span class="p">[</span><span class="n">r</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">vizier_result</span><span class="p">]</span>
+        <span class="n">vizier_result</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">vizier_result</span><span class="p">)</span>
     <span class="k">else</span><span class="p">:</span>
         <span class="n">vizier_result</span> <span class="o">=</span> <span class="p">[</span>
             <span class="n">_get_vizier</span><span class="p">(</span>
@@ -199,79 +196,79 @@
 
 
 <span class="n">VIZIER_CATALOGS</span> <span class="o">=</span> <span class="p">{</span>
-    <span class="s2">&quot;Tycho2&quot;</span><span class="p">:</span> <span class="nb">dict</span><span class="p">(</span>
-        <span class="n">catalog</span><span class="o">=</span><span class="s2">&quot;Tycho2&quot;</span><span class="p">,</span>
-        <span class="n">cat_identifier</span><span class="o">=</span><span class="s2">&quot;I/259/tyc2&quot;</span><span class="p">,</span>
-        <span class="n">name_cols</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;TYC1&quot;</span><span class="p">,</span> <span class="s2">&quot;TYC2&quot;</span><span class="p">,</span> <span class="s2">&quot;TYC3&quot;</span><span class="p">],</span>
-        <span class="n">columns</span><span class="o">=</span><span class="p">{</span>
+    <span class="s2">&quot;Tycho2&quot;</span><span class="p">:</span> <span class="p">{</span>
+        <span class="s2">&quot;catalog&quot;</span><span class="p">:</span> <span class="s2">&quot;Tycho2&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;cat_identifier&quot;</span><span class="p">:</span> <span class="s2">&quot;I/259/tyc2&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;name_cols&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;TYC1&quot;</span><span class="p">,</span> <span class="s2">&quot;TYC2&quot;</span><span class="p">,</span> <span class="s2">&quot;TYC3&quot;</span><span class="p">],</span>
+        <span class="s2">&quot;columns&quot;</span><span class="p">:</span> <span class="p">{</span>
             <span class="s2">&quot;ra&quot;</span><span class="p">:</span> <span class="s2">&quot;_RAJ2000_</span><span class="si">{time.frac_year:.3f}</span><span class="s2">&quot;</span><span class="p">,</span>
             <span class="s2">&quot;dec&quot;</span><span class="p">:</span> <span class="s2">&quot;_DEJ2000_</span><span class="si">{time.frac_year:.3f}</span><span class="s2">&quot;</span><span class="p">,</span>
             <span class="s2">&quot;mag&quot;</span><span class="p">:</span> <span class="s2">&quot;VTmag&quot;</span><span class="p">,</span>
         <span class="p">},</span>
-    <span class="p">),</span>
+    <span class="p">},</span>
     <span class="c1"># https://vizier.u-strasbg.fr/viz-bin/VizieR?-source=I/323</span>
-    <span class="s2">&quot;ICRS&quot;</span><span class="p">:</span> <span class="nb">dict</span><span class="p">(</span>
-        <span class="n">catalog</span><span class="o">=</span><span class="s2">&quot;ICRS&quot;</span><span class="p">,</span>
-        <span class="n">cat_identifier</span><span class="o">=</span><span class="s2">&quot;I/323&quot;</span><span class="p">,</span>
-        <span class="n">name_cols</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;ICRF&quot;</span><span class="p">],</span>
-        <span class="n">columns</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;ra&quot;</span><span class="p">:</span> <span class="s2">&quot;_RAJ2000&quot;</span><span class="p">,</span> <span class="s2">&quot;dec&quot;</span><span class="p">:</span> <span class="s2">&quot;_DEJ2000&quot;</span><span class="p">},</span>
-    <span class="p">),</span>
+    <span class="s2">&quot;ICRS&quot;</span><span class="p">:</span> <span class="p">{</span>
+        <span class="s2">&quot;catalog&quot;</span><span class="p">:</span> <span class="s2">&quot;ICRS&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;cat_identifier&quot;</span><span class="p">:</span> <span class="s2">&quot;I/323&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;name_cols&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;ICRF&quot;</span><span class="p">],</span>
+        <span class="s2">&quot;columns&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;ra&quot;</span><span class="p">:</span> <span class="s2">&quot;_RAJ2000&quot;</span><span class="p">,</span> <span class="s2">&quot;dec&quot;</span><span class="p">:</span> <span class="s2">&quot;_DEJ2000&quot;</span><span class="p">},</span>
+    <span class="p">},</span>
     <span class="c1"># https://vizier.u-strasbg.fr/viz-bin/VizieR?-source=I/284</span>
-    <span class="s2">&quot;USNO-B1.0&quot;</span><span class="p">:</span> <span class="nb">dict</span><span class="p">(</span>
-        <span class="n">catalog</span><span class="o">=</span><span class="s2">&quot;USNO-B1.0&quot;</span><span class="p">,</span>
-        <span class="n">cat_identifier</span><span class="o">=</span><span class="s2">&quot;USNO-B1.0&quot;</span><span class="p">,</span>
-        <span class="n">name_cols</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;USNO-B1.0&quot;</span><span class="p">],</span>
-        <span class="n">columns</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;ra&quot;</span><span class="p">:</span> <span class="s2">&quot;_RAJ2000&quot;</span><span class="p">,</span> <span class="s2">&quot;dec&quot;</span><span class="p">:</span> <span class="s2">&quot;_DEJ2000&quot;</span><span class="p">,</span> <span class="s2">&quot;mag&quot;</span><span class="p">:</span> <span class="s2">&quot;R1mag&quot;</span><span class="p">},</span>
-    <span class="p">),</span>
+    <span class="s2">&quot;USNO-B1.0&quot;</span><span class="p">:</span> <span class="p">{</span>
+        <span class="s2">&quot;catalog&quot;</span><span class="p">:</span> <span class="s2">&quot;USNO-B1.0&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;cat_identifier&quot;</span><span class="p">:</span> <span class="s2">&quot;USNO-B1.0&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;name_cols&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;USNO-B1.0&quot;</span><span class="p">],</span>
+        <span class="s2">&quot;columns&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;ra&quot;</span><span class="p">:</span> <span class="s2">&quot;_RAJ2000&quot;</span><span class="p">,</span> <span class="s2">&quot;dec&quot;</span><span class="p">:</span> <span class="s2">&quot;_DEJ2000&quot;</span><span class="p">,</span> <span class="s2">&quot;mag&quot;</span><span class="p">:</span> <span class="s2">&quot;R1mag&quot;</span><span class="p">},</span>
+    <span class="p">},</span>
     <span class="c1"># http://vizier.u-strasbg.fr/viz-bin/VizieR?-source=I/239</span>
-    <span class="s2">&quot;HIP&quot;</span><span class="p">:</span> <span class="nb">dict</span><span class="p">(</span>
-        <span class="n">catalog</span><span class="o">=</span><span class="s2">&quot;HIP&quot;</span><span class="p">,</span>
-        <span class="n">cat_identifier</span><span class="o">=</span><span class="s2">&quot;I/239/hip_main&quot;</span><span class="p">,</span>
-        <span class="n">name_cols</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;HIP&quot;</span><span class="p">],</span>
-        <span class="n">columns</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;ra&quot;</span><span class="p">:</span> <span class="s2">&quot;_RAJ2000&quot;</span><span class="p">,</span> <span class="s2">&quot;dec&quot;</span><span class="p">:</span> <span class="s2">&quot;_DEJ2000&quot;</span><span class="p">,</span> <span class="s2">&quot;mag&quot;</span><span class="p">:</span> <span class="s2">&quot;Vmag&quot;</span><span class="p">},</span>
-    <span class="p">),</span>
+    <span class="s2">&quot;HIP&quot;</span><span class="p">:</span> <span class="p">{</span>
+        <span class="s2">&quot;catalog&quot;</span><span class="p">:</span> <span class="s2">&quot;HIP&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;cat_identifier&quot;</span><span class="p">:</span> <span class="s2">&quot;I/239/hip_main&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;name_cols&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;HIP&quot;</span><span class="p">],</span>
+        <span class="s2">&quot;columns&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;ra&quot;</span><span class="p">:</span> <span class="s2">&quot;_RAJ2000&quot;</span><span class="p">,</span> <span class="s2">&quot;dec&quot;</span><span class="p">:</span> <span class="s2">&quot;_DEJ2000&quot;</span><span class="p">,</span> <span class="s2">&quot;mag&quot;</span><span class="p">:</span> <span class="s2">&quot;Vmag&quot;</span><span class="p">},</span>
+    <span class="p">},</span>
     <span class="c1"># http://vizier.u-strasbg.fr/viz-bin/VizieR?-source=I/311</span>
     <span class="c1"># https://heasarc.gsfc.nasa.gov/W3Browse/all/hipnewcat.html</span>
-    <span class="s2">&quot;HIP2&quot;</span><span class="p">:</span> <span class="nb">dict</span><span class="p">(</span>
-        <span class="n">catalog</span><span class="o">=</span><span class="s2">&quot;HIP&quot;</span><span class="p">,</span>
-        <span class="n">cat_identifier</span><span class="o">=</span><span class="s2">&quot;I/311/hip2&quot;</span><span class="p">,</span>
-        <span class="n">name_cols</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;HIP&quot;</span><span class="p">],</span>
-        <span class="n">columns</span><span class="o">=</span><span class="p">{</span>
+    <span class="s2">&quot;HIP2&quot;</span><span class="p">:</span> <span class="p">{</span>
+        <span class="s2">&quot;catalog&quot;</span><span class="p">:</span> <span class="s2">&quot;HIP&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;cat_identifier&quot;</span><span class="p">:</span> <span class="s2">&quot;I/311/hip2&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;name_cols&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;HIP&quot;</span><span class="p">],</span>
+        <span class="s2">&quot;columns&quot;</span><span class="p">:</span> <span class="p">{</span>
             <span class="s2">&quot;ra&quot;</span><span class="p">:</span> <span class="s2">&quot;_RAJ2000&quot;</span><span class="p">,</span>
             <span class="s2">&quot;dec&quot;</span><span class="p">:</span> <span class="s2">&quot;_DEJ2000&quot;</span><span class="p">,</span>
             <span class="s2">&quot;mag&quot;</span><span class="p">:</span> <span class="s2">&quot;Vmag&quot;</span><span class="p">,</span>
         <span class="p">},</span>
-    <span class="p">),</span>
+    <span class="p">},</span>
     <span class="c1"># http://vizier.u-strasbg.fr/viz-bin/VizieR?-source=I/322</span>
-    <span class="s2">&quot;UCAC4&quot;</span><span class="p">:</span> <span class="nb">dict</span><span class="p">(</span>
-        <span class="n">catalog</span><span class="o">=</span><span class="s2">&quot;UCAC4&quot;</span><span class="p">,</span>
-        <span class="n">cat_identifier</span><span class="o">=</span><span class="s2">&quot;I/322&quot;</span><span class="p">,</span>
-        <span class="n">name_cols</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;UCAC4&quot;</span><span class="p">],</span>
-        <span class="n">columns</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;ra&quot;</span><span class="p">:</span> <span class="s2">&quot;_RAJ2000&quot;</span><span class="p">,</span> <span class="s2">&quot;dec&quot;</span><span class="p">:</span> <span class="s2">&quot;_DEJ2000&quot;</span><span class="p">,</span> <span class="s2">&quot;mag&quot;</span><span class="p">:</span> <span class="s2">&quot;f.mag&quot;</span><span class="p">},</span>
-    <span class="p">),</span>
-    <span class="s2">&quot;2MASS&quot;</span><span class="p">:</span> <span class="nb">dict</span><span class="p">(</span>
-        <span class="n">catalog</span><span class="o">=</span><span class="s2">&quot;2MASS&quot;</span><span class="p">,</span>
-        <span class="n">cat_identifier</span><span class="o">=</span><span class="s2">&quot;II/246/out&quot;</span><span class="p">,</span>
-        <span class="n">name_cols</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;_2MASS&quot;</span><span class="p">],</span>
-        <span class="n">columns</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;ra&quot;</span><span class="p">:</span> <span class="s2">&quot;_RAJ2000&quot;</span><span class="p">,</span> <span class="s2">&quot;dec&quot;</span><span class="p">:</span> <span class="s2">&quot;_DEJ2000&quot;</span><span class="p">,</span> <span class="s2">&quot;mag&quot;</span><span class="p">:</span> <span class="s2">&quot;Kmag&quot;</span><span class="p">},</span>
-    <span class="p">),</span>
-    <span class="s2">&quot;SDSS&quot;</span><span class="p">:</span> <span class="nb">dict</span><span class="p">(</span>
-        <span class="n">catalog</span><span class="o">=</span><span class="s2">&quot;SDSS&quot;</span><span class="p">,</span>
-        <span class="n">cat_identifier</span><span class="o">=</span><span class="s2">&quot;II/294&quot;</span><span class="p">,</span>
-        <span class="n">name_cols</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;SDSS&quot;</span><span class="p">],</span>
-        <span class="n">columns</span><span class="o">=</span><span class="p">{</span>
+    <span class="s2">&quot;UCAC4&quot;</span><span class="p">:</span> <span class="p">{</span>
+        <span class="s2">&quot;catalog&quot;</span><span class="p">:</span> <span class="s2">&quot;UCAC4&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;cat_identifier&quot;</span><span class="p">:</span> <span class="s2">&quot;I/322&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;name_cols&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;UCAC4&quot;</span><span class="p">],</span>
+        <span class="s2">&quot;columns&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;ra&quot;</span><span class="p">:</span> <span class="s2">&quot;_RAJ2000&quot;</span><span class="p">,</span> <span class="s2">&quot;dec&quot;</span><span class="p">:</span> <span class="s2">&quot;_DEJ2000&quot;</span><span class="p">,</span> <span class="s2">&quot;mag&quot;</span><span class="p">:</span> <span class="s2">&quot;f.mag&quot;</span><span class="p">},</span>
+    <span class="p">},</span>
+    <span class="s2">&quot;2MASS&quot;</span><span class="p">:</span> <span class="p">{</span>
+        <span class="s2">&quot;catalog&quot;</span><span class="p">:</span> <span class="s2">&quot;2MASS&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;cat_identifier&quot;</span><span class="p">:</span> <span class="s2">&quot;II/246/out&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;name_cols&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;_2MASS&quot;</span><span class="p">],</span>
+        <span class="s2">&quot;columns&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;ra&quot;</span><span class="p">:</span> <span class="s2">&quot;_RAJ2000&quot;</span><span class="p">,</span> <span class="s2">&quot;dec&quot;</span><span class="p">:</span> <span class="s2">&quot;_DEJ2000&quot;</span><span class="p">,</span> <span class="s2">&quot;mag&quot;</span><span class="p">:</span> <span class="s2">&quot;Kmag&quot;</span><span class="p">},</span>
+    <span class="p">},</span>
+    <span class="s2">&quot;SDSS&quot;</span><span class="p">:</span> <span class="p">{</span>
+        <span class="s2">&quot;catalog&quot;</span><span class="p">:</span> <span class="s2">&quot;SDSS&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;cat_identifier&quot;</span><span class="p">:</span> <span class="s2">&quot;II/294&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;name_cols&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;SDSS&quot;</span><span class="p">],</span>
+        <span class="s2">&quot;columns&quot;</span><span class="p">:</span> <span class="p">{</span>
             <span class="s2">&quot;ra&quot;</span><span class="p">:</span> <span class="s2">&quot;_RAJ2000_</span><span class="si">{time.frac_year:.3f}</span><span class="s2">&quot;</span><span class="p">,</span>
             <span class="s2">&quot;dec&quot;</span><span class="p">:</span> <span class="s2">&quot;_DEJ2000_</span><span class="si">{time.frac_year:.3f}</span><span class="s2">&quot;</span><span class="p">,</span>
             <span class="s2">&quot;mag&quot;</span><span class="p">:</span> <span class="s2">&quot;rmag&quot;</span><span class="p">,</span>
         <span class="p">},</span>
-    <span class="p">),</span>
+    <span class="p">},</span>
     <span class="c1"># https://vizier.u-strasbg.fr/viz-bin/VizieR-3?-source=I/345/gaia2</span>
-    <span class="s2">&quot;Gaia2&quot;</span><span class="p">:</span> <span class="nb">dict</span><span class="p">(</span>
-        <span class="n">catalog</span><span class="o">=</span><span class="s2">&quot;Gaia2&quot;</span><span class="p">,</span>
-        <span class="n">cat_identifier</span><span class="o">=</span><span class="s2">&quot;I/345/gaia2&quot;</span><span class="p">,</span>
-        <span class="n">name_cols</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;Source&quot;</span><span class="p">],</span>
-        <span class="n">columns</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;ra&quot;</span><span class="p">:</span> <span class="s2">&quot;_RA_ICRS&quot;</span><span class="p">,</span> <span class="s2">&quot;dec&quot;</span><span class="p">:</span> <span class="s2">&quot;_DE_ICRS&quot;</span><span class="p">,</span> <span class="s2">&quot;mag&quot;</span><span class="p">:</span> <span class="s2">&quot;Gmag&quot;</span><span class="p">},</span>
-    <span class="p">),</span>
+    <span class="s2">&quot;Gaia2&quot;</span><span class="p">:</span> <span class="p">{</span>
+        <span class="s2">&quot;catalog&quot;</span><span class="p">:</span> <span class="s2">&quot;Gaia2&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;cat_identifier&quot;</span><span class="p">:</span> <span class="s2">&quot;I/345/gaia2&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;name_cols&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;Source&quot;</span><span class="p">],</span>
+        <span class="s2">&quot;columns&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;ra&quot;</span><span class="p">:</span> <span class="s2">&quot;_RA_ICRS&quot;</span><span class="p">,</span> <span class="s2">&quot;dec&quot;</span><span class="p">:</span> <span class="s2">&quot;_DE_ICRS&quot;</span><span class="p">,</span> <span class="s2">&quot;mag&quot;</span><span class="p">:</span> <span class="s2">&quot;Gmag&quot;</span><span class="p">},</span>
+    <span class="p">},</span>
 <span class="p">}</span>
 
 
@@ -285,13 +282,12 @@
     <span class="n">logging_tag</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">,</span>
     <span class="n">raw</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
 <span class="p">):</span>
-    <span class="k">assert</span> <span class="p">(</span>
-        <span class="n">ra</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">dec</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
-    <span class="p">)</span> <span class="ow">or</span> <span class="n">pos</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;pos or ra/dec required&quot;</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">ra</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">dec</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">and</span> <span class="n">pos</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s2">&quot;pos or ra/dec required&quot;</span><span class="p">)</span>
     <span class="k">if</span> <span class="n">pos</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="n">pos</span> <span class="o">=</span> <span class="n">coords</span><span class="o">.</span><span class="n">SkyCoord</span><span class="p">(</span><span class="n">ra</span><span class="o">=</span><span class="n">ra</span><span class="p">,</span> <span class="n">dec</span><span class="o">=</span><span class="n">dec</span><span class="p">,</span> <span class="n">unit</span><span class="o">=</span><span class="s2">&quot;deg&quot;</span><span class="p">,</span> <span class="n">frame</span><span class="o">=</span><span class="s2">&quot;icrs&quot;</span><span class="p">,</span> <span class="n">obstime</span><span class="o">=</span><span class="n">time</span><span class="p">)</span>
-    <span class="k">else</span><span class="p">:</span>
-        <span class="k">assert</span> <span class="n">ra</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">dec</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;ra/dec not required if giving pos&quot;</span>
+    <span class="k">elif</span> <span class="n">ra</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">dec</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s2">&quot;ra/dec not required if giving pos&quot;</span><span class="p">)</span>
     <span class="n">params</span> <span class="o">=</span> <span class="n">VIZIER_CATALOGS</span><span class="p">[</span><span class="n">catalog</span><span class="p">]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
     <span class="n">columns</span> <span class="o">=</span> <span class="p">{}</span>
     <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">params</span><span class="p">[</span><span class="s2">&quot;columns&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
@@ -300,13 +296,17 @@
     <span class="k">return</span> <span class="n">get_vizier</span><span class="p">(</span><span class="n">pos</span><span class="p">,</span> <span class="n">radius</span><span class="o">=</span><span class="n">radius</span><span class="p">,</span> <span class="n">logging_tag</span><span class="o">=</span><span class="n">logging_tag</span><span class="p">,</span> <span class="o">**</span><span class="n">params</span><span class="p">,</span> <span class="n">raw</span><span class="o">=</span><span class="n">raw</span><span class="p">)</span>
 
 
-<div class="viewcode-block" id="rough_match"><a class="viewcode-back" href="../../api.html#astromon.cross_match.rough_match">[docs]</a><span class="k">def</span> <span class="nf">rough_match</span><span class="p">(</span>
+<div class="viewcode-block" id="rough_match">
+<a class="viewcode-back" href="../../api.html#astromon.cross_match.rough_match">[docs]</a>
+<span class="k">def</span> <span class="nf">rough_match</span><span class="p">(</span>
     <span class="n">sources</span><span class="p">,</span>
     <span class="n">time</span><span class="p">,</span>
     <span class="n">radius</span><span class="o">=</span><span class="mi">3</span> <span class="o">*</span> <span class="n">u</span><span class="o">.</span><span class="n">arcsec</span><span class="p">,</span>
     <span class="n">catalogs</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;Tycho2&quot;</span><span class="p">,</span> <span class="s2">&quot;ICRS&quot;</span><span class="p">,</span> <span class="s2">&quot;USNO-B1.0&quot;</span><span class="p">,</span> <span class="s2">&quot;2MASS&quot;</span><span class="p">,</span> <span class="s2">&quot;SDSS&quot;</span><span class="p">),</span>
 <span class="p">):</span>
-    <span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Find sources in a set of :ref:`catalogs &lt;catalog-list&gt;` around the x-ray sources given.</span>
+
 <span class="sd">    Find sources in a set of :ref:`catalogs &lt;catalog-list&gt;` around the x-ray sources given</span>
 <span class="sd">    in `sources`,  within an angular separation of at most `radius`</span>
 <span class="sd">    (in :any:`astropy units &lt;astropy:astropy-units&gt;`).</span>
@@ -344,10 +344,9 @@
         <span class="k">return</span> <span class="p">[]</span>
 
     <span class="k">if</span> <span class="s2">&quot;obsid&quot;</span> <span class="ow">in</span> <span class="n">sources</span><span class="o">.</span><span class="n">dtype</span><span class="o">.</span><span class="n">names</span><span class="p">:</span>
-        <span class="k">assert</span> <span class="p">(</span>
-            <span class="nb">len</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">unique</span><span class="p">(</span><span class="n">sources</span><span class="p">[</span><span class="s2">&quot;obsid&quot;</span><span class="p">]))</span> <span class="o">&lt;=</span> <span class="mi">1</span>
-        <span class="p">),</span> <span class="s2">&quot;rough_match only handles one OBSID at a time&quot;</span>
-        <span class="n">logging_tag</span> <span class="o">=</span> <span class="sa">f</span><span class="s1">&#39;OBSID=</span><span class="si">{</span><span class="n">sources</span><span class="p">[</span><span class="s2">&quot;obsid&quot;</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s1"> &#39;</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">unique</span><span class="p">(</span><span class="n">sources</span><span class="p">[</span><span class="s2">&quot;obsid&quot;</span><span class="p">]))</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s2">&quot;rough_match only handles one OBSID at a time&quot;</span><span class="p">)</span>
+        <span class="n">logging_tag</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;OBSID=</span><span class="si">{</span><span class="n">sources</span><span class="p">[</span><span class="s1">&#39;obsid&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s2"> &quot;</span>
     <span class="k">else</span><span class="p">:</span>
         <span class="n">logging_tag</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
 
@@ -360,7 +359,7 @@
         <span class="n">_get</span><span class="p">(</span><span class="n">pos</span><span class="o">=</span><span class="n">pos</span><span class="p">,</span> <span class="n">time</span><span class="o">=</span><span class="n">time</span><span class="p">,</span> <span class="n">radius</span><span class="o">=</span><span class="n">radius</span><span class="p">,</span> <span class="n">catalog</span><span class="o">=</span><span class="n">name</span><span class="p">,</span> <span class="n">logging_tag</span><span class="o">=</span><span class="n">logging_tag</span><span class="p">)</span>
         <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">catalogs</span>
     <span class="p">]</span>
-    <span class="n">res</span> <span class="o">=</span> <span class="n">table</span><span class="o">.</span><span class="n">vstack</span><span class="p">([</span><span class="n">r</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">res</span><span class="p">],</span> <span class="n">metadata_conflicts</span><span class="o">=</span><span class="s2">&quot;silent&quot;</span><span class="p">)</span>
+    <span class="n">res</span> <span class="o">=</span> <span class="n">table</span><span class="o">.</span><span class="n">vstack</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="n">res</span><span class="p">),</span> <span class="n">metadata_conflicts</span><span class="o">=</span><span class="s2">&quot;silent&quot;</span><span class="p">)</span>
 
     <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">sources</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">res</span><span class="p">):</span>
         <span class="n">sources</span><span class="p">[</span><span class="s2">&quot;coord_xray&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">coords</span><span class="o">.</span><span class="n">SkyCoord</span><span class="p">(</span>
@@ -380,6 +379,7 @@
         <span class="n">res</span><span class="p">[</span><span class="s2">&quot;separation&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">table</span><span class="o">.</span><span class="n">Column</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
 
     <span class="k">return</span> <span class="n">res</span></div>
+
 
 
 <span class="nd">@utils</span><span class="o">.</span><span class="n">logging_call_decorator</span>
@@ -402,8 +402,10 @@
         <span class="k">return</span> <span class="n">table</span><span class="o">.</span><span class="n">Table</span><span class="p">(</span><span class="n">dbi</span><span class="o">.</span><span class="n">fetchall</span><span class="p">(</span><span class="n">sql_query</span><span class="p">))</span>
 
 
-<div class="viewcode-block" id="get_bad_target_mask"><a class="viewcode-back" href="../../api.html#astromon.cross_match.get_bad_target_mask">[docs]</a><span class="k">def</span> <span class="nf">get_bad_target_mask</span><span class="p">(</span><span class="n">matches</span><span class="p">):</span>
-    <span class="sd">&quot;&quot;&quot;</span>
+<div class="viewcode-block" id="get_bad_target_mask">
+<a class="viewcode-back" href="../../api.html#astromon.cross_match.get_bad_target_mask">[docs]</a>
+<span class="k">def</span> <span class="nf">get_bad_target_mask</span><span class="p">(</span><span class="n">matches</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Returns a mask to remove targets that are known to give cross-matches with large residuals.</span>
 
 <span class="sd">    This is not used in standard processing and is here for convenience.</span>
@@ -427,15 +429,18 @@
     <span class="p">]</span>
     <span class="n">bad_targets</span> <span class="o">=</span> <span class="p">[</span><span class="n">x</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">&quot; &quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">bad_targets</span><span class="p">]</span>
     <span class="k">for</span> <span class="n">ii</span><span class="p">,</span> <span class="n">target</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">matches</span><span class="p">[</span><span class="s2">&quot;target&quot;</span><span class="p">]):</span>
-        <span class="n">target</span> <span class="o">=</span> <span class="n">target</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">&quot; &quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+        <span class="n">trgt</span> <span class="o">=</span> <span class="n">target</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">&quot; &quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
         <span class="k">for</span> <span class="n">bad_target</span> <span class="ow">in</span> <span class="n">bad_targets</span><span class="p">:</span>
-            <span class="k">if</span> <span class="n">target</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="n">bad_target</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">trgt</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="n">bad_target</span><span class="p">):</span>
                 <span class="n">ok</span><span class="p">[</span><span class="n">ii</span><span class="p">]</span> <span class="o">=</span> <span class="kc">False</span>
     <span class="k">return</span> <span class="o">~</span><span class="n">ok</span></div>
 
 
-<div class="viewcode-block" id="get_excluded_regions_mask"><a class="viewcode-back" href="../../api.html#astromon.cross_match.get_excluded_regions_mask">[docs]</a><span class="k">def</span> <span class="nf">get_excluded_regions_mask</span><span class="p">(</span><span class="n">matches</span><span class="p">,</span> <span class="n">regions</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
-    <span class="sd">&quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="get_excluded_regions_mask">
+<a class="viewcode-back" href="../../api.html#astromon.cross_match.get_excluded_regions_mask">[docs]</a>
+<span class="k">def</span> <span class="nf">get_excluded_regions_mask</span><span class="p">(</span><span class="n">matches</span><span class="p">,</span> <span class="n">regions</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Returns a mask to remove x-ray sources that are close to excluded regions.</span>
 
 <span class="sd">    Parameters</span>
@@ -459,7 +464,10 @@
     <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">in_region</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span></div>
 
 
-<div class="viewcode-block" id="filter_matches"><a class="viewcode-back" href="../../api.html#astromon.cross_match.filter_matches">[docs]</a><span class="k">def</span> <span class="nf">filter_matches</span><span class="p">(</span>
+
+<div class="viewcode-block" id="filter_matches">
+<a class="viewcode-back" href="../../api.html#astromon.cross_match.filter_matches">[docs]</a>
+<span class="k">def</span> <span class="nf">filter_matches</span><span class="p">(</span>  <span class="c1"># noqa: PLR0912</span>
     <span class="n">matches</span><span class="p">,</span>
     <span class="n">snr</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
     <span class="n">dr</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
@@ -474,7 +482,7 @@
     <span class="n">exclude_categories</span><span class="o">=</span><span class="p">(),</span>
     <span class="o">**</span><span class="n">kwargs</span><span class="p">,</span>
 <span class="p">):</span>
-    <span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Return a mask to filter out cross-matches based on some common criteria.</span>
 
 <span class="sd">    Parameters</span>
@@ -537,9 +545,9 @@
 
     <span class="k">if</span> <span class="n">sim_z</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
         <span class="n">sim_z_offset</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">matches</span><span class="p">))</span>
-        <span class="k">for</span> <span class="n">det</span> <span class="ow">in</span> <span class="n">SIM_Z</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">det</span><span class="p">,</span> <span class="n">det_sim_z</span> <span class="ow">in</span> <span class="n">SIM_Z</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
             <span class="n">msk</span> <span class="o">=</span> <span class="n">matches</span><span class="p">[</span><span class="s2">&quot;detector&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="n">det</span>
-            <span class="n">sim_z_offset</span><span class="p">[</span><span class="n">msk</span><span class="p">]</span> <span class="o">=</span> <span class="n">matches</span><span class="p">[</span><span class="s2">&quot;sim_z&quot;</span><span class="p">][</span><span class="n">msk</span><span class="p">]</span> <span class="o">-</span> <span class="n">SIM_Z</span><span class="p">[</span><span class="n">det</span><span class="p">]</span>
+            <span class="n">sim_z_offset</span><span class="p">[</span><span class="n">msk</span><span class="p">]</span> <span class="o">=</span> <span class="n">matches</span><span class="p">[</span><span class="s2">&quot;sim_z&quot;</span><span class="p">][</span><span class="n">msk</span><span class="p">]</span> <span class="o">-</span> <span class="n">det_sim_z</span>
         <span class="n">ok</span> <span class="o">&amp;=</span> <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">sim_z_offset</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="n">sim_z</span>
 
     <span class="k">if</span> <span class="n">exclude_categories</span><span class="p">:</span>
@@ -560,7 +568,10 @@
     <span class="k">return</span> <span class="n">ok</span></div>
 
 
-<div class="viewcode-block" id="compute_cross_matches"><a class="viewcode-back" href="../../api.html#astromon.cross_match.compute_cross_matches">[docs]</a><span class="k">def</span> <span class="nf">compute_cross_matches</span><span class="p">(</span>
+
+<div class="viewcode-block" id="compute_cross_matches">
+<a class="viewcode-back" href="../../api.html#astromon.cross_match.compute_cross_matches">[docs]</a>
+<span class="k">def</span> <span class="nf">compute_cross_matches</span><span class="p">(</span>
     <span class="n">name</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
     <span class="n">astromon_obs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
     <span class="n">astromon_xray_src</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
@@ -571,7 +582,7 @@
     <span class="n">logging_tag</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">,</span>
     <span class="o">**</span><span class="n">kwargs</span><span class="p">,</span>
 <span class="p">):</span>
-    <span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Cross-match x-ray sources with catalog counterparts.</span>
 
 <span class="sd">    The arguments to this function are relayed to the actual implementation. The default</span>
@@ -673,8 +684,9 @@
     <span class="k">return</span> <span class="n">result</span></div>
 
 
+
 <span class="k">def</span> <span class="nf">_join_dtype</span><span class="p">(</span><span class="n">dtype1</span><span class="p">,</span> <span class="n">dtype2</span><span class="p">,</span> <span class="n">keys</span><span class="p">):</span>
-    <span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Get the dtype resulting from the join of two tables with the given dtypes.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">dtype1</span> <span class="o">=</span> <span class="p">{</span><span class="n">name</span><span class="p">:</span> <span class="n">dtype1</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">dtype1</span><span class="o">.</span><span class="n">names</span><span class="p">}</span>
@@ -685,7 +697,9 @@
     <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">dtype</span><span class="p">([(</span><span class="n">name</span><span class="p">,</span> <span class="n">dtype1</span><span class="p">[</span><span class="n">name</span><span class="p">])</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">dtype1</span><span class="p">])</span>
 
 
-<div class="viewcode-block" id="simple_cross_match"><a class="viewcode-back" href="../../api.html#astromon.cross_match.simple_cross_match">[docs]</a><span class="k">def</span> <span class="nf">simple_cross_match</span><span class="p">(</span>
+<div class="viewcode-block" id="simple_cross_match">
+<a class="viewcode-back" href="../../api.html#astromon.cross_match.simple_cross_match">[docs]</a>
+<span class="k">def</span> <span class="nf">simple_cross_match</span><span class="p">(</span>
     <span class="n">astromon_obs</span><span class="p">,</span>
     <span class="n">astromon_xray_src</span><span class="p">,</span>
     <span class="n">astromon_cat_src</span><span class="p">,</span>
@@ -700,7 +714,7 @@
     <span class="n">stop</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
     <span class="n">logging_tag</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">,</span>
 <span class="p">):</span>
-    <span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    The simplest cross-match of x-ray sources with catalog counterparts.</span>
 
 <span class="sd">    This algorithm selects pairs of x-ray sources and catalog counterparts according to these</span>
@@ -833,7 +847,7 @@
     <span class="n">mg</span> <span class="o">=</span> <span class="n">matches</span><span class="o">.</span><span class="n">group_by</span><span class="p">([</span><span class="s2">&quot;obsid&quot;</span><span class="p">,</span> <span class="s2">&quot;x_id&quot;</span><span class="p">])</span>
     <span class="n">indices</span> <span class="o">=</span> <span class="n">mg</span><span class="o">.</span><span class="n">groups</span><span class="o">.</span><span class="n">indices</span>
     <span class="n">idxs</span> <span class="o">=</span> <span class="p">[]</span>
-    <span class="k">for</span> <span class="n">i0</span><span class="p">,</span> <span class="n">i1</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">indices</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="n">indices</span><span class="p">[</span><span class="mi">1</span><span class="p">:]):</span>
+    <span class="k">for</span> <span class="n">i0</span><span class="p">,</span> <span class="n">i1</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">indices</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="n">indices</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span> <span class="n">strict</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
         <span class="n">idxs_sort</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">lexsort</span><span class="p">((</span><span class="n">mg</span><span class="p">[</span><span class="s2">&quot;dr&quot;</span><span class="p">][</span><span class="n">i0</span><span class="p">:</span><span class="n">i1</span><span class="p">],</span> <span class="n">mg</span><span class="p">[</span><span class="s2">&quot;cat_order&quot;</span><span class="p">][</span><span class="n">i0</span><span class="p">:</span><span class="n">i1</span><span class="p">]))</span>
         <span class="n">idxs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">i0</span> <span class="o">+</span> <span class="n">idxs_sort</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
     <span class="n">result</span> <span class="o">=</span> <span class="n">mg</span><span class="p">[</span><span class="n">idxs</span><span class="p">]</span>
@@ -841,6 +855,7 @@
     <span class="n">result</span><span class="p">[</span><span class="s2">&quot;select_name&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">name</span>
 
     <span class="k">return</span> <span class="n">result</span></div>
+
 
 
 <span class="n">CROSS_MATCHES_ARGS</span> <span class="o">=</span> <span class="p">{</span>
@@ -882,7 +897,7 @@
 
 
 <span class="k">def</span> <span class="nf">_set_formats</span><span class="p">(</span><span class="n">dat</span><span class="p">):</span>
-    <span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Sets format of columns with float dtype to show 2 decimals, except ra/dec/pileup (4 decimals).</span>
 
 <span class="sd">    Parameters</span>
@@ -912,7 +927,7 @@
           </div>
         </div>
       </div>
-      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
         <div class="sphinxsidebarwrapper"><h3>Page Contents</h3>
 
 
@@ -930,7 +945,7 @@
     <a href="#">Back to Top</a></p>
   <p>
     &copy; Copyright 2022, Jean Connelly, Tom Aldcroft, Javier Gonzalez.<br/>
-    Created using <a href="http://www.sphinx-doc.org/en/stable/">Sphinx</a> 4.2.0. &nbsp;
+    Created using <a href="http://www.sphinx-doc.org/en/stable/">Sphinx</a> 8.1.3. &nbsp;
   </p>
 </footer>
   </body>

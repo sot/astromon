@@ -1,18 +1,16 @@
-
 <!DOCTYPE html>
 
-<html>
+<html lang="en" data-content_root="../../">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>astromon.utils &#8212; Astromon 1.1.0 documentation</title>
-    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css" />
-    <link rel="stylesheet" type="text/css" href="../../_static/bootstrap-astropy.css" />
+    <title>astromon.utils &#8212; Astromon 1.2.0 documentation</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=fa44fd50" />
+    <link rel="stylesheet" type="text/css" href="../../_static/bootstrap-astropy.css?v=f4f7060c" />
     
-    <script data-url_root="../../" id="documentation_options" src="../../_static/documentation_options.js"></script>
-    <script src="../../_static/jquery.js"></script>
-    <script src="../../_static/underscore.js"></script>
-    <script src="../../_static/doctools.js"></script>
+    <script src="../../_static/documentation_options.js?v=6efca38a"></script>
+    <script src="../../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
     <script type="text/javascript" src="../../_static/sidebar.js"></script>
     <script type="text/javascript" src="../../_static/copybutton.js"></script>
     <link rel="index" title="Index" href="../../genindex.html" />
@@ -46,7 +44,7 @@
     <h3>Navigation</h3>
     <ul>
       <li>
-	<a href="../../index.html">Astromon 1.1.0 documentation</a>
+	<a href="../../index.html">Astromon 1.2.0 documentation</a>
 	 &#187;
       </li>
       <li><a href="../index.html" accesskey="U">Module code</a> &#187;</li>
@@ -65,6 +63,7 @@
 <span></span><span class="kn">import</span> <span class="nn">functools</span>
 <span class="kn">import</span> <span class="nn">logging</span>
 <span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">re</span>
 <span class="kn">import</span> <span class="nn">subprocess</span>
 <span class="kn">import</span> <span class="nn">tempfile</span>
 <span class="kn">from</span> <span class="nn">contextlib</span> <span class="kn">import</span> <span class="n">AbstractContextManager</span>
@@ -72,7 +71,10 @@
 
 <span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
 <span class="kn">import</span> <span class="nn">Ska.Shell</span>
-<span class="kn">from</span> <span class="nn">astropy.table</span> <span class="kn">import</span> <span class="n">hstack</span><span class="p">,</span> <span class="n">join</span>
+<span class="kn">from</span> <span class="nn">astropy.io</span> <span class="kn">import</span> <span class="n">fits</span>
+<span class="kn">from</span> <span class="nn">astropy.table</span> <span class="kn">import</span> <span class="n">Table</span><span class="p">,</span> <span class="n">hstack</span><span class="p">,</span> <span class="n">join</span>
+<span class="kn">from</span> <span class="nn">cxotime</span> <span class="kn">import</span> <span class="n">CxoTime</span>
+<span class="kn">from</span> <span class="nn">Quaternion</span> <span class="kn">import</span> <span class="n">Quat</span>
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
     <span class="s2">&quot;communicate&quot;</span><span class="p">,</span>
@@ -80,7 +82,6 @@
     <span class="s2">&quot;chdir&quot;</span><span class="p">,</span>
     <span class="s2">&quot;ciao_context&quot;</span><span class="p">,</span>
     <span class="s2">&quot;logging_call_decorator&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;FlowException&quot;</span><span class="p">,</span>
     <span class="s2">&quot;calalign_from_files&quot;</span><span class="p">,</span>
     <span class="s2">&quot;get_calalign_offsets&quot;</span><span class="p">,</span>
 <span class="p">]</span>
@@ -90,26 +91,21 @@
 
 
 <span class="k">class</span> <span class="nc">MissingTableException</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
-    <span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Exception class in case a table is missing in the DB file.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
-    <span class="k">pass</span>
+
+<span class="k">class</span> <span class="nc">CiaoProcessFailure</span><span class="p">(</span><span class="ne">RuntimeError</span><span class="p">):</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="n">lines</span><span class="o">=</span><span class="p">(),</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">lines</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">lines</span><span class="p">)</span>
 
 
-<div class="viewcode-block" id="FlowException"><a class="viewcode-back" href="../../api.html#astromon.utils.FlowException">[docs]</a><span class="k">class</span> <span class="nc">FlowException</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
-    <span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    Exception class to interrupt the execution flow.</span>
-
-<span class="sd">    This exception class is used by :any:`logging_call_decorator` and is silently ignored unless</span>
-<span class="sd">    instructed otherwise.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-
-    <span class="k">pass</span></div>
-
-
-<div class="viewcode-block" id="communicate"><a class="viewcode-back" href="../../api.html#astromon.utils.communicate">[docs]</a><span class="k">def</span> <span class="nf">communicate</span><span class="p">(</span><span class="n">process</span><span class="p">,</span> <span class="n">logger</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="s2">&quot;WARNING&quot;</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">logging_tag</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">):</span>
-    <span class="sd">&quot;&quot;&quot;</span>
+<div class="viewcode-block" id="communicate">
+<a class="viewcode-back" href="../../api.html#astromon.utils.communicate">[docs]</a>
+<span class="k">def</span> <span class="nf">communicate</span><span class="p">(</span><span class="n">process</span><span class="p">,</span> <span class="n">logger</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="s2">&quot;WARNING&quot;</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">logging_tag</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Real-time reading of a subprocess stdout.</span>
 
 <span class="sd">    Parameters</span>
@@ -127,6 +123,7 @@
     <span class="k">if</span> <span class="n">logger</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">()</span>
 
+    <span class="n">lines</span> <span class="o">=</span> <span class="p">[]</span>
     <span class="k">while</span> <span class="kc">True</span><span class="p">:</span>
         <span class="k">if</span> <span class="n">process</span><span class="o">.</span><span class="n">poll</span><span class="p">()</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">break</span>
@@ -134,16 +131,25 @@
         <span class="n">line</span> <span class="o">=</span> <span class="n">line</span> <span class="k">if</span> <span class="n">text</span> <span class="k">else</span> <span class="n">line</span><span class="o">.</span><span class="n">decode</span><span class="p">()</span>
         <span class="n">line</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">rstrip</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="n">logger</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">level</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">logging_tag</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">line</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">line</span><span class="p">:</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
 
     <span class="c1"># in case the buffer is still not empty after the process ended</span>
     <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">process</span><span class="o">.</span><span class="n">stdout</span><span class="o">.</span><span class="n">readlines</span><span class="p">():</span>
-        <span class="n">line</span> <span class="o">=</span> <span class="n">line</span> <span class="k">if</span> <span class="n">text</span> <span class="k">else</span> <span class="n">line</span><span class="o">.</span><span class="n">decode</span><span class="p">()</span>
-        <span class="n">line</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">rstrip</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
-        <span class="n">logger</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">level</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">logging_tag</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">line</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+        <span class="n">line</span> <span class="o">=</span> <span class="n">line</span> <span class="k">if</span> <span class="n">text</span> <span class="k">else</span> <span class="n">line</span><span class="o">.</span><span class="n">decode</span><span class="p">()</span>  <span class="c1"># noqa: PLW2901</span>
+        <span class="n">line</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">rstrip</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>  <span class="c1"># noqa: PLW2901</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">level</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">logging_tag</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">line</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">line</span><span class="p">:</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">lines</span></div>
 
 
-<div class="viewcode-block" id="Ciao"><a class="viewcode-back" href="../../api.html#astromon.utils.Ciao">[docs]</a><span class="k">class</span> <span class="nc">Ciao</span><span class="p">:</span>
-    <span class="sd">&quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="Ciao">
+<a class="viewcode-back" href="../../api.html#astromon.utils.Ciao">[docs]</a>
+<span class="k">class</span> <span class="nc">Ciao</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Encapsulate calls to CIAO tools.</span>
 
 <span class="sd">    This class does two things:</span>
@@ -186,9 +192,8 @@
             <span class="n">workdir</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">workdir</span><span class="p">)</span>
             <span class="n">workdir</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">parents</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">env</span><span class="p">[</span><span class="s2">&quot;ASCDS_WORK_PATH&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">workdir</span><span class="p">)</span>
-            <span class="k">assert</span> <span class="s2">&quot;:&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="nb">str</span><span class="p">(</span>
-                <span class="n">workdir</span><span class="o">.</span><span class="n">absolute</span><span class="p">()</span>
-            <span class="p">),</span> <span class="s2">&quot;CIAO workdir cannot contain colon&quot;</span>
+            <span class="k">if</span> <span class="s2">&quot;:&quot;</span> <span class="ow">in</span> <span class="nb">str</span><span class="p">(</span><span class="n">workdir</span><span class="o">.</span><span class="n">absolute</span><span class="p">()):</span>
+                <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s2">&quot;CIAO workdir cannot contain colon&quot;</span><span class="p">)</span>
             <span class="n">pf</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="si">{}</span><span class="s2">;</span><span class="si">{}</span><span class="s2">:</span><span class="si">{}</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
                 <span class="nb">str</span><span class="p">(</span><span class="n">workdir</span><span class="o">.</span><span class="n">absolute</span><span class="p">()),</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">env</span><span class="p">[</span><span class="s2">&quot;ASCDS_INSTALL&quot;</span><span class="p">]</span> <span class="o">+</span> <span class="s2">&quot;/param&quot;</span><span class="p">,</span>
@@ -205,7 +210,7 @@
         <span class="n">stderr</span><span class="o">=</span><span class="n">subprocess</span><span class="o">.</span><span class="n">STDOUT</span><span class="p">,</span>
         <span class="o">**</span><span class="n">kwargs</span><span class="p">,</span>
     <span class="p">):</span>
-        <span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Run a CIAO command.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">args</span> <span class="o">=</span> <span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">a</span><span class="p">)</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">args</span><span class="p">]</span>
@@ -215,34 +220,43 @@
             <span class="n">cmd</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">k</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="n">kwargs</span><span class="p">[</span><span class="n">k</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="n">logging_tag</span> <span class="o">+</span> <span class="s2">&quot; &quot;</span> <span class="o">+</span> <span class="s2">&quot; &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">cmd</span><span class="p">))</span>
         <span class="n">process</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">Popen</span><span class="p">(</span><span class="n">cmd</span><span class="p">,</span> <span class="n">stdout</span><span class="o">=</span><span class="n">stdout</span><span class="p">,</span> <span class="n">stderr</span><span class="o">=</span><span class="n">stderr</span><span class="p">,</span> <span class="n">env</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">env</span><span class="p">)</span>
-        <span class="n">communicate</span><span class="p">(</span>
+        <span class="n">lines</span> <span class="o">=</span> <span class="n">communicate</span><span class="p">(</span>
             <span class="n">process</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="mi">20</span><span class="p">,</span> <span class="n">logging_tag</span><span class="o">=</span><span class="n">logging_tag</span>
         <span class="p">)</span>  <span class="c1"># 20 is logging.INFO</span>
         <span class="k">if</span> <span class="n">process</span><span class="o">.</span><span class="n">returncode</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">logging_tag</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2"> failed&quot;</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="n">CiaoProcessFailure</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">logging_tag</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2"> failed&quot;</span><span class="p">,</span> <span class="n">lines</span><span class="o">=</span><span class="n">lines</span><span class="p">)</span>
 
-<div class="viewcode-block" id="Ciao.pget"><a class="viewcode-back" href="../../api.html#astromon.utils.Ciao.pget">[docs]</a>    <span class="k">def</span> <span class="nf">pget</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">command</span><span class="p">,</span> <span class="n">param</span><span class="o">=</span><span class="s2">&quot;value&quot;</span><span class="p">,</span> <span class="n">logging_tag</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">):</span>
-        <span class="sd">&quot;&quot;&quot;</span>
+<div class="viewcode-block" id="Ciao.pget">
+<a class="viewcode-back" href="../../api.html#astromon.utils.Ciao.pget">[docs]</a>
+    <span class="k">def</span> <span class="nf">pget</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">command</span><span class="p">,</span> <span class="n">param</span><span class="o">=</span><span class="s2">&quot;value&quot;</span><span class="p">,</span> <span class="n">logging_tag</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Call CIAO&#39;s pget and return the standard output.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">logging_tag</span><span class="si">}</span><span class="s2"> pget </span><span class="si">{</span><span class="n">command</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">param</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">subprocess</span><span class="o">.</span><span class="n">check_output</span><span class="p">([</span><span class="s2">&quot;pget&quot;</span><span class="p">,</span> <span class="n">command</span><span class="p">,</span> <span class="n">param</span><span class="p">],</span> <span class="n">env</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">env</span><span class="p">)</span>
+            <span class="o">.</span><span class="n">decode</span><span class="p">()</span>
+            <span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+        <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">logging_tag</span><span class="si">}</span><span class="s2"> pget </span><span class="si">{</span><span class="n">out</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="k">return</span> <span class="p">(</span>
             <span class="n">subprocess</span><span class="o">.</span><span class="n">check_output</span><span class="p">([</span><span class="s2">&quot;pget&quot;</span><span class="p">,</span> <span class="n">command</span><span class="p">,</span> <span class="n">param</span><span class="p">],</span> <span class="n">env</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">env</span><span class="p">)</span>
             <span class="o">.</span><span class="n">decode</span><span class="p">()</span>
             <span class="o">.</span><span class="n">strip</span><span class="p">()</span>
-        <span class="p">)</span></div></div>
+        <span class="p">)</span></div>
+</div>
+
 
 
 <span class="k">def</span> <span class="nf">set_ciao_context</span><span class="p">(</span><span class="n">directory</span><span class="p">):</span>
-    <span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Set the environment variables used by CIAO (PFILES and ASCDS_WORK_PATH).</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">directory</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">directory</span><span class="p">)</span>
     <span class="n">directory</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">parents</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
     <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;ASCDS_WORK_PATH&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">directory</span><span class="p">)</span>
-    <span class="k">assert</span> <span class="s2">&quot;:&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="nb">str</span><span class="p">(</span>
-        <span class="n">directory</span><span class="o">.</span><span class="n">absolute</span><span class="p">()</span>
-    <span class="p">),</span> <span class="s2">&quot;CIAO context directory can not contain colon&quot;</span>
+    <span class="k">if</span> <span class="s2">&quot;:&quot;</span> <span class="ow">in</span> <span class="nb">str</span><span class="p">(</span><span class="n">directory</span><span class="o">.</span><span class="n">absolute</span><span class="p">()):</span>
+        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s2">&quot;CIAO context directory cannot contain colon&quot;</span><span class="p">)</span>
     <span class="n">pf</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="si">{}</span><span class="s2">;</span><span class="si">{}</span><span class="s2">:</span><span class="si">{}</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
         <span class="nb">str</span><span class="p">(</span><span class="n">directory</span><span class="o">.</span><span class="n">absolute</span><span class="p">()),</span>
         <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;ASCDS_INSTALL&quot;</span><span class="p">]</span> <span class="o">+</span> <span class="s2">&quot;/param&quot;</span><span class="p">,</span>
@@ -251,8 +265,10 @@
     <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;PFILES&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">pf</span>
 
 
-<div class="viewcode-block" id="chdir"><a class="viewcode-back" href="../../api.html#astromon.utils.chdir">[docs]</a><span class="k">class</span> <span class="nc">chdir</span><span class="p">(</span><span class="n">AbstractContextManager</span><span class="p">):</span>
-    <span class="sd">&quot;&quot;&quot;</span>
+<div class="viewcode-block" id="chdir">
+<a class="viewcode-back" href="../../api.html#astromon.utils.chdir">[docs]</a>
+<span class="k">class</span> <span class="nc">chdir</span><span class="p">(</span><span class="n">AbstractContextManager</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Context manager to temporarily change to a directory.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
@@ -266,8 +282,9 @@
         <span class="k">return</span> <span class="n">exc_type</span> <span class="ow">is</span> <span class="kc">None</span></div>
 
 
+
 <span class="k">class</span> <span class="nc">CIAOContext</span><span class="p">(</span><span class="n">AbstractContextManager</span><span class="p">):</span>
-    <span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Context manager to set CIAO context (PFILES and ASCDS_WORK_PATH)</span>
 
 <span class="sd">    Parameters</span>
@@ -294,7 +311,7 @@
 
 
 <span class="k">def</span> <span class="nf">ciao_context_function</span><span class="p">(</span><span class="n">func</span><span class="p">):</span>
-    <span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Decorator to set the CIAO parameters directory within the context of a member function.</span>
 
 <span class="sd">    By default, CIAO stores function parameters in $HOME/cxcds_param4. Within a function decorated</span>
@@ -330,7 +347,7 @@
 
 
 <span class="k">class</span> <span class="nc">LoggingCallDecorator</span><span class="p">:</span>
-    <span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Decorator to add logging messages at the start/end of the decorated function.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
@@ -359,9 +376,6 @@
                     <span class="bp">self</span><span class="o">.</span><span class="n">log_level</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">instance</span><span class="si">}{</span><span class="n">func</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">(</span><span class="si">{</span><span class="n">args_str</span><span class="si">}</span><span class="s2">) Finished&quot;</span>
                 <span class="p">)</span>
                 <span class="k">return</span> <span class="n">result</span>
-            <span class="k">except</span> <span class="n">FlowException</span><span class="p">:</span>
-                <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">ignore_exceptions</span><span class="p">:</span>
-                    <span class="k">raise</span>
             <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">log</span><span class="p">(</span>
                     <span class="bp">self</span><span class="o">.</span><span class="n">log_level</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">instance</span><span class="si">}{</span><span class="n">func</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">(</span><span class="si">{</span><span class="n">args_str</span><span class="si">}</span><span class="s2">) Except: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span>
@@ -380,8 +394,10 @@
 <span class="sd">&quot;&quot;&quot;</span>
 
 
-<div class="viewcode-block" id="calalign_from_files"><a class="viewcode-back" href="../../api.html#astromon.utils.calalign_from_files">[docs]</a><span class="k">def</span> <span class="nf">calalign_from_files</span><span class="p">(</span><span class="n">calalign_dir</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
-    <span class="sd">&quot;&quot;&quot;</span>
+<div class="viewcode-block" id="calalign_from_files">
+<a class="viewcode-back" href="../../api.html#astromon.utils.calalign_from_files">[docs]</a>
+<span class="k">def</span> <span class="nf">calalign_from_files</span><span class="p">(</span><span class="n">calalign_dir</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Get data from calalign files in `calalign_dir`.</span>
 
 <span class="sd">    Parameters</span>
@@ -393,11 +409,6 @@
 <span class="sd">    -------</span>
 <span class="sd">    :any:`astropy.table.Table`</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="kn">import</span> <span class="nn">re</span>
-
-    <span class="kn">from</span> <span class="nn">astropy.io</span> <span class="kn">import</span> <span class="n">fits</span>
-    <span class="kn">from</span> <span class="nn">astropy.table</span> <span class="kn">import</span> <span class="n">Table</span>
-    <span class="kn">from</span> <span class="nn">cxotime</span> <span class="kn">import</span> <span class="n">CxoTime</span>
 
     <span class="k">if</span> <span class="n">calalign_dir</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="n">calalign_dir</span> <span class="o">=</span> <span class="s2">&quot;/data/caldb/data/chandra/pcad/align&quot;</span>
@@ -444,28 +455,33 @@
             <span class="k">if</span> <span class="s2">&quot;CVED0001&quot;</span> <span class="ow">in</span> <span class="n">hdus</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">header</span>
             <span class="k">else</span> <span class="s2">&quot;2050:001:00:00:00.00&quot;</span>
         <span class="p">)</span>
-        <span class="k">for</span> <span class="n">cal</span> <span class="ow">in</span> <span class="n">cals</span><span class="p">:</span>
-            <span class="n">transforms</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
-                <span class="p">{</span>
-                    <span class="s2">&quot;start&quot;</span><span class="p">:</span> <span class="n">CxoTime</span><span class="p">(</span><span class="n">cvsd</span><span class="p">),</span>
-                    <span class="s2">&quot;stop&quot;</span><span class="p">:</span> <span class="n">CxoTime</span><span class="p">(</span><span class="n">cved</span><span class="p">),</span>
-                    <span class="s2">&quot;detector&quot;</span><span class="p">:</span> <span class="n">cal</span><span class="p">[</span><span class="s2">&quot;INSTR_ID&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">strip</span><span class="p">(),</span>
-                    <span class="s2">&quot;date&quot;</span><span class="p">:</span> <span class="n">CxoTime</span><span class="p">(</span><span class="n">info</span><span class="p">[</span><span class="s2">&quot;date&quot;</span><span class="p">]),</span>
-                    <span class="s2">&quot;version&quot;</span><span class="p">:</span> <span class="n">info</span><span class="p">[</span><span class="s2">&quot;version&quot;</span><span class="p">],</span>
-                    <span class="s2">&quot;caldb_version&quot;</span><span class="p">:</span> <span class="n">caldb_info</span><span class="p">[</span><span class="n">info</span><span class="p">[</span><span class="s2">&quot;version&quot;</span><span class="p">]][</span><span class="s2">&quot;CalDB&quot;</span><span class="p">],</span>
-                    <span class="s2">&quot;since&quot;</span><span class="p">:</span> <span class="n">caldb_info</span><span class="p">[</span><span class="n">info</span><span class="p">[</span><span class="s2">&quot;version&quot;</span><span class="p">]][</span><span class="s2">&quot;since&quot;</span><span class="p">],</span>
-                    <span class="s2">&quot;aca_misalign&quot;</span><span class="p">:</span> <span class="n">cal</span><span class="p">[</span><span class="s2">&quot;ACA_MISALIGN&quot;</span><span class="p">],</span>
-                    <span class="s2">&quot;fts_misalign&quot;</span><span class="p">:</span> <span class="n">cal</span><span class="p">[</span><span class="s2">&quot;FTS_MISALIGN&quot;</span><span class="p">],</span>
-                <span class="p">}</span>
-            <span class="p">)</span>
+        <span class="n">transforms</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span>
+            <span class="p">[</span>
+                <span class="p">(</span>
+                    <span class="p">{</span>
+                        <span class="s2">&quot;start&quot;</span><span class="p">:</span> <span class="n">CxoTime</span><span class="p">(</span><span class="n">cvsd</span><span class="p">),</span>
+                        <span class="s2">&quot;stop&quot;</span><span class="p">:</span> <span class="n">CxoTime</span><span class="p">(</span><span class="n">cved</span><span class="p">),</span>
+                        <span class="s2">&quot;detector&quot;</span><span class="p">:</span> <span class="n">cal</span><span class="p">[</span><span class="s2">&quot;INSTR_ID&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">strip</span><span class="p">(),</span>
+                        <span class="s2">&quot;date&quot;</span><span class="p">:</span> <span class="n">CxoTime</span><span class="p">(</span><span class="n">info</span><span class="p">[</span><span class="s2">&quot;date&quot;</span><span class="p">]),</span>
+                        <span class="s2">&quot;version&quot;</span><span class="p">:</span> <span class="n">info</span><span class="p">[</span><span class="s2">&quot;version&quot;</span><span class="p">],</span>
+                        <span class="s2">&quot;caldb_version&quot;</span><span class="p">:</span> <span class="n">caldb_info</span><span class="p">[</span><span class="n">info</span><span class="p">[</span><span class="s2">&quot;version&quot;</span><span class="p">]][</span><span class="s2">&quot;CalDB&quot;</span><span class="p">],</span>
+                        <span class="s2">&quot;since&quot;</span><span class="p">:</span> <span class="n">caldb_info</span><span class="p">[</span><span class="n">info</span><span class="p">[</span><span class="s2">&quot;version&quot;</span><span class="p">]][</span><span class="s2">&quot;since&quot;</span><span class="p">],</span>
+                        <span class="s2">&quot;aca_misalign&quot;</span><span class="p">:</span> <span class="n">cal</span><span class="p">[</span><span class="s2">&quot;ACA_MISALIGN&quot;</span><span class="p">],</span>
+                        <span class="s2">&quot;fts_misalign&quot;</span><span class="p">:</span> <span class="n">cal</span><span class="p">[</span><span class="s2">&quot;FTS_MISALIGN&quot;</span><span class="p">],</span>
+                    <span class="p">}</span>
+                <span class="p">)</span>
+                <span class="k">for</span> <span class="n">cal</span> <span class="ow">in</span> <span class="n">cals</span>
+            <span class="p">]</span>
+        <span class="p">)</span>
 
     <span class="n">calalign</span> <span class="o">=</span> <span class="n">Table</span><span class="p">(</span><span class="n">transforms</span><span class="p">)</span>
     <span class="n">calalign</span><span class="p">[</span><span class="s2">&quot;dy&quot;</span><span class="p">],</span> <span class="n">calalign</span><span class="p">[</span><span class="s2">&quot;dz&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">get_offsets</span><span class="p">(</span><span class="n">calalign</span><span class="p">[</span><span class="s2">&quot;aca_misalign&quot;</span><span class="p">])</span>
     <span class="k">return</span> <span class="n">calalign</span></div>
 
 
+
 <span class="k">def</span> <span class="nf">get_offsets</span><span class="p">(</span><span class="n">aca_misalign</span><span class="p">):</span>
-    <span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Get the yag/zag offsets from the aca_misalign matrix.</span>
 
 <span class="sd">    Parameters</span>
@@ -478,8 +494,6 @@
 <span class="sd">    (np.array, np.array)</span>
 <span class="sd">        Two arrays with shape (aca_misalign.shape[1:])</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
-    <span class="kn">from</span> <span class="nn">Quaternion</span> <span class="kn">import</span> <span class="n">Quat</span>
 
     <span class="n">aca_misalign</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">atleast_1d</span><span class="p">(</span><span class="n">aca_misalign</span><span class="p">)</span>
     <span class="n">dys</span> <span class="o">=</span> <span class="p">[]</span>
@@ -491,8 +505,10 @@
     <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">dys</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">dzs</span><span class="p">)</span>
 
 
-<div class="viewcode-block" id="get_calalign_offsets"><a class="viewcode-back" href="../../api.html#astromon.utils.get_calalign_offsets">[docs]</a><span class="k">def</span> <span class="nf">get_calalign_offsets</span><span class="p">(</span><span class="n">all_matches</span><span class="p">,</span> <span class="n">ref_calalign</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">calalign_dir</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
-    <span class="sd">&quot;&quot;&quot;</span>
+<div class="viewcode-block" id="get_calalign_offsets">
+<a class="viewcode-back" href="../../api.html#astromon.utils.get_calalign_offsets">[docs]</a>
+<span class="k">def</span> <span class="nf">get_calalign_offsets</span><span class="p">(</span><span class="n">all_matches</span><span class="p">,</span> <span class="n">ref_calalign</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">calalign_dir</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Get a table with the yag/zag offsets subtracted by the aca_misalign matrix.</span>
 
 <span class="sd">    The table includes two sets of offsets: the offsets used when the observation was processed,</span>
@@ -581,10 +597,14 @@
     <span class="n">reference</span><span class="o">.</span><span class="n">rename_columns</span><span class="p">(</span><span class="n">cols</span><span class="p">,</span> <span class="n">ref_cols</span><span class="p">)</span>
 
     <span class="c1"># these should be true here:</span>
-    <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">all_matches</span><span class="p">)</span> <span class="o">==</span> <span class="nb">len</span><span class="p">(</span><span class="n">actual</span><span class="p">)</span>
-    <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">all_matches</span><span class="p">)</span> <span class="o">==</span> <span class="nb">len</span><span class="p">(</span><span class="n">reference</span><span class="p">)</span>
-    <span class="k">assert</span> <span class="n">np</span><span class="o">.</span><span class="n">all</span><span class="p">(</span><span class="n">reference</span><span class="p">[</span><span class="s2">&quot;obsid&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="n">actual</span><span class="p">[</span><span class="s2">&quot;obsid&quot;</span><span class="p">])</span>
-    <span class="k">assert</span> <span class="n">np</span><span class="o">.</span><span class="n">all</span><span class="p">(</span><span class="n">reference</span><span class="p">[</span><span class="s2">&quot;x_id&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="n">actual</span><span class="p">[</span><span class="s2">&quot;x_id&quot;</span><span class="p">])</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">all_matches</span><span class="p">)</span> <span class="o">!=</span> <span class="nb">len</span><span class="p">(</span><span class="n">actual</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s2">&quot;len(all_matches) != len(actual)&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">all_matches</span><span class="p">)</span> <span class="o">!=</span> <span class="nb">len</span><span class="p">(</span><span class="n">reference</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s2">&quot;len(all_matches) != len(reference)&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">all</span><span class="p">(</span><span class="n">reference</span><span class="p">[</span><span class="s2">&quot;obsid&quot;</span><span class="p">]</span> <span class="o">!=</span> <span class="n">actual</span><span class="p">[</span><span class="s2">&quot;obsid&quot;</span><span class="p">]):</span>
+        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s2">&quot;reference.obsid != actual.obsid&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">all</span><span class="p">(</span><span class="n">reference</span><span class="p">[</span><span class="s2">&quot;x_id&quot;</span><span class="p">]</span> <span class="o">!=</span> <span class="n">actual</span><span class="p">[</span><span class="s2">&quot;x_id&quot;</span><span class="p">]):</span>
+        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s2">&quot;reference.x_id != actual.x_id&quot;</span><span class="p">)</span>
 
     <span class="n">result</span> <span class="o">=</span> <span class="n">join</span><span class="p">(</span>
         <span class="n">all_matches</span><span class="p">[[</span><span class="s2">&quot;obsid&quot;</span><span class="p">,</span> <span class="s2">&quot;x_id&quot;</span><span class="p">]],</span>
@@ -592,20 +612,23 @@
         <span class="n">keys</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;obsid&quot;</span><span class="p">,</span> <span class="s2">&quot;x_id&quot;</span><span class="p">],</span>
     <span class="p">)</span>
 
-    <span class="k">assert</span> <span class="n">np</span><span class="o">.</span><span class="n">all</span><span class="p">(</span><span class="n">all_matches</span><span class="p">[</span><span class="s2">&quot;obsid&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="n">result</span><span class="p">[</span><span class="s2">&quot;obsid&quot;</span><span class="p">])</span>
-    <span class="k">assert</span> <span class="n">np</span><span class="o">.</span><span class="n">all</span><span class="p">(</span><span class="n">all_matches</span><span class="p">[</span><span class="s2">&quot;x_id&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="n">result</span><span class="p">[</span><span class="s2">&quot;x_id&quot;</span><span class="p">])</span>
+    <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">all</span><span class="p">(</span><span class="n">all_matches</span><span class="p">[</span><span class="s2">&quot;obsid&quot;</span><span class="p">]</span> <span class="o">!=</span> <span class="n">result</span><span class="p">[</span><span class="s2">&quot;obsid&quot;</span><span class="p">]):</span>
+        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s2">&quot;all_matches.obsid != result.obsid&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">all</span><span class="p">(</span><span class="n">all_matches</span><span class="p">[</span><span class="s2">&quot;x_id&quot;</span><span class="p">]</span> <span class="o">!=</span> <span class="n">result</span><span class="p">[</span><span class="s2">&quot;x_id&quot;</span><span class="p">]):</span>
+        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s2">&quot;all_matches.x_id != result.x_id&quot;</span><span class="p">)</span>
 
     <span class="c1"># these are observations that happened after the reference calalign was added</span>
     <span class="n">result</span><span class="p">[</span><span class="s2">&quot;after_caldb&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">result</span><span class="p">[</span><span class="s2">&quot;since&quot;</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">all_matches</span><span class="p">[</span><span class="s2">&quot;time&quot;</span><span class="p">]</span>
 
     <span class="k">return</span> <span class="n">result</span></div>
+
 </pre></div>
 
             <div class="clearer"></div>
           </div>
         </div>
       </div>
-      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
         <div class="sphinxsidebarwrapper"><h3>Page Contents</h3>
 
 
@@ -623,7 +646,7 @@
     <a href="#">Back to Top</a></p>
   <p>
     &copy; Copyright 2022, Jean Connelly, Tom Aldcroft, Javier Gonzalez.<br/>
-    Created using <a href="http://www.sphinx-doc.org/en/stable/">Sphinx</a> 4.2.0. &nbsp;
+    Created using <a href="http://www.sphinx-doc.org/en/stable/">Sphinx</a> 8.1.3. &nbsp;
   </p>
 </footer>
   </body>
