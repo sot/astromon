@@ -686,7 +686,7 @@ class Observation:
             ("caldb_version", "<U6"),
         ]
 
-        if TASKS.tasks[version].get_cache(self).return_code != ReturnCode.OK:
+        if TASKS.tasks[version].get_result(self).return_code != ReturnCode.OK:
             return table.Table(dtype=dtype)
 
         obspar = self.get_obspar()
