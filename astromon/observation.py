@@ -958,7 +958,7 @@ def make_images(obs, inputs, outputs):
         try:
             ciao(
                 "acis_streak_map",
-                infile=inputs["events"],
+                infile=inputs["events"][0],
                 fovfile=fov_file,
                 bkgroot=outputs["acis_streaks_bkg"],
                 regfile=outputs["acis_streaks"],
