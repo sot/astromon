@@ -11,6 +11,7 @@ from astropy import units as u
 from astropy.coordinates import SkyCoord
 from astropy.table.table import Table
 from cxotime import CxoTime
+from mica.archive.obspar import get_obspar
 from ska_helpers.retry import tables_open_file
 
 from astromon import observation
@@ -357,6 +358,78 @@ def add_regions(regions, dbfile=None):
         save("astromon_regions", all_regions, h5)
         save("astromon_meta", meta, h5)
         return b
+
+
+def get_regions(obsid=None, dbfile=None, radius=5 * u.arcmin):
+    """
+    Get exclusion regions from the astromon_regions table.
+
+    Parameters
+    ----------
+    obsid: int
+        If provided, only return regions with obsid=0 or centered around the nominal pointing
+        of the given obsid, as stored in the obspar file.
+    dbfile: :any:`pathlib.Path`
+        File where tables are stored.
+        The default is `$ASTROMON_FILE` or `$SKA/data/astromon/astromon.h5`
+    radius: :any:`astropy.units.Quantity`
+        Maximum distance from the nominal pointing of the observation to include a region.
+        Only used if obsid is provided. Default is 5 arcmin.
+    Returns
+    -------
+    :any:`astropy.table.Table`
+    """
+    regions = get_table("astromon_regions", dbfile)
+    if obsid is not None:
+        obspar = get_obspar(obsid)
+        obs_loc = SkyCoord(obspar["ra_nom"] * u.deg, obspar["dec_nom"] * u.deg)
+
+        loc = SkyCoord(regions["ra"] * u.deg, regions["dec"] * u.deg)
+        regions = regions[
+            (obs_loc.separation(loc) < 5 * u.arcmin) | (regions["obsid"] == obsid)
+        ]
+    return regions
+
+
+def is_in_excluded_region(position, obsid=None, regions=None):
+    """
+    Returns a mask to remove x-ray sources that are close to excluded regions.
+
+    Parameters
+    ----------
+    position: :any:`astropy.coordinates.SkyCoord`
+        Array of :class:`astropy.coordinates.SkyCoord` objects.
+    obsid: array-like
+        Array of OBSIDs corresponding to each position.
+    """
+    squeeze = not np.shape(position)
+    position = np.atleast_1d(position)
+
+    if obsid is not None:
+        obsid = np.atleast_1d(obsid)
+        if obsid.shape != position.shape:
+            raise ValueError("obsid and position must have the same shape")
+
+    if regions is None:
+        regions = get_table("astromon_regions")
+    ii, jj = np.broadcast_arrays(
+        np.arange(len(position))[None, :], np.arange(len(regions))[:, None]
+    )
+    i, j = ii.flatten(), jj.flatten()
+    regions["loc"] = SkyCoord(regions["ra"] * u.deg, regions["dec"] * u.deg)
+    in_region = (
+        position[i].separation(regions["loc"][j])
+        < regions["radius"][j] * u.arcsec
+    )
+    if obsid is not None:
+        in_region &= (
+            (regions["obsid"][j] <= 0) | (regions["obsid"][j] == obsid[i])
+        )
+    in_region = in_region.reshape(ii.shape)
+    result = np.any(in_region, axis=0)
+    if squeeze:
+        return result.squeeze()
+    return result
 
 
 def set_formats(dat):
