@@ -338,10 +338,12 @@ def add_regions(regions, dbfile=None):
         logger = logging.getLogger("astromon")
         logger.info(f"Adding regions: {regions}")
         all_regions = get_table("astromon_regions", h5)
-        if "astromon_meta" in h5.root:
+
+        if "astromon_meta" in h5.root and len(h5.root.astromon_meta) > 0:
             meta = Table(h5.root.astromon_meta[:], dtype=DTYPES["astromon_meta"])
         else:
             meta = Table(np.zeros(1, dtype=DTYPES["astromon_meta"]))
+
         rid = meta["last_region_id"][0] + 1
         regions = Table(regions)
         names = [n for n in all_regions.dtype.names if n in regions.dtype.names]
