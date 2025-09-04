@@ -311,12 +311,13 @@ def remove_regions(regions, dbfile=None):
     """
     with connect(dbfile, mode="r+") as h5:
         all_regions = get_table("astromon_regions", h5)
-        all_regions = all_regions[~np.in1d(all_regions["region_id"], regions)]
+        sel = ~np.in1d(all_regions["region_id"], regions)
+        all_regions = np.array(all_regions[sel]).astype(DTYPES["astromon_regions"])
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             if "astromon_regions" in h5.root:
                 h5.remove_node("/astromon_regions")
-            h5.create_table("/", "astromon_regions", all_regions.as_array())
+            h5.create_table("/", "astromon_regions", all_regions)
 
 
 def add_regions(regions, dbfile=None):
