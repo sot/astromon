@@ -839,11 +839,17 @@ class Observation:
         kwargs: dict
             Arguments to pass to dmcoords.
         """
-        self.download(["evt2", "asol"])
+        self.download(["asol"])
 
+        # trying filtered event file first, because they are usually cached
         evt = self.file_path(f"primary/{self.obsid}_evt2_filtered.fits.gz")
-        if not evt:
-            raise Exception("Expected ine evt file, there are none")
+        if not evt.exists():
+            # if the filtered event file is not found, fall back to the unfiltered version
+            self.download(["evt2"])
+            evt_files = self.file_glob("primary/*_evt2.fits*")
+            if len(evt_files) == 0:
+                raise Exception("Expected one evt file, there are none")
+            evt = evt_files[0]
 
         asol_files = self.file_glob(f"secondary/*{self.obsid}_*asol*fits*")
         if len(asol_files) != 1:
