@@ -360,7 +360,7 @@ def add_regions(regions, dbfile=None):
         return b
 
 
-def get_regions(obsid=None, dbfile=None, radius=5 * u.arcmin):
+def get_regions(obsid=None, dbfile=None):
     """
     Get exclusion regions from the astromon_regions table.
 
