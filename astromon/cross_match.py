@@ -390,8 +390,8 @@ def get_excluded_regions_mask(matches, regions=None):
         matches["x_loc"][i].separation(regions["loc"][j])
         < regions["radius"][j] * u.arcsec
     )
-    in_region &= (
-        (regions["obsid"][j] <= 0) | (regions["obsid"][j] == matches["obsid"][i])
+    in_region &= (regions["obsid"][j] <= 0) | (
+        regions["obsid"][j] == matches["obsid"][i]
     )
     in_region = in_region.reshape(ii.shape)
     return np.any(in_region, axis=0)

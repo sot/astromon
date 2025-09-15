@@ -44,7 +44,7 @@ def get_parser():
     parser.add_argument(
         "--radius",
         type=float,
-        default=5.,
+        default=5.0,
         help="Radius of the excluded region (in arcseconds)",
     )
     parser.add_argument(
@@ -76,6 +76,7 @@ def get_parser():
     )
     return parser
 
+
 def main(args=None):
     parser = get_parser()
     args = parser.parse_args(args)
@@ -95,19 +96,22 @@ def main(args=None):
         logger.error(f"Error performing action {args.action}: {e}")
         raise
 
+
 def add_region(args):
     if args.ra is None or args.dec is None:
         raise ArgumentError("RA and DEC must be specified when adding a region")
 
     result = db.add_regions(
-        regions=[{
-            "ra": args.ra,
-            "dec": args.dec,
-            "radius": args.radius,
-            "user": args.username,
-            "comments": args.comment[:200],
-            "obsid": args.obsid,
-        }]
+        regions=[
+            {
+                "ra": args.ra,
+                "dec": args.dec,
+                "radius": args.radius,
+                "user": args.username,
+                "comments": args.comment[:200],
+                "obsid": args.obsid,
+            }
+        ]
     )
 
     region = dict(result[0])

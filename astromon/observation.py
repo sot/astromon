@@ -98,6 +98,9 @@ Mapping between observation category names and numerical values.
 """
 
 
+ARCHIVE_DIR = Path(os.environ["SKA"]) / "data" / "astromon" / "archive"
+
+
 @functools.cache
 def ciao_fails(ciao_prefix, workdir):
     try:
@@ -167,7 +170,7 @@ class Observation:
         self.archive_dir = (
             (Path(archive_dir).expanduser() / subdir / self.obsid)
             if archive_dir
-            else None
+            else ARCHIVE_DIR / subdir / self.obsid
         )
         self.storage = Storage(
             workdir=self.workdir,

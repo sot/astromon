@@ -418,13 +418,10 @@ def is_in_excluded_region(position, obsid=None, regions=None):
     i, j = ii.flatten(), jj.flatten()
     regions["loc"] = SkyCoord(regions["ra"] * u.deg, regions["dec"] * u.deg)
     in_region = (
-        position[i].separation(regions["loc"][j])
-        < regions["radius"][j] * u.arcsec
+        position[i].separation(regions["loc"][j]) < regions["radius"][j] * u.arcsec
     )
     if obsid is not None:
-        in_region &= (
-            (regions["obsid"][j] <= 0) | (regions["obsid"][j] == obsid[i])
-        )
+        in_region &= (regions["obsid"][j] <= 0) | (regions["obsid"][j] == obsid[i])
     in_region = in_region.reshape(ii.shape)
     result = np.any(in_region, axis=0)
     if squeeze:
