@@ -7,6 +7,7 @@ import argparse
 import getpass
 import logging
 
+from astropy.coordinates import SkyCoord
 from ska_helpers.logging import basic_logger
 
 from astromon import db
@@ -33,12 +34,10 @@ def get_parser():
     )
     parser.add_argument(
         "--ra",
-        type=float,
         help="Right Ascension of the center of the excluded region (in degrees)",
     )
     parser.add_argument(
         "--dec",
-        type=float,
         help="Declination of the center of the excluded region (in degrees)",
     )
     parser.add_argument(
@@ -98,8 +97,23 @@ def main(args=None):
 
 
 def add_region(args):
+
     if args.ra is None or args.dec is None:
         raise ArgumentError("RA and DEC must be specified when adding a region")
+    try:
+        # if both can be converted to float, we assume they are correct ra/dec in degrees
+        args.ra = float(args.ra)
+        args.dec = float(args.dec)
+    except ValueError:
+        try:
+            c = SkyCoord(args.ra, args.dec)
+            args.ra = c.ra.deg
+            args.dec = c.dec.deg
+        except ValueError:
+            get_parser().error(
+                "RA and DEC must be specified in degrees"
+                " or in a format understood by astropy.coordinates.SkyCoord"
+            )
 
     result = db.add_regions(
         regions=[
