@@ -397,6 +397,15 @@ class Observation:
         Download data from chandra public archive
         """
 
+        revision = None
+        if ftypes != ["obspar"]:
+            # the first thing we do is to get the obspar file, to know the revision number.
+            # self.get_obspar calls self.download with ftypes=['obspar'], and that is why we just
+            # checked that ftypes is not ['obspar'], to avoid infinite recursion.
+            # The obspar is cached, so this happens only once.
+            obspar = self.get_obspar()
+            revision = obspar["revision"]
+
         for ftype in ftypes:
             if ftype == "obspar":
                 src, dest = "obspar", "."
@@ -423,6 +432,8 @@ class Observation:
             with chdir(dest):
                 arc5gl = Ska.arc5gl.Arc5gl()
                 arc5gl.sendline(f"obsid={self.obsid}")
+                if revision is not None:
+                    arc5gl.sendline(f"version={revision}")
                 arc5gl.sendline(f"get {src}")
                 del arc5gl
 
