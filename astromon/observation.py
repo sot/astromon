@@ -955,6 +955,10 @@ def make_images(obs, inputs, outputs):
     ciao = obs.ciao
     obsid = obs.obsid
 
+    # this makes sure the asol file is downloaded, even in rare cases where it is not downloaded
+    # when "asol" is downloaded
+    asol = obs.get_asol_file()
+
     process = subprocess.Popen(
         ["dmlist", f"{evt_filt}[2]", "count"],
         stdout=subprocess.PIPE,
@@ -977,7 +981,7 @@ def make_images(obs, inputs, outputs):
         outroot=outputs["image_file"].parent / f"{obsid}",
         # not setting aspect solution file because there can be more than one,
         # and fluximage does a better job at finding the correct one.
-        # asolfile=inputs["asol_file"][0],
+        asolfile=asol,
         badpixfile=inputs["badpixfile"][0],
         maskfile=inputs["maskfile"][0],
         bands=band,
