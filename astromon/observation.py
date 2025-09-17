@@ -866,6 +866,8 @@ class Observation:
             evt = evt_files[0]
 
         asol_files = self.file_glob(f"secondary/*{self.obsid}_*asol*fits*")
+        if len(asol_files) == 0:
+            asol_files = self.file_glob("secondary/*_asol1.fits*")
         if len(asol_files) != 1:
             raise Exception(f"Expected 1 asol file, there are {len(asol_files)}")
         asol = asol_files[0]
