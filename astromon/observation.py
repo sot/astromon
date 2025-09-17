@@ -392,13 +392,12 @@ class Observation:
             if process.returncode:
                 raise Exception(f"{self.obsid} failed to download")
 
-    def _download_arc5gl(self, ftypes):
+    def _download_arc5gl(self, ftypes, revision=None, force=False):
         """
         Download data from chandra public archive
         """
 
-        revision = None
-        if ftypes != ["obspar"]:
+        if ftypes != ["obspar"] and revision is None:
             # the first thing we do is to get the obspar file, to know the revision number.
             # self.get_obspar calls self.download with ftypes=['obspar'], and that is why we just
             # checked that ftypes is not ['obspar'], to avoid infinite recursion.
@@ -422,7 +421,7 @@ class Observation:
                 continue
             logger.info(f"{self}   {ftype=}")
             dest_files = self.file_glob(f"{dest}/*{ftype}*")
-            if dest_files:
+            if dest_files and not force:
                 logger.info(f"{self}     skipping download of *{ftype}*")
                 continue
             logger.info(f"{self}     {src} -> {dest}")
@@ -438,7 +437,7 @@ class Observation:
                 del arc5gl
 
     @logging_call_decorator
-    def download(self, ftypes=None):
+    def download(self, ftypes=None, revision=None, force=False):
         """
         Download observation files using the Chandra archive or arc5gl.
 
@@ -452,7 +451,7 @@ class Observation:
         if self._source == "archive":
             return self._download_archive(ftypes)
         elif self._source == "arc5gl":
-            return self._download_arc5gl(ftypes)
+            return self._download_arc5gl(ftypes, revision=revision, force=force)
         if self._source is None:
             raise Exception("No data source has been specified as fallback")
         raise Exception(f'Unknown data source: "{self._source}"')
@@ -831,6 +830,42 @@ class Observation:
             calalign["caldb_version"] = hdus[1].header["CALDBVER"]
             return calalign
 
+    @stored_result("asol", subdir="cache")
+    def get_asol_file(self):
+        # asol file is specified in events file header
+        # trying filtered event file first, because they are usually cached
+        evt = self.file_path(f"primary/{self.obsid}_evt2_filtered.fits.gz")
+        if not evt.exists():
+            # if the filtered event file is not found, fall back to the unfiltered version
+            self.download(["evt2"])
+            evt_files = self.file_glob("primary/*_evt2.fits*")
+            if len(evt_files) == 0:
+                raise Exception("Expected one evt file, there are none")
+            evt = evt_files[0]
+
+        hdu = fits.open(evt)
+        if "ASOLFILE" in hdu[1].header:
+            filename = hdu[1].header["ASOLFILE"]
+            if filename.endswith(".fits"):
+                filename += ".gz"
+
+        asol = self.file_path(f"secondary/{filename}")
+        if not asol.exists():
+            self.download(["asol"])
+
+        # try parsing the filename to determine the version
+        if not asol.exists() and (mr := re.search(r"N(?P<revision>\d\d\d)_asol1.fits", filename)):
+            revision = int(mr.group("revision"))
+            cur_revision = int(self.get_obspar()["revision"])
+            if revision != cur_revision:
+                self.download(["asol"], revision=revision, force=True)
+
+        if not asol.exists():
+            raise Exception(f"ASOLFILE {asol} not found")
+
+        return asol
+
+
     def dmcoords(self, name, **kwargs):
         """
         Call dmcoords with the given arguments.
@@ -853,7 +888,6 @@ class Observation:
         kwargs: dict
             Arguments to pass to dmcoords.
         """
-        self.download(["asol"])
 
         # trying filtered event file first, because they are usually cached
         evt = self.file_path(f"primary/{self.obsid}_evt2_filtered.fits.gz")
@@ -865,12 +899,8 @@ class Observation:
                 raise Exception("Expected one evt file, there are none")
             evt = evt_files[0]
 
-        asol_files = self.file_glob(f"secondary/*{self.obsid}_*asol*fits*")
-        if len(asol_files) == 0:
-            asol_files = self.file_glob("secondary/*_asol1.fits*")
-        if len(asol_files) != 1:
-            raise Exception(f"Expected 1 asol file, there are {len(asol_files)}")
-        asol = asol_files[0]
+        # asol file is specified in events file header
+        asol = self.get_asol_file()
 
         args = [evt, f"asolfile={asol}"]
         # if I do not unlearn, the following two calls in succession will hang
