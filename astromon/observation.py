@@ -831,7 +831,7 @@ class Observation:
             return calalign
 
     @stored_result("asol", subdir="cache")
-    def get_asol_file(self):
+    def get_asol_files(self):
         # asol file is specified in events file header
         # trying filtered event file first, because they are usually cached
         evt = self.file_path(f"primary/{self.obsid}_evt2_filtered.fits.gz")
@@ -843,25 +843,34 @@ class Observation:
                 raise Exception("Expected one evt file, there are none")
             evt = evt_files[0]
 
+        self.download(["asol"])
+
         hdu = fits.open(evt)
         if "ASOLFILE" in hdu[1].header:
-            filename = hdu[1].header["ASOLFILE"]
-            if filename.endswith(".fits"):
-                filename += ".gz"
+            filenames = hdu[1].header["ASOLFILE"].split(",")
+            filenames = [
+                (fi + ".gz" if fi.endswith(".fits") else fi) for fi in filenames
+            ]
+            asol = [self.file_path(f"secondary/{filename}") for filename in filenames]
 
-        asol = self.file_path(f"secondary/{filename}")
-        if not asol.exists():
-            self.download(["asol"])
+            # the file does not exist, check if the file revision is different
+            # from the current revision
+            if (
+                not asol[0].exists()
+                and (mr := re.search(r"N(?P<revision>\d\d\d)_asol1.fits", asol[0].name))
+            ):
+                revision = int(mr.group("revision"))
+                cur_revision = int(self.get_obspar()["revision"])
+                if revision != cur_revision:
+                    self.download(["asol"], revision=revision, force=True)
+        else:
+            # asol file is not given in the event file,
+            # see if there is something and hope for the best
+            asol = self.file_glob("secondary/*asol*fits*")
 
-        # try parsing the filename to determine the version
-        if not asol.exists() and (mr := re.search(r"N(?P<revision>\d\d\d)_asol1.fits", filename)):
-            revision = int(mr.group("revision"))
-            cur_revision = int(self.get_obspar()["revision"])
-            if revision != cur_revision:
-                self.download(["asol"], revision=revision, force=True)
-
-        if not asol.exists():
-            raise Exception(f"ASOLFILE {asol} not found")
+        if any(not f.exists() for f in asol):
+            missing = ", ".join([str(f) for f in asol if not f.exists()])
+            raise Exception(f"Aspect solution files not found: {missing}")
 
         return asol
 
@@ -900,7 +909,7 @@ class Observation:
             evt = evt_files[0]
 
         # asol file is specified in events file header
-        asol = self.get_asol_file()
+        asol = self.get_asol_files()[0]
 
         args = [evt, f"asolfile={asol}"]
         # if I do not unlearn, the following two calls in succession will hang
@@ -957,7 +966,7 @@ def make_images(obs, inputs, outputs):
 
     # this makes sure the asol file is downloaded, even in rare cases where it is not downloaded
     # when "asol" is downloaded
-    asol = obs.get_asol_file()
+    asol = ",".join([str(a) for a in obs.get_asol_files()])
 
     process = subprocess.Popen(
         ["dmlist", f"{evt_filt}[2]", "count"],
@@ -979,8 +988,6 @@ def make_images(obs, inputs, outputs):
         "fluximage",
         infile=evt_filt,
         outroot=outputs["image_file"].parent / f"{obsid}",
-        # not setting aspect solution file because there can be more than one,
-        # and fluximage does a better job at finding the correct one.
         asolfile=asol,
         badpixfile=inputs["badpixfile"][0],
         maskfile=inputs["maskfile"][0],
