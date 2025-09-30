@@ -97,7 +97,6 @@ def main(args=None):
 
 
 def add_region(args):
-
     if args.ra is None or args.dec is None:
         raise ArgumentError("RA and DEC must be specified when adding a region")
     try:

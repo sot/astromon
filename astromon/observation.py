@@ -855,9 +855,8 @@ class Observation:
 
             # the file does not exist, check if the file revision is different
             # from the current revision
-            if (
-                not asol[0].exists()
-                and (mr := re.search(r"N(?P<revision>\d\d\d)_asol1.fits", asol[0].name))
+            if not asol[0].exists() and (
+                mr := re.search(r"N(?P<revision>\d\d\d)_asol1.fits", asol[0].name)
             ):
                 revision = int(mr.group("revision"))
                 cur_revision = int(self.get_obspar()["revision"])
@@ -873,7 +872,6 @@ class Observation:
             raise Exception(f"Aspect solution files not found: {missing}")
 
         return asol
-
 
     def dmcoords(self, name, **kwargs):
         """
