@@ -385,9 +385,9 @@ def get_excluded_regions_mask(matches, regions=None):
         np.arange(len(matches))[None, :], np.arange(len(regions))[:, None]
     )
     i, j = ii.flatten(), jj.flatten()
-    regions["loc"] = coords.SkyCoord(regions["ra"] * u.deg, regions["dec"] * u.deg)
+    loc = coords.SkyCoord(regions["ra"] * u.deg, regions["dec"] * u.deg)
     in_region = (
-        matches["x_loc"][i].separation(regions["loc"][j])
+        matches["x_loc"][i].separation(loc[j])
         < regions["radius"][j] * u.arcsec
     )
     in_region &= (regions["obsid"][j] <= 0) | (
