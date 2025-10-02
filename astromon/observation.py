@@ -830,8 +830,13 @@ class Observation:
             calalign["caldb_version"] = hdus[1].header["CALDBVER"]
             return calalign
 
-    @stored_result("asol", subdir="cache")
     def get_asol_files(self):
+        return [self.file_path(f) for f in self._get_asol_files_cached()]
+
+    @stored_result("asol", subdir="cache")
+    def _get_asol_files_cached(self):
+        # this function is cached because it downloads the events file if needed
+        # and that can be slow.
         # asol file is specified in events file header
         # trying filtered event file first, because they are usually cached
         evt = self.file_path(f"primary/{self.obsid}_evt2_filtered.fits.gz")
@@ -871,6 +876,9 @@ class Observation:
             missing = ", ".join([str(f) for f in asol if not f.exists()])
             raise Exception(f"Aspect solution files not found: {missing}")
 
+        # the result needs to be a relative path so it can be cached for later use
+        # because the files might currently be in a temporary directory
+        asol = [f.relative_to(f.parent.parent) for f in asol]
         return asol
 
     def dmcoords(self, name, **kwargs):
