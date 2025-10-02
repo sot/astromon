@@ -386,10 +386,7 @@ def get_excluded_regions_mask(matches, regions=None):
     )
     i, j = ii.flatten(), jj.flatten()
     loc = coords.SkyCoord(regions["ra"] * u.deg, regions["dec"] * u.deg)
-    in_region = (
-        matches["x_loc"][i].separation(loc[j])
-        < regions["radius"][j] * u.arcsec
-    )
+    in_region = matches["x_loc"][i].separation(loc[j]) < regions["radius"][j] * u.arcsec
     in_region &= (regions["obsid"][j] <= 0) | (
         regions["obsid"][j] == matches["obsid"][i]
     )
