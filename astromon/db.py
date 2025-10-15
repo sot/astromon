@@ -17,7 +17,15 @@ from ska_helpers.retry import tables_open_file
 from astromon import observation
 from astromon.utils import MissingTableException
 
-__all__ = ["get_table", "get_cross_matches", "save", "add_regions", "remove_regions"]
+__all__ = [
+    "get_table",
+    "get_cross_matches",
+    "save",
+    "add_regions",
+    "remove_regions",
+    "get_regions",
+    "is_in_excluded_region"
+]
 
 if "ASTROMON_FILE" in os.environ:
     FILE = Path(os.environ["ASTROMON_FILE"])
