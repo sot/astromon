@@ -24,7 +24,7 @@ __all__ = [
     "add_regions",
     "remove_regions",
     "get_regions",
-    "is_in_excluded_region"
+    "is_in_excluded_region",
 ]
 
 if "ASTROMON_FILE" in os.environ:
