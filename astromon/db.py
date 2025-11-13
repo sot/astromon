@@ -399,7 +399,7 @@ def get_regions(obsid=None, dbfile=None):
     return regions
 
 
-def is_in_excluded_region(position, obsid=None, regions=None):
+def is_in_excluded_region(position, obsid=None, regions=None, dbfile=None):
     """
     Returns a mask to remove x-ray sources that are close to excluded regions.
 
@@ -419,7 +419,7 @@ def is_in_excluded_region(position, obsid=None, regions=None):
             raise ValueError("obsid and position must have the same shape")
 
     if regions is None:
-        regions = get_table("astromon_regions")
+        regions = get_table("astromon_regions", dbfile)
     ii, jj = np.broadcast_arrays(
         np.arange(len(position))[None, :], np.arange(len(regions))[:, None]
     )
