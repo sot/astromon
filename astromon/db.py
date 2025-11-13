@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import os
 import warnings
@@ -105,6 +106,8 @@ ASTROMON_OBS_DTYPE = np.dtype(
 ASTROMON_REGION_DTYPE = np.dtype(
     [
         ("region_id", np.int32),
+        ("region_id_str", "S10"),
+        ("last_modified", "S21"),
         ("ra", np.float64),
         ("dec", np.float64),
         ("radius", np.float32),
@@ -377,12 +380,72 @@ def add_regions(regions, dbfile=None):
         b = np.zeros(len(regions), dtype=all_regions.dtype)
         b[names] = regions[names].as_array().astype(all_regions.dtype[names])
         b["region_id"] = np.arange(rid, rid + len(b))
+        b["last_modified"] = CxoTime.now().date
+        # we need to ensure region_id_str are unique. Using the auto-incrementing region_id does
+        # not work when we want to synchronize two or more DBs, because adding different regions
+        # to each DB could generate the same region_id and cause a collision when syncing.
+        # With a 40-bit random number/string, the probability of collision is less than 10^9.
+        region_id_str = [
+            hashlib.sha256(str(row).encode()).hexdigest()[:10] for row in b
+        ]
+        while np.any(sel := np.isin(region_id_str, all_regions["region_id_str"])):
+            region_id_str[sel] = [
+                hashlib.sha256(str(row).encode()).hexdigest()[:10]
+                for row in region_id_str[sel]
+            ]
+        b["region_id_str"] = region_id_str
         b = Table(b)
         all_regions = table.vstack([all_regions, b])
         meta["last_region_id"][0] = b["region_id"][-1]
         save("astromon_regions", all_regions, h5)
         save("astromon_meta", meta, h5)
         return b
+
+
+def update_regions(regions, dbfile=None):
+    """
+    Update exclusion regions in the astromon_regions table.
+
+    Things to keep in mind:
+
+        - last_modified is updated automatically.
+        - Changes region_id_str are ignored.
+        - Entries that do not differ from the values in the table are not updated
+          (last_modified is not set).
+        - This does not remove regions. Use :any:`remove_regions` for that.
+
+    Raises an exception if:
+
+        - the astromon_regions table is not in the dbfile.
+        - any of the region_id in `regions` does not exist in the table.
+
+    Parameters
+    ----------
+    regions: `astropy.table.Table`-compatible
+        This parameter gets converted to an `astropy.table.Table`.
+    dbfile: :any:`pathlib.Path`
+        File where tables are stored.
+        The default is `$ASTROMON_FILE` or `$SKA/data/astromon/astromon.h5`
+    """
+    with connect(dbfile, mode="r+") as h5:
+        logger = logging.getLogger("astromon")
+        logger.info(f"Updating regions: {regions}")
+
+        all_regions = get_table("astromon_regions", h5)
+
+        _, from_idx, to_idx = np.intersect1d(
+            regions["region_id_str"], all_regions["region_id_str"], return_indices=True
+        )
+
+        last_modified = CxoTime.now().date
+        for to_i, from_i in zip(to_idx, from_idx, strict=True):
+            if not np.array_equal(all_regions[to_i], regions[from_i]):
+                all_regions[to_i] = regions[from_i]
+                all_regions[to_i]["last_modified"] = last_modified
+
+        save("astromon_regions", all_regions, h5)
+
+        return regions
 
 
 def get_regions(obsid=None, dbfile=None):
@@ -414,6 +477,53 @@ def get_regions(obsid=None, dbfile=None):
             (obs_loc.separation(loc) < 5 * u.arcmin) | (regions["obsid"] == obsid)
         ]
     return regions
+
+
+def sync_regions(from_file, to_file, remove=False):
+    """
+    Sync exclusion regions from one astromon DB file to another.
+
+    Parameters
+    ----------
+    from_file: :any:`pathlib.Path`
+        Source DB file.
+    to_file: :any:`pathlib.Path`
+        Destination DB file.
+    """
+    from_regions = get_table("astromon_regions", from_file)
+    to_regions = get_table("astromon_regions", to_file)
+    meta = get_table("astromon_meta", to_file)
+    # update records that are in both, and last_modified is newer in from_file
+    _, from_idx, to_idx = np.intersect1d(
+        from_regions["region_id_str"], to_regions["region_id_str"], return_indices=True
+    )
+    sel = from_regions["last_modified"][from_idx] > to_regions["last_modified"][to_idx]
+    up_to_idx = to_idx[sel]
+    up_from_idx = from_idx[sel]
+    for i1, i2 in zip(up_to_idx, up_from_idx, strict=True):
+        to_regions[i1] = from_regions[i2]
+    # remove records that are in to_file but not in from_file
+    missing = ~np.in1d(to_regions["region_id_str"], from_regions["region_id_str"])
+    if remove and np.any(missing):
+        to_regions = to_regions[~missing]
+    # add records that are only in from_file
+    new = ~np.in1d(from_regions["region_id_str"], to_regions["region_id_str"])
+    if np.any(new):
+        # make sure that region_id is not repeated
+        # if there are repeated region_ids, assign new ones continuing from last_region_id in meta
+        new_regions = from_regions[new]
+        repeated_ids = np.isin(new_regions["region_id"], to_regions["region_id"])
+        if np.any(repeated_ids):
+            n_repeats = np.sum(repeated_ids)
+            start_id = meta["last_region_id"][0] + 1
+            new_regions["region_id"][repeated_ids] = np.arange(n_repeats) + start_id
+        to_regions = table.vstack([to_regions, new_regions])
+        meta["last_region_id"][0] = to_regions["region_id"].max()
+
+    to_regions.sort("region_id")
+
+    save("astromon_regions", to_regions, to_file)
+    save("astromon_meta", meta, to_file)
 
 
 def is_in_excluded_region(position, obsid=None, regions=None, dbfile=None):
