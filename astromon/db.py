@@ -23,7 +23,9 @@ __all__ = [
     "get_cross_matches",
     "save",
     "add_regions",
+    "update_regions",
     "remove_regions",
+    "sync_regions",
     "get_regions",
     "is_in_excluded_region",
 ]
