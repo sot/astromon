@@ -249,11 +249,27 @@ def connect(dbfile=None, mode="r"):
                 logger.debug(f"{dbfile} closed (2)")
 
 
-def save(table_name, data, dbfile):
+def save(table_name, data, dbfile, ignore_obsid=False):
     """
     Insert data into a table, deleting previous entries for the same OBSID.
 
     If the table does not exist, it is created using pre-existing table definitions.
+
+    If `ignore_obsid` is `False`, and `data` has an "obsid" column, this function replaces all rows
+    in the table whose OBSID is in `data["obsid"]`. It does not replace the whole table. If `data`
+    has all rows of a given obsid removed, those entries are NOT removed from the table. For
+    example, the following code has no effect:
+
+        data = db.get_table("astromon_xray_src", dbfile)
+        data = data[data['obsid'] != 12345]
+        db.save("astromon_xray_src", data, dbfile)
+
+    To remove all entries for a given obsid, set `ignore_obsid=True`. If you do that,
+    the entire table is replaced by `data`. The following removes all entries for obsid 12345:
+
+        data = db.get_table("astromon_xray_src", dbfile)
+        data = data[data['obsid'] != 12345]
+        db.save("astromon_xray_src", data, dbfile, ignore_obsid=True)
 
     Parameters
     ----------
@@ -263,6 +279,8 @@ def save(table_name, data, dbfile):
     dbfile: :any:`pathlib.Path`
         File where tables are stored.
         The default is `$ASTROMON_FILE` or `$SKA/data/astromon/astromon.h5`
+    ignore_obsid: bool
+        If True, do not consider obsid to decide which rows to keep in the table.
     """
     with connect(dbfile, mode="r+") as h5:
         if not h5.isopen:
@@ -290,7 +308,7 @@ def save(table_name, data, dbfile):
 
         if table_name in h5.root:
             node = h5.get_node(f"/{table_name}")
-            if "obsid" in data.dtype.names:
+            if not ignore_obsid and "obsid" in data.dtype.names:
                 # remove rows for these obsids
                 obsids = np.unique(data["obsid"])
                 data_out = node[:].astype(dtype)
@@ -321,12 +339,11 @@ def remove_regions(regions, dbfile=None):
     with connect(dbfile, mode="r+") as h5:
         all_regions = get_table("astromon_regions", h5)
         sel = ~np.in1d(all_regions["region_id"], regions)
-        all_regions = np.array(all_regions[sel]).astype(DTYPES["astromon_regions"])
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            if "astromon_regions" in h5.root:
-                h5.remove_node("/astromon_regions")
-            h5.create_table("/", "astromon_regions", all_regions)
+        all_regions = all_regions[sel]
+
+        # We just removed some regions. In the process, maybe all rows for a given obsid were
+        # removed. In the following, if ignore_obsids is False, these rows would not be removed.
+        save("astromon_regions", all_regions, dbfile, ignore_obsid=True)
 
 
 def add_regions(regions, dbfile=None):
