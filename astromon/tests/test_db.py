@@ -1,13 +1,9 @@
-import shutil
-from pprint import pprint
 import tempfile
 from pathlib import Path
 
 import numpy as np
 import pytest
 from astropy.table import Table
-
-from cxotime import CxoTime
 
 from astromon import db, utils
 
