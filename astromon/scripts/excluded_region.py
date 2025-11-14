@@ -59,7 +59,7 @@ def get_sync_parser():
     )
     parser.add_argument(
         "action",
-        choices=list(ACTIONS),
+        choices=["sync"],
         help="Action to perform",
     )
     parser.add_argument(
@@ -71,6 +71,12 @@ def get_sync_parser():
         "to_file",
         type=Path,
         help="Destination astromon DB file",
+    )
+    parser.add_argument(
+        "--remove",
+        action="store_true",
+        help="Remove regions from destination that are not in source",
+        default=False,
     )
     parser.add_argument(
         "--log-level",
@@ -218,10 +224,14 @@ def sync_regions(args):
 
     if not args.from_file.exists():
         raise ArgumentError(f"Source file {args.from_file} does not exist")
-    if not args.to_file.exists():
-        shutil.copy(args.from_file, args.to_file)
 
-    sync_regions(args.from_file, args.to_file)
+    if args.to_file.exists():
+        sync_regions(args.from_file, args.to_file, remove=args.remove)
+    else:
+        regions = db.get_table("astromon_regions", args.from_file)
+        meta = db.get_table("astromon_meta", args.from_file)
+        db.save("astromon_regions", regions, args.to_file)
+        db.save("astromon_meta", meta, args.to_file)
 
 
 OUT = """Added region:
