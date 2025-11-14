@@ -6,7 +6,6 @@ Script to manipulate excluded regions to astromon.db
 import argparse
 import getpass
 import logging
-import shutil
 from pathlib import Path
 
 from astropy.coordinates import SkyCoord
