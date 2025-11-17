@@ -214,7 +214,7 @@ class StoredResult:
             pass
 
     def invalidate_all_results(self):
-        for filename in self.storage.glob(f"{self.name}::*"):
+        for filename in self.storage.glob(f"{self.subdir / self.name}::*"):
             invalid = self._invalidate_filename(filename)
             if not invalid.parent.exists():
                 invalid.parent.mkdir(parents=True, exist_ok=True)
