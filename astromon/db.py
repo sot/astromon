@@ -450,7 +450,7 @@ def update_regions(regions, dbfile=None):
         return regions
 
 
-def get_regions(obsid=None, dbfile=None):
+def get_regions(obsid=None, dbfile=None, radius=5 * u.arcmin):
     """
     Get exclusion regions from the astromon_regions table.
 
@@ -476,7 +476,7 @@ def get_regions(obsid=None, dbfile=None):
 
         loc = SkyCoord(regions["ra"] * u.deg, regions["dec"] * u.deg)
         regions = regions[
-            (obs_loc.separation(loc) < 5 * u.arcmin) | (regions["obsid"] == obsid)
+            (obs_loc.separation(loc) < radius) | (regions["obsid"] == obsid)
         ]
     return regions
 
