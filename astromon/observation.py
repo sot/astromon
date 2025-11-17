@@ -671,13 +671,11 @@ class Observation:
             return ReturnValue(return_code=ReturnCode.OK)
 
     @dependencies(
-        required_files={
-            "psf_size": "sources/{obsid}_psf_size_{version}.fits",
-        },
         optional_files={
             "sources": "sources/{obsid}_{version}.src",
             "pileup": "images/{obsid}_pileup_smeared.img",
             "acis_streaks": "images/{obsid}_acis_streaks.fits",
+            "psf_size": "sources/{obsid}_psf_size_{version}.fits",
         },
     )
     @logging_call_decorator
@@ -770,7 +768,10 @@ class Observation:
             ]
         )
 
-        if TASKS.tasks[version].get_result(self).return_code != ReturnCode.OK:
+        if (
+            TASKS.tasks[version].get_result(self) is not None
+            and TASKS.tasks[version].get_result(self).return_code != ReturnCode.OK
+        ):
             return table.Table(dtype=dtype)
 
         sources = self._get_sources(version=version)
@@ -1301,7 +1302,7 @@ def gaussian_detect(obs, inputs, outputs):
     },
     outputs={
         "src": "sources/{obsid}_celldetect.src",
-        "psf_size": "sources/{obsid}_psf_size_celldetect.fits",
+        # "psf_size": "sources/{obsid}_psf_size_celldetect.fits",
     },
     variables={
         "band": lambda obs: "wide" if obs.is_hrc else "broad",
@@ -1314,8 +1315,6 @@ def celldetect(obs, inputs, outputs):
     """
     # possible parameter:
     snr = 3
-    band = "wide" if obs.is_hrc else "broad"
-    ecf = 0.9
 
     obs.ciao(
         "celldetect",
@@ -1328,10 +1327,30 @@ def celldetect(obs, inputs, outputs):
         logging_tag=str(obs),
     )
 
+    return ReturnCode.OK
+
+
+@task(
+    name="celldetect_psf_size",
+    inputs={
+        "events": "primary/{obsid}_evt2_filtered.fits.gz",
+        "src": "sources/{obsid}_celldetect.src",
+    },
+    outputs={
+        "psf_size": "sources/{obsid}_psf_size_celldetect.fits",
+    },
+)
+def celldetect_psf_size(obs, inputs, outputs):
+    """
+    Run celldetect.
+    """
+    band = "wide" if obs.is_hrc else "broad"
+    ecf = 0.9
+
     obs.ciao(
         "psfsize_srcs",
         inputs["events"],
-        outputs["src"],
+        inputs["src"],
         outputs["psf_size"],
         f"energy={band}",
         f"ecf={ecf}",
