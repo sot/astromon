@@ -25,11 +25,11 @@ from astropy import units as u
 from astropy.coordinates import SkyCoord
 from astropy.io import ascii, fits
 from astropy.wcs import WCS, FITSFixedWarning
-from chandra_aca.transform import radec_to_yagzag
+from chandra_aca.transform import radec_to_yagzag, yagzag_to_radec
 from Quaternion import Quat
 from ska_helpers.logging import basic_logger
 
-from astromon import utils
+from astromon import source_detection, utils
 from astromon.stored_result import Storage, stored_result
 from astromon.task import TASKS, ReturnCode, ReturnValue, dependencies, run_tasks, task
 from astromon.utils import Ciao, chdir, logging_call_decorator
@@ -721,7 +721,8 @@ class Observation:
             ecf = table.Table.read(
                 self.file_path(f"sources/{self.obsid}_psf_size_{version}.fits")
             )
-            sources["ecf_radius"] = ecf["R"]
+            pixel_size = 0.4920 if self.is_acis else 0.1495
+            sources["ecf_radius"] = ecf["R"] * pixel_size
 
         sources["obsid"] = int(self.obsid)
         sources["caldb_version"] = self.get_calalign()["caldb_version"]
@@ -1137,6 +1138,161 @@ def wavdetect(obs, inputs, outputs):
 
 
 @task(
+    name="gaussian_detect",
+    inputs={
+        "events": "primary/{obsid}_evt2_filtered.fits.gz",
+        "src": "sources/{obsid}_celldetect.src",
+        "psf_size": "sources/{obsid}_psf_size_celldetect.fits",
+    },
+    outputs={
+        "src": "sources/{obsid}_gaussian_detect.src",
+        "psf_size": "sources/{obsid}_psf_size_gaussian_detect.fits",
+    },
+    variables={
+        "band": lambda obs: "wide" if obs.is_hrc else "broad",
+    },
+    download=(["evt2"]),
+)
+def gaussian_detect(obs, inputs, outputs):
+    box_size = 4
+
+    events = table.Table.read(inputs["events"], hdu=1)
+    wcs = utils.get_wcs_from_fits_header(inputs["events"], hdu=1)
+    events["RA"], events["DEC"] = wcs.pixel_to_world_values(events["x"], events["y"])
+
+    input_sources = table.Table.read(inputs["src"])
+
+    obs_info = obs.get_info()
+    att = Quat([obs_info["ra_nom"], obs_info["dec_nom"], obs_info["roll_nom"]])
+    events["y_angle"], events["z_angle"] = radec_to_yagzag(
+        events["RA"], events["DEC"], att
+    )
+    input_sources["y_angle"], input_sources["z_angle"] = radec_to_yagzag(
+        input_sources["RA"], input_sources["DEC"], att
+    )
+
+    results = []
+    for source in input_sources:
+        sel = (np.abs(events["y_angle"] - source["y_angle"]) < box_size) & (
+            np.abs(events["z_angle"] - source["z_angle"]) < box_size
+        )
+        res = source_detection.fit_gaussian_2d(
+            events[sel],
+            source,
+            # columns=("y_angle", "z_angle"),
+            box_size=box_size,
+        )
+        results.append(res)
+
+    results = table.Table(results)
+
+    ecf = table.Table.read(inputs["psf_size"])
+    pixel_size = 0.4920 if obs.is_acis else 0.1495
+    results["ecf_radius"] = ecf["R"] * pixel_size
+    results["PSFRATIO"] = (
+        np.sqrt(results["sigma"][:, 0] * results["sigma"][:, 1]) / results["ecf_radius"]
+    )
+
+    results.rename_column("n", "NET_COUNTS")
+
+    results["RA"], results["DEC"] = yagzag_to_radec(
+        results["y_angle"], results["z_angle"], att
+    )
+    results["X"], results["Y"] = wcs.world_to_pixel_values(
+        results["RA"], results["DEC"]
+    )
+
+    # the uncertainties in yag/zag are given by the marginalized inverse Hessian matrix
+    yag_zag_cov = np.asarray(results["hess_inv"][:, :2, :2])
+
+    # and to propagate the uncertainties from yag/zag to ra/dec and x/y
+    # linearize the transformations around the nominal attitude
+    # I do this the dumb way: by finite differences
+
+    d_arc = 1e-3
+    ra_nom, dec_nom = yagzag_to_radec(0, 0, att)
+
+    # RA/dec
+    yagzag_to_radec_matrix = (
+        np.vstack(
+            [
+                np.array(yagzag_to_radec(d_arc, 0, att)) - np.array([ra_nom, dec_nom]),
+                np.array(yagzag_to_radec(0, d_arc, att)) - np.array([ra_nom, dec_nom]),
+            ]
+        ).T
+        / d_arc
+    )
+
+    ra_dec_cov = yagzag_to_radec_matrix @ yag_zag_cov @ yagzag_to_radec_matrix.T
+
+    results["RA_ERR"] = np.sqrt(ra_dec_cov[:, 0, 0])
+    results["DEC_ERR"] = np.sqrt(ra_dec_cov[:, 1, 1])
+    results["CORR_RA_DEC"] = ra_dec_cov[:, 0, 1] / (
+        results["RA_ERR"] * results["DEC_ERR"]
+    )
+
+    # X/Y
+    yagzag_to_pixel_matrix = np.vstack(
+        [
+            wcs.world_to_pixel_values(
+                ra_nom + yagzag_to_radec_matrix.T[0, 0],
+                dec_nom + yagzag_to_radec_matrix.T[0, 1],
+            ),
+            wcs.world_to_pixel_values(
+                ra_nom + yagzag_to_radec_matrix.T[1, 0],
+                dec_nom + yagzag_to_radec_matrix.T[1, 1],
+            ),
+        ]
+    ).T
+
+    pixel_cov = yagzag_to_pixel_matrix @ yag_zag_cov @ yagzag_to_pixel_matrix.T
+
+    results["X_ERR"] = np.sqrt(pixel_cov[:, 0, 0])
+    results["Y_ERR"] = np.sqrt(pixel_cov[:, 1, 1])
+    results["CORR_X_Y"] = pixel_cov[:, 0, 1] / (results["X_ERR"] * results["Y_ERR"])
+
+    units = {
+        "RA": u.deg,
+        "DEC": u.deg,
+        "X": u.pixel,
+        "Y": u.pixel,
+        "y_angle": u.arcsec,
+        "z_angle": u.arcsec,
+        "RA_ERR": u.deg,
+        "DEC_ERR": u.deg,
+        "X_ERR": u.pixel,
+        "Y_ERR": u.pixel,
+    }
+    for col, unit in units.items():
+        results[col].unit = unit
+
+    cols = [
+        "COMPONENT",
+        "RA",
+        "DEC",
+        "X",
+        "Y",
+        "y_angle",
+        "z_angle",
+        "RA_ERR",
+        "DEC_ERR",
+        "X_ERR",
+        "Y_ERR",
+    ]
+    cols += [col for col in results.colnames if col not in cols]
+    results = results[cols]
+
+    results = results[results["fit_ok"]]
+
+    if not outputs["src"].parent.exists():
+        outputs["src"].parent.mkdir(exist_ok=True, parents=True)
+
+    results.write(outputs["src"], format="fits", overwrite=True)
+
+    shutil.copyfile(inputs["psf_size"], outputs["psf_size"])
+
+
+@task(
     name="celldetect",
     inputs={
         "events": "primary/{obsid}_evt2_filtered.fits.gz",
@@ -1357,4 +1513,5 @@ def main():
 
 
 if __name__ == "__main__":
+    main()
     main()
