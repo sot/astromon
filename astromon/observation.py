@@ -185,7 +185,7 @@ class Observation:
                 "cache",
                 "*_wide_flux.img",
                 "*_broad_flux.img",
-                "*_acis_streaks.txt",
+                "*_acis_streaks.fits",
                 "*.src",
             ]
         else:
@@ -673,7 +673,7 @@ class Observation:
         optional_files={
             "sources": "sources/{obsid}_{version}.src",
             "pileup": "images/{obsid}_pileup_smeared.img",
-            "acis_streaks": "images/{obsid}_acis_streaks.txt",
+            "acis_streaks": "images/{obsid}_acis_streaks.fits",
         },
     )
     @logging_call_decorator
@@ -786,12 +786,16 @@ class Observation:
         return hdus[0].data[(pix[1], pix[0])]
 
     def _on_acis_streak(self, src):
-        acis_streaks_file = self.file_path(f"images/{self.obsid}_acis_streaks.txt")
+        acis_streaks_file = self.file_path(f"images/{self.obsid}_acis_streaks.fits")
         result = np.zeros(len(src), dtype=bool)
         if acis_streaks_file.exists():
-            reg = regions.Regions.read(acis_streaks_file)
+            acis_streaks = table.Table.read(acis_streaks_file)
+            polygons = []
+            for row in acis_streaks:
+                vertices = regions.PixCoord(x=row["X"], y=row["Y"])
+                polygons.append(regions.PolygonPixelRegion(vertices=vertices))
             pos = regions.PixCoord(x=src["X"], y=src["Y"])
-            for pol in reg.regions:
+            for pol in polygons:
                 result += pol.contains(pos)
         return result
 
@@ -949,7 +953,7 @@ class Observation:
         "pileup": "images/{obsid}_pileup.img",
         "pileup_max": "images/{obsid}_pileup_max.img",
         "acis_streaks_bkg": "images/{obsid}_acis_streaks_bkg.fits",
-        "acis_streaks": "images/{obsid}_acis_streaks.txt",
+        "acis_streaks": "images/{obsid}_acis_streaks.fits",
     },
     download=(["evt2", "fov", "asol", "msk", "bpix", "dtf"]),
     variables={
@@ -1025,15 +1029,29 @@ def make_images(obs, inputs, outputs):
             logging_tag=logging_tag,
         )
         try:
+            # the acis_streak_map command only creates ascii files
+            # (even though there is one fits example in the CIAO docs)
+            # and the regions package does not read that text file, so I call acis_streak_map
+            # and then convert the file to fits using dmmakereg
+            acis_streaks_file_ascii = outputs["acis_streaks"].parent / outputs[
+                "acis_streaks"
+            ].name.replace(".fits", ".reg")
             ciao(
                 "acis_streak_map",
                 infile=inputs["events"][0],
                 fovfile=fov_file,
                 bkgroot=outputs["acis_streaks_bkg"],
-                regfile=outputs["acis_streaks"],
+                regfile=acis_streaks_file_ascii,
                 msigma="4",
                 clobber="yes",
                 logging_tag=logging_tag,
+            )
+            ciao(
+                "dmmakereg",
+                f"region({acis_streaks_file_ascii})",
+                outputs["acis_streaks"],
+                "kernel=fits",
+                "clobber=yes",
             )
         except Exception:
             logger.warning(f"{obsid}   acis_streak_map failed")
