@@ -162,7 +162,6 @@ def fit_gaussian_2d(events, source, columns=("y_angle", "z_angle"), box_size=4):
         f"sigma_{columns[0]}": np.inf,
         f"sigma_{columns[1]}": np.inf,
         f"corr_{columns[0]}_{columns[1]}": 0.0,
-        "psf_ratio": np.inf,
         "source_area": np.inf,
         "n": 0,
         "signal": 0,
@@ -196,8 +195,6 @@ def fit_gaussian_2d(events, source, columns=("y_angle", "z_angle"), box_size=4):
     sigma_1 = sigma_ecf * result.x[2]
     sigma_2 = sigma_ecf * result.x[3]
     source_area = np.pi * sigma_1 * sigma_2
-
-    psf_ratio = np.sqrt(sigma_1 * sigma_2) / sigma_ecf
 
     # the actual number of events within the source extent (sigma_ecf)
     x = np.vstack([events[columns[0]], events[columns[1]]]).T
@@ -274,7 +271,6 @@ def fit_gaussian_2d(events, source, columns=("y_angle", "z_angle"), box_size=4):
         f"sigma_{columns[0]}": sigma_x,
         f"sigma_{columns[1]}": sigma_y,
         f"corr_{columns[0]}_{columns[1]}": cov[0, 1] / (sigma_x * sigma_y),
-        "psf_ratio": psf_ratio,
         "source_area": source_area,
         "n": n,
         "signal": signal,
