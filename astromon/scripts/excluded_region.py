@@ -224,7 +224,9 @@ def remove_region(args):
 
 
 def list_regions(args):
-    regions = db.get_regions(args.obsid if args.obsid > 0 else None, dbfile=args.db_file)
+    regions = db.get_regions(
+        args.obsid if args.obsid > 0 else None, dbfile=args.db_file
+    )
     if args.region_id is not None:
         regions = regions[regions["region_id"] == args.region_id]
     regions.pprint(max_width=-1, max_lines=-1)
