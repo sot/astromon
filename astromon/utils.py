@@ -4,6 +4,7 @@ import os
 import re
 import subprocess
 import tempfile
+import warnings
 from contextlib import AbstractContextManager
 from pathlib import Path
 
@@ -11,6 +12,7 @@ import numpy as np
 import Ska.Shell
 from astropy.io import fits
 from astropy.table import Table, hstack, join
+from astropy.wcs import WCS, FITSFixedWarning
 from cxotime import CxoTime
 from Quaternion import Quat
 
@@ -22,6 +24,7 @@ __all__ = [
     "logging_call_decorator",
     "calalign_from_files",
     "get_calalign_offsets",
+    "get_wcs_from_fits_header",
 ]
 
 
@@ -542,3 +545,52 @@ def get_calalign_offsets(all_matches, ref_calalign=None, calalign_dir=None):
     result["after_caldb"] = result["since"] < all_matches["time"]
 
     return result
+
+
+def get_wcs_from_fits_header(filename=None, hdu=0, header=None):
+    if filename is None and header is None:
+        raise ValueError("Either filename or header must be provided")
+    if filename is not None and header is not None:
+        raise ValueError("Either filename or header must be provided, not both")
+
+    if header is None:
+        hdus = fits.open(filename)
+        header = hdus[hdu].header
+
+    ctypes = {val: key for key, val in header["TCTYP*"].items()}
+
+    ra_col = ctypes.pop("RA---TAN", None)
+    dec_col = ctypes.pop("DEC--TAN", None)
+
+    c1 = (
+        m.group(1)
+        if ra_col is not None and (m := re.search(r"(\d+)$", ra_col))
+        else None
+    )
+    c2 = (
+        m.group(1)
+        if dec_col is not None and (m := re.search(r"(\d+)$", dec_col))
+        else None
+    )
+
+    if c1 is None or c2 is None:
+        raise ValueError("Could not determine WCS columns")
+
+    params = {
+        "CTYPE1": header[f"TCTYP{c1}"],
+        "CRVAL1": header[f"TCRVL{c1}"],
+        "CRPIX1": header[f"TCRPX{c1}"] + 1,
+        "CDELT1": header[f"TCDLT{c1}"],
+        "CUNIT1": header[f"TCUNI{c1}"],
+        "CTYPE2": header[f"TCTYP{c2}"],
+        "CRVAL2": header[f"TCRVL{c2}"],
+        "CRPIX2": header[f"TCRPX{c2}"] + 1,
+        "CDELT2": header[f"TCDLT{c2}"],
+        "CUNIT2": header[f"TCUNI{c2}"],
+    }
+    with warnings.catch_warnings():
+        # For some reason FITS/WCS seems to think many of the CXC header
+        # keywords are non-standard and need to be fixed.
+        warnings.simplefilter("ignore", category=FITSFixedWarning)
+        wcs = WCS(params)
+    return wcs
