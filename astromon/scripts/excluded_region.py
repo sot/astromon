@@ -20,6 +20,10 @@ class ArgumentError(Exception):
     pass
 
 
+class TaskError(Exception):
+    pass
+
+
 def get_parser():
     config_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
     config_levels += [x.lower() for x in config_levels]
@@ -135,6 +139,11 @@ def get_actions_parser():
         help="Region ID to list, modify or remove (ignored when adding a region)",
     )
     parser.add_argument(
+        "--db-file",
+        help="Path to the database file with excluded regions",
+        type=Path,
+    )
+    parser.add_argument(
         "--log-level",
         type=str,
         choices=config_levels,
@@ -144,14 +153,14 @@ def get_actions_parser():
 
 
 def main(args=None):
-    parser = get_parser()
+    parser = PARSERS[""]()
     args, _ = parser.parse_known_args(args)
-    args.log_level = args.log_level.upper()
 
-    if args.help and not args.action:
+    if not args.action:
         parser.print_help()
         return
 
+    args.log_level = args.log_level.upper()
     logger.setLevel(args.log_level)
     # this downgrades astromon's INFO to WARNING to avoid too much output
     logging.getLogger("astromon").setLevel(
@@ -164,6 +173,8 @@ def main(args=None):
     try:
         ACTIONS[args.action](action_args)
     except ArgumentError as e:
+        parser.error(str(e))
+    except TaskError as e:
         parser.error(str(e))
     except Exception as e:
         logger.error(f"Error performing action {args.action}: {e}")
@@ -183,10 +194,10 @@ def add_region(args):
             args.ra = c.ra.deg
             args.dec = c.dec.deg
         except ValueError:
-            get_parser().error(
+            raise TaskError(
                 "RA and DEC must be specified in degrees"
                 " or in a format understood by astropy.coordinates.SkyCoord"
-            )
+            ) from None
 
     result = db.add_regions(
         regions=[
@@ -198,7 +209,8 @@ def add_region(args):
                 "comments": args.comment[:200],
                 "obsid": args.obsid,
             }
-        ]
+        ],
+        dbfile=args.db_file,
     )
 
     region = dict(result[0])
@@ -208,11 +220,11 @@ def add_region(args):
 def remove_region(args):
     if args.region_id is None:
         raise ValueError("region_id is required to remove a region")
-    db.remove_regions([args.region_id])
+    db.remove_regions([args.region_id], dbfile=args.db_file)
 
 
 def list_regions(args):
-    regions = db.get_regions(args.obsid if args.obsid > 0 else None)
+    regions = db.get_regions(args.obsid if args.obsid > 0 else None, dbfile=args.db_file)
     if args.region_id is not None:
         regions = regions[regions["region_id"] == args.region_id]
     regions.pprint(max_width=-1, max_lines=-1)
@@ -227,10 +239,10 @@ def sync_regions(args):
     if args.to_file.exists():
         sync_regions(args.from_file, args.to_file, remove=args.remove)
     else:
-        regions = db.get_table("astromon_regions", args.from_file)
-        meta = db.get_table("astromon_meta", args.from_file)
-        db.save("astromon_regions", regions, args.to_file)
-        db.save("astromon_meta", meta, args.to_file)
+        regions = db.get_table("astromon_regions", dbfile=args.from_file)
+        meta = db.get_table("astromon_meta", dbfile=args.from_file)
+        db.save("astromon_regions", regions, dbfile=args.to_file)
+        db.save("astromon_meta", meta, dbfile=args.to_file)
 
 
 OUT = """Added region:
@@ -252,6 +264,7 @@ ACTIONS = {
 }
 
 PARSERS = {
+    "": get_parser,
     "add": get_actions_parser,
     "remove": get_actions_parser,
     "rm": get_actions_parser,
