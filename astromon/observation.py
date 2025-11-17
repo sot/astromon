@@ -29,6 +29,7 @@ from chandra_aca.transform import radec_to_yagzag
 from Quaternion import Quat
 from ska_helpers.logging import basic_logger
 
+from astromon import utils
 from astromon.stored_result import Storage, stored_result
 from astromon.task import TASKS, ReturnCode, ReturnValue, dependencies, run_tasks, task
 from astromon.utils import Ciao, chdir, logging_call_decorator
@@ -187,6 +188,7 @@ class Observation:
                 "*_broad_flux.img",
                 "*_acis_streaks.fits",
                 "*.src",
+                "*_psf_size_*.fits",
             ]
         else:
             self.archive_regex = archive_regex
@@ -668,8 +670,10 @@ class Observation:
         else:
             return ReturnValue(return_code=ReturnCode.OK)
 
-    @stored_result("sources", fmt="table", subdir="cache")
     @dependencies(
+        required_files={
+            "psf_size": "sources/{obsid}_psf_size_{version}.fits",
+        },
         optional_files={
             "sources": "sources/{obsid}_{version}.src",
             "pileup": "images/{obsid}_pileup_smeared.img",
@@ -677,48 +681,52 @@ class Observation:
         },
     )
     @logging_call_decorator
-    def get_sources(self, *, version="celldetect"):
+    def _get_sources(self, *, version="celldetect"):
         """
-        Returns a table of sources formatted for the astromon_xray_source SQL table
+        Read the output from CIAO source detection, add some columns, and return an astropy Table.
         """
-        # default dtype to be used when returning an empty list
-        dtype = [
-            ("obsid", ">i8"),
-            ("id", ">i4"),
-            ("ra", ">f8"),
-            ("dec", ">f8"),
-            ("net_counts", ">f4"),
-            ("y_angle", ">f8"),
-            ("z_angle", ">f8"),
-            ("r_angle", ">f8"),
-            ("snr", ">f4"),
-            ("near_neighbor_dist", ">f8"),
-            ("psfratio", ">f4"),
-            ("pileup", ">f4"),
-            ("acis_streak", "?"),
-            ("caldb_version", "<U6"),
-        ]
-
-        if TASKS.tasks[version].get_result(self).return_code != ReturnCode.OK:
-            return table.Table(dtype=dtype)
-
-        obspar = self.get_obspar()
-        q = Quat(equatorial=(obspar["ra_pnt"], obspar["dec_pnt"], obspar["roll_pnt"]))
 
         hdu_list = fits.open(self.file_path(f"sources/{self.obsid}_{version}.src"))
         sources = table.Table(hdu_list[1].data)
+        # this sets the native endianness. Some packages do not support big endian.
+        sources = table.Table(sources.as_array())
 
         if len(sources) == 0:
-            return table.Table(dtype=dtype)
+            return table.Table()
 
-        sources["pileup"] = self._pileup_value(sources)
-        sources["acis_streak"] = self._on_acis_streak(sources)
+        if "y_angle" not in sources.colnames or "z_angle" not in sources.colnames:
+            obspar = self.get_obspar()
+            q = Quat(
+                equatorial=(obspar["ra_pnt"], obspar["dec_pnt"], obspar["roll_pnt"])
+            )
+            sources["y_angle"], sources["z_angle"] = radec_to_yagzag(
+                sources["RA"], sources["DEC"], q
+            )
+        sources["r_angle"] = np.sqrt(sources["y_angle"] ** 2 + sources["z_angle"] ** 2)
 
-        if "SNR" not in sources.colnames:
+        if "near_neighbor_dist" not in sources.colnames:
+            # this uses y_angle and z_angle
+            sources["near_neighbor_dist"] = utils.get_near_neighbor_dist(
+                sources, sources
+            )
+
+        # checking upper and lower case because it gets renamed below
+        if "SNR" not in sources.colnames and "snr" not in sources.colnames:
             logger.debug(f"{self} adding masked column for SNR.")
             sources["SNR"] = table.MaskedColumn(
                 length=len(sources), mask=np.ones(len(sources))
             )
+
+        if "ecf_radius" not in sources.colnames:
+            ecf = table.Table.read(
+                self.file_path(f"sources/{self.obsid}_psf_size_{version}.fits")
+            )
+            sources["ecf_radius"] = ecf["R"]
+
+        sources["obsid"] = int(self.obsid)
+        sources["caldb_version"] = self.get_calalign()["caldb_version"]
+        sources["pileup"] = self._pileup_value(sources)
+        sources["acis_streak"] = self._on_acis_streak(sources)
 
         columns = [
             c
@@ -731,43 +739,49 @@ class Observation:
         ]
         sources.rename_columns(*list(zip(*columns, strict=True)))
 
-        sources["obsid"] = int(self.obsid)
-        sources["y_angle"], sources["z_angle"] = radec_to_yagzag(
-            sources["ra"], sources["dec"], q
-        )
-        sources["r_angle"] = np.sqrt(sources["y_angle"] ** 2 + sources["z_angle"] ** 2)
+        return sources
 
-        # calculate the distance to the closest source
-        src1 = sources.as_array()[None]
-        src2 = sources.as_array()[:, None]
-        i = np.diag([np.inf] * len(sources))
-        distance = (
-            np.sqrt(
-                (src1["y_angle"] - src2["y_angle"]) ** 2
-                + (src1["z_angle"] - src2["z_angle"]) ** 2
-            )
-            + i
-        )
-        sources["near_neighbor_dist"] = np.min(distance, axis=0)
-        sources["caldb_version"] = self.get_calalign()["caldb_version"]
+    @stored_result("sources", fmt="table", subdir="cache")
+    def get_sources(self, *, version="celldetect", astromon_format=True):
+        """
+        Returns a table of sources formatted for the astromon_xray_source SQL table.
 
-        cols = [
-            "obsid",
-            "id",
-            "ra",
-            "dec",
-            "net_counts",
-            "y_angle",
-            "z_angle",
-            "r_angle",
-            "snr",
-            "near_neighbor_dist",
-            "psfratio",
-            "pileup",
-            "acis_streak",
-            "caldb_version",
-        ]
-        return sources[cols]
+        If astromon_format is False, returns all the columns in the source detection output.
+        """
+
+        # default dtype to be used when returning an empty list
+        dtype = np.dtype(
+            [
+                ("obsid", ">i8"),
+                ("id", ">i4"),
+                ("ra", ">f8"),
+                ("dec", ">f8"),
+                ("net_counts", ">f4"),
+                ("y_angle", ">f8"),
+                ("z_angle", ">f8"),
+                ("r_angle", ">f8"),
+                ("snr", ">f4"),
+                ("near_neighbor_dist", ">f8"),
+                ("psfratio", ">f4"),
+                ("pileup", ">f4"),
+                ("acis_streak", "?"),
+                ("caldb_version", "<U6"),
+            ]
+        )
+
+        if TASKS.tasks[version].get_result(self).return_code != ReturnCode.OK:
+            return table.Table(dtype=dtype)
+
+        sources = self._get_sources(version=version)
+
+        if len(sources) == 0:
+            return table.Table(dtype=dtype)
+
+        return (
+            table.Table(sources[dtype.names], dtype=dtype)
+            if astromon_format
+            else sources
+        )
 
     def _pileup_value(self, src):
         pileup_file = self.file_path(f"images/{self.obsid}_pileup_smeared.img")
@@ -1060,6 +1074,7 @@ def make_images(obs, inputs, outputs):
 @task(
     name="wavdetect",
     inputs={
+        "events": "primary/{obsid}_evt2_filtered.fits.gz",
         "image_file": "images/{obsid}_{band}_thresh.img",
         "psf_file": "images/{obsid}_{band}_thresh.psfmap",
         "exposure_file": "images/{obsid}_{band}_thresh.expmap",
@@ -1069,10 +1084,12 @@ def make_images(obs, inputs, outputs):
         "cell": "sources/{obsid}_baseline.cell",
         "img": "sources/{obsid}_baseline.img",
         "nbkg": "sources/{obsid}_baseline.nbkg",
+        "psf_size": "sources/{obsid}_psf_size_baseline.fits",
     },
     variables={
         "band": lambda obs: "wide" if obs.is_hrc else "broad",
     },
+    download=(["evt2"]),
 )
 def wavdetect(obs, inputs, outputs):
     """
@@ -1080,6 +1097,8 @@ def wavdetect(obs, inputs, outputs):
     """
     # possible parameter:
     scales = ["1.4", "2", "4", "8", "16", "32"]
+    band = "wide" if obs.is_hrc else "broad"
+    ecf = 0.9
 
     # if wavdetect fails, it tries again removing the largest two scales
     for _ in range(2):
@@ -1097,25 +1116,41 @@ def wavdetect(obs, inputs, outputs):
                 clobber="yes",
                 logging_tag=str(obs),
             )
+            break
         except Exception:
+            # if wavdetect fails, try again with fewer scales (but at least 3)
             scales = scales[:-1]
             if len(scales) < 3:
                 raise
+
+    obs.ciao(
+        "psfsize_srcs",
+        inputs["events"],
+        outputs["src"],
+        outputs["psf_size"],
+        f"energy={band}",
+        f"ecf={ecf}",
+        "clobber=yes",
+    )
+
     return ReturnCode.OK
 
 
 @task(
     name="celldetect",
     inputs={
+        "events": "primary/{obsid}_evt2_filtered.fits.gz",
         "image_file": "images/{obsid}_{band}_thresh.img",
         "psf_file": "images/{obsid}_{band}_thresh.psfmap",
     },
     outputs={
         "src": "sources/{obsid}_celldetect.src",
+        "psf_size": "sources/{obsid}_psf_size_celldetect.fits",
     },
     variables={
         "band": lambda obs: "wide" if obs.is_hrc else "broad",
     },
+    download=(["evt2"]),
 )
 def celldetect(obs, inputs, outputs):
     """
@@ -1123,6 +1158,8 @@ def celldetect(obs, inputs, outputs):
     """
     # possible parameter:
     snr = 3
+    band = "wide" if obs.is_hrc else "broad"
+    ecf = 0.9
 
     obs.ciao(
         "celldetect",
@@ -1133,6 +1170,16 @@ def celldetect(obs, inputs, outputs):
         maxlogicalwindow=2048,
         clobber="yes",
         logging_tag=str(obs),
+    )
+
+    obs.ciao(
+        "psfsize_srcs",
+        inputs["events"],
+        outputs["src"],
+        outputs["psf_size"],
+        f"energy={band}",
+        f"ecf={ecf}",
+        "clobber=yes",
     )
 
     return ReturnCode.OK

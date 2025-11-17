@@ -25,6 +25,7 @@ __all__ = [
     "calalign_from_files",
     "get_calalign_offsets",
     "get_wcs_from_fits_header",
+    "get_near_neighbor_dist",
 ]
 
 
@@ -594,3 +595,36 @@ def get_wcs_from_fits_header(filename=None, hdu=0, header=None):
         warnings.simplefilter("ignore", category=FITSFixedWarning)
         wcs = WCS(params)
     return wcs
+
+
+def get_near_neighbor_dist(sources, all_sources=None, id_col="COMPONENT"):
+    """
+    Calculate the distance from each source in `sources` to the nearest source in `all_sources`.
+
+    The distance is the euclidean distance in the y_angle/z_angle plane.
+
+    If `all_sources` is None, `sources` is used for both.
+
+    Parameters
+    ----------
+    sources : astropy.table.Table
+        The sources to calculate the nearest neighbor distance for.
+    all_sources : astropy.table.Table
+        The sources to use as potential neighbors.
+    id_col : str
+        The column to use as the unique identifier for each source.
+    """
+    all_sources = sources if all_sources is None else all_sources
+
+    src1 = sources.as_array()[None]
+    src2 = all_sources.as_array()[:, None]
+    distance = np.sqrt(
+        (src1["y_angle"] - src2["y_angle"]) ** 2
+        + (src1["z_angle"] - src2["z_angle"]) ** 2
+    )
+    # add a large value to the distance where the sources are the same
+    # (a source should not be its own closest neighbor)
+    distance += np.where(src1[id_col] == src2[id_col], np.inf, 0).reshape(
+        distance.shape
+    )
+    return np.min(distance, axis=0)
