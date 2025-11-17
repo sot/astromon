@@ -22,10 +22,24 @@ def gaussian_inverse_covariance(sigma_1, sigma_2, angle):
     return transform @ diag @ transform.T
 
 
+def _fix_shapes_2d(x, x0, x1, sigma_1, sigma_2, angle):
+    x = np.atleast_2d(x)
+    shape = np.broadcast_shapes(x[:,0].shape, x0.shape, x1.shape)
+    x0, x1 = np.broadcast_to(x0, shape), np.broadcast_to(x1, shape)
+    if np.shape(sigma_1) != ():
+        raise ValueError("sigma_1 must be a scalar")
+    if np.shape(sigma_2) != ():
+        raise ValueError("sigma_2 must be a scalar")
+    if np.shape(angle) != ():
+        raise ValueError("angle must be a scalar")
+    return x, x0, x1, sigma_1, sigma_2, angle
+
+
 def log_normal_prob_2d(x, x0, x1, sigma_1, sigma_2, angle):
     """
     Return the log of the probability density of a 2d Gaussian with given sigmas and rotation angle.
     """
+    x, x0, x1, sigma_1, sigma_2, angle = _fix_shapes_2d(x, x0, x1, sigma_1, sigma_2, angle)
     if sigma_1 <= 0 or sigma_2 <= 0:
         return -np.inf * np.ones(x.shape[0])
     norm = 1 / (2 * np.pi * sigma_1 * sigma_2)
@@ -39,10 +53,11 @@ def normal_prob_2d(x, x0, x1, sigma_1, sigma_2, angle):
     """
     Return the probability density of a 2d Gaussian with given sigmas and rotation angle.
     """
+    x, x0, x1, sigma_1, sigma_2, angle = _fix_shapes_2d(x, x0, x1, sigma_1, sigma_2, angle)
     if sigma_1 <= 0 or sigma_2 <= 0:
         return np.zeros(x.shape[0])
     norm = 1 / (2 * np.pi * sigma_1 * sigma_2)
-    loc = np.array([[x0, x1]])
+    loc = np.vstack([x0, x1]).T
     cov = gaussian_inverse_covariance(sigma_1, sigma_2, angle)
     exponent = -0.5 * np.einsum("ij,jk,ik->i", x - loc, cov, x - loc)
     exp = np.exp(exponent)
@@ -122,7 +137,7 @@ def _fit(events, source, columns=("y_angle", "z_angle"), box_size=4):
             (0.1, 20),
             (0.1, 20),
             (-np.pi / 2, np.pi / 2),
-            (0.1, 1000),
+            (0.1, 10000),
         ],
     )
     if not result.success:
