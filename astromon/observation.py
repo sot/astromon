@@ -1143,6 +1143,8 @@ def wavdetect(obs, inputs, outputs):
     inputs={
         "events": "primary/{obsid}_evt2_filtered.fits.gz",
         "src": "sources/{obsid}_celldetect.src",
+    },
+    optional_inputs={
         "psf_size": "sources/{obsid}_psf_size_celldetect.fits",
     },
     outputs={
@@ -1157,11 +1159,56 @@ def wavdetect(obs, inputs, outputs):
 def gaussian_detect(obs, inputs, outputs):
     box_size = 4
 
+    dtype = np.dtype(
+        [
+            ("COMPONENT", ">i4"),
+            ("RA", ">f8"),
+            ("DEC", ">f8"),
+            ("X", ">f8"),
+            ("Y", ">f8"),
+            ("y_angle", ">f8"),
+            ("z_angle", ">f8"),
+            ("RA_ERR", ">f8"),
+            ("DEC_ERR", ">f8"),
+            ("X_ERR", ">f8"),
+            ("Y_ERR", ">f8"),
+            ("params", ">f8", (6,)),
+            ("hess_inv", ">f8", (6, 6)),
+            ("ndof", ">i8"),
+            ("fit_ok", "?"),
+            ("p_signal", ">f8"),
+            ("sigma", ">f8", (2,)),
+            ("rot_angle", ">f8"),
+            ("sigma_y_angle", ">f8"),
+            ("sigma_z_angle", ">f8"),
+            ("corr_y_angle_z_angle", ">f8"),
+            ("source_area", ">f8"),
+            ("NET_COUNTS", ">i8"),
+            ("signal", ">f8"),
+            ("background", ">f8"),
+            ("snr", ">f8"),
+            ("ks_y_angle", ">f8"),
+            ("ks_z_angle", ">f8"),
+            ("ks_p_value_y_angle", ">f8"),
+            ("ks_p_value_z_angle", ">f8"),
+            ("ks_sign_y_angle", ">i8"),
+            ("ks_sign_z_angle", ">i8"),
+            ("ecf_radius", ">f8"),
+            ("PSFRATIO", ">f8"),
+            ("CORR_RA_DEC", ">f8"),
+            ("CORR_X_Y", ">f8"),
+        ]
+    )
+
+    input_sources = table.Table.read(inputs["src"])
+    if len(input_sources) == 0:
+        results = table.Table(dtype=dtype)
+        results.write(outputs["src"], format="fits", overwrite=True)
+        return ReturnCode.OK
+
     events = table.Table.read(inputs["events"], hdu=1)
     wcs = utils.get_wcs_from_fits_header(inputs["events"], hdu=1)
     events["RA"], events["DEC"] = wcs.pixel_to_world_values(events["x"], events["y"])
-
-    input_sources = table.Table.read(inputs["src"])
 
     obs_info = obs.get_info()
     att = Quat([obs_info["ra_nom"], obs_info["dec_nom"], obs_info["roll_nom"]])
@@ -1347,15 +1394,18 @@ def celldetect_psf_size(obs, inputs, outputs):
     band = "wide" if obs.is_hrc else "broad"
     ecf = 0.9
 
-    obs.ciao(
-        "psfsize_srcs",
-        inputs["events"],
-        inputs["src"],
-        outputs["psf_size"],
-        f"energy={band}",
-        f"ecf={ecf}",
-        "clobber=yes",
-    )
+    sources = table.Table.read(inputs["src"])
+    # it seems CIAO chokes on an empty source list
+    if len(sources) > 0:
+        obs.ciao(
+            "psfsize_srcs",
+            inputs["events"],
+            inputs["src"],
+            outputs["psf_size"],
+            f"energy={band}",
+            f"ecf={ecf}",
+            "clobber=yes",
+        )
 
     return ReturnCode.OK
 
