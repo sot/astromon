@@ -355,6 +355,66 @@ class Observation:
 
         return self._obsid_info
 
+    @stored_result("ra_dec_wcs", fmt="pickle", subdir="cache")
+    @dependencies(download=["evt2"])
+    def get_ra_dec_wcs(self):
+        """
+        Get WCS to convert between sky coordinates (x, y) and (ra, dec).
+        """
+        event_files = self.file_glob("primary/*_evt2.fits*")
+        if len(event_files) == 0:
+            raise Exception(f"{self} No evt2 file for OBSID {self.obsid}.")
+
+        wcs = utils.get_wcs_from_fits_header(event_files[0], hdu=1)
+
+        return wcs
+
+    def get_off_axis_angle(self, ra=None, dec=None, x=None, y=None):
+        """
+        Get APPROXIMATE off-axis angle in arcmin for given (ra, dec) or sky (x, y) coordinates.
+
+        This is not the most accurate calculation of the off-axis angle. It uses the coordinates in
+        the sky coordinate system, which is a tangent plane at the nominal pointing. It is still
+        within 1 arcsec of the true off-axis angle for all cases we care about.
+
+        Parameters
+        ----------
+        ra: np.array
+            Right ascension in degrees.
+        dec: np.array
+            Declination in degrees.
+        x: np.array
+            Sky X coordinate in pixels.
+        y: np.array
+            Sky Y coordinate in pixels.
+
+        Returns
+        -------
+        np.array
+            Off-axis angle in arcmin. Same shape as input arrays.
+        """
+        errors = []
+        if (ra is None) != (dec is None):
+            errors.append("Both ra and dec must be provided together.")
+        if (x is None) != (y is None):
+            errors.append("Both x and y must be provided together.")
+        radec = ra is not None and dec is not None
+        skyxy = x is not None and y is not None
+        if radec and skyxy:
+            errors.append("Either ra/dec or x/y must be provided, not both.")
+        if not (radec or skyxy):
+            errors.append("Either ra/dec or x/y must be provided.")
+        if errors:
+            raise Exception(" ".join(errors))
+
+        wcs = self.get_ra_dec_wcs()
+        if skyxy:
+            xy = np.array([x, y]).T
+        else:
+            xy = np.array(wcs.world_to_pixel_values(ra, dec)).T
+        uv = (wcs.wcs.cdelt * (xy - wcs.wcs.crpix)).T
+        return np.sqrt(np.sum(uv**2, axis=0)) * 60
+
     @logging_call_decorator
     def _download_archive(self, ftypes):
         """
