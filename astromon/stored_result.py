@@ -8,6 +8,7 @@ import os
 import pickle
 import shutil
 import sys
+import tempfile
 import uuid
 from pathlib import Path
 from typing import Any, Callable, Protocol
@@ -26,6 +27,31 @@ class StorableProtocol(Protocol):
 
 
 class Storage:
+    """
+    Manages storage of files in a working directory and an optional archive directory.
+
+    The Storage class handles files in two locations: a working directory and an optional archive
+    directory. The working directory is where files are created and modified during processing,
+    while the archive directory is a long-term storage location. When files are archived, they are
+    copied from the working directory to the archive directory.
+
+    The Storage class provides methods to access files in both locations, search for files
+    matching a pattern, and archive files based on specified patterns.
+
+    The Storage class DOES NOT take ownership of the directories. It only manages file paths.
+
+    Parameters
+    ----------
+    workdir : str or Path, optional
+        Path to the working directory. If None, the current directory is used.
+    archive_dir : str or Path, optional
+        Path to the archive directory. If None, archiving is disabled.
+    instance : StorableProtocol, optional
+        An instance of a class implementing the StorableProtocol. If provided, the working directory
+        and archive_dir are extended with the instance's workdir. This allows using descriptors to
+        define data members that "inherit" the storage from their class. Might be removed.
+    """
+
     def __init__(
         self,
         workdir: Path = None,
@@ -145,6 +171,79 @@ class Storage:
         archive_dir = self.archive_dir
         return f"Storage({workdir=}, {archive_dir=})"
 
+
+class StorableClass:
+    """
+    Implements the Storable protocol and manages a temporary work directory.
+
+    It can be used in a derived class as follows:
+
+        class PeriscopeDriftData(StorableClass):
+            def __init__(self, obs):
+            super().__init__(
+                archive_dir=ARCHIVE_DIR,
+                subdir=Path(f"{obs.obsid}")
+            )
+
+    The idea is that one has a top-level working directory and archive directory, and each
+    instance gets its own subdirectory inside those. To some extent this is redundant with the
+    instance argument of Storage.
+
+    Parameters
+    ----------
+    workdir : str or Path, optional
+        Path to the working directory. If None, a temporary directory is created.
+    archive_dir : str or Path, optional
+        Path to the archive directory. If None, no archiving is done.
+    subdir : str, optional
+        Subdirectory inside the workdir and archive_dir to use. Default is "".
+    """
+
+    def __init__(
+        self,
+        workdir=None,
+        archive_dir=None,
+        subdir="",
+    ):
+        self._clear = workdir is None
+        self.tmp = tempfile.TemporaryDirectory() if workdir is None else None
+        self.workdir = (
+            Path(self.tmp.name if workdir is None else workdir).expanduser() / subdir
+        )
+        # checking if the workdir exists before creating is faster than passing the
+        # exist_ok=True argument to mkdir, and there are thousands of observations
+        # so this is a significant speedup
+        if not self.workdir.exists():
+            self.workdir.mkdir(parents=True)
+        self.archive_dir = (
+            (Path(archive_dir).expanduser() / subdir) if archive_dir else None
+        )
+        self.storage = Storage(
+            workdir=self.workdir,
+            archive_dir=self.archive_dir,
+        )
+
+    def __del__(self):
+        if hasattr(self, "_clear") and self._clear:
+            shutil.rmtree(self.workdir, ignore_errors=True)
+
+    def file_glob(self, pattern):
+        return self.storage.glob(pattern)
+
+    def file_path(self, path):
+        return self.storage.path(path)
+
+    def archive(self, *regex: str):
+        """
+        Move files to archive location.
+
+        Parameters
+        ----------
+        regex: list of str
+            Optional. If not given, self.default_regex is used.
+            Files matching any of the strings are arcived in a long-term location.
+        """
+        self.storage.archive(*regex)
 
 class StoredResult:
     def __init__(
