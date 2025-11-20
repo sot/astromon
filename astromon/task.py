@@ -528,7 +528,9 @@ class Task:
 
         if any(value is None for value in inputs.values()):
             missing_inputs = [
-                str(value) for key, value in inputs.items() if value is None
+                f"{key}: {params['inputs'][key]}"
+                for key, value in inputs.items()
+                if value is None
             ]
             raise FileNotFoundError(
                 f"Missing input files for task {self.name}: {', '.join(missing_inputs)}"

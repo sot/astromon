@@ -25,10 +25,11 @@ from astropy import units as u
 from astropy.coordinates import SkyCoord
 from astropy.io import ascii, fits
 from astropy.wcs import WCS, FITSFixedWarning
-from chandra_aca.transform import radec_to_yagzag
+from chandra_aca.transform import radec_to_yagzag, yagzag_to_radec
 from Quaternion import Quat
 from ska_helpers.logging import basic_logger
 
+from astromon import source_detection, utils
 from astromon.stored_result import Storage, stored_result
 from astromon.task import TASKS, ReturnCode, ReturnValue, dependencies, run_tasks, task
 from astromon.utils import Ciao, chdir, logging_call_decorator
@@ -185,8 +186,9 @@ class Observation:
                 "cache",
                 "*_wide_flux.img",
                 "*_broad_flux.img",
-                "*_acis_streaks.txt",
+                "*_acis_streaks.fits",
                 "*.src",
+                "*_psf_size_*.fits",
             ]
         else:
             self.archive_regex = archive_regex
@@ -352,6 +354,66 @@ class Observation:
             self._obsid_info["version"] = 0.0
 
         return self._obsid_info
+
+    @stored_result("ra_dec_wcs", fmt="pickle", subdir="cache")
+    @dependencies(download=["evt2"])
+    def get_ra_dec_wcs(self):
+        """
+        Get WCS to convert between sky coordinates (x, y) and (ra, dec).
+        """
+        event_files = self.file_glob("primary/*_evt2.fits*")
+        if len(event_files) == 0:
+            raise Exception(f"{self} No evt2 file for OBSID {self.obsid}.")
+
+        wcs = utils.get_wcs_from_fits_header(event_files[0], hdu=1)
+
+        return wcs
+
+    def get_off_axis_angle(self, ra=None, dec=None, x=None, y=None):
+        """
+        Get APPROXIMATE off-axis angle in arcmin for given (ra, dec) or sky (x, y) coordinates.
+
+        This is not the most accurate calculation of the off-axis angle. It uses the coordinates in
+        the sky coordinate system, which is a tangent plane at the nominal pointing. It is still
+        within 1 arcsec of the true off-axis angle for all cases we care about.
+
+        Parameters
+        ----------
+        ra: np.array
+            Right ascension in degrees.
+        dec: np.array
+            Declination in degrees.
+        x: np.array
+            Sky X coordinate in pixels.
+        y: np.array
+            Sky Y coordinate in pixels.
+
+        Returns
+        -------
+        np.array
+            Off-axis angle in arcmin. Same shape as input arrays.
+        """
+        errors = []
+        if (ra is None) != (dec is None):
+            errors.append("Both ra and dec must be provided together.")
+        if (x is None) != (y is None):
+            errors.append("Both x and y must be provided together.")
+        radec = ra is not None and dec is not None
+        skyxy = x is not None and y is not None
+        if radec and skyxy:
+            errors.append("Either ra/dec or x/y must be provided, not both.")
+        if not (radec or skyxy):
+            errors.append("Either ra/dec or x/y must be provided.")
+        if errors:
+            raise Exception(" ".join(errors))
+
+        wcs = self.get_ra_dec_wcs()
+        if skyxy:
+            xy = np.array([x, y]).T
+        else:
+            xy = np.array(wcs.world_to_pixel_values(ra, dec)).T
+        uv = (wcs.wcs.cdelt * (xy - wcs.wcs.crpix)).T
+        return np.sqrt(np.sum(uv**2, axis=0)) * 60
 
     @logging_call_decorator
     def _download_archive(self, ftypes):
@@ -668,57 +730,62 @@ class Observation:
         else:
             return ReturnValue(return_code=ReturnCode.OK)
 
-    @stored_result("sources", fmt="table", subdir="cache")
     @dependencies(
         optional_files={
             "sources": "sources/{obsid}_{version}.src",
             "pileup": "images/{obsid}_pileup_smeared.img",
-            "acis_streaks": "images/{obsid}_acis_streaks.txt",
+            "acis_streaks": "images/{obsid}_acis_streaks.fits",
+            "psf_size": "sources/{obsid}_psf_size_{version}.fits",
         },
     )
     @logging_call_decorator
-    def get_sources(self, *, version="celldetect"):
+    def _get_sources(self, *, version="celldetect"):
         """
-        Returns a table of sources formatted for the astromon_xray_source SQL table
+        Read the output from CIAO source detection, add some columns, and return an astropy Table.
         """
-        # default dtype to be used when returning an empty list
-        dtype = [
-            ("obsid", ">i8"),
-            ("id", ">i4"),
-            ("ra", ">f8"),
-            ("dec", ">f8"),
-            ("net_counts", ">f4"),
-            ("y_angle", ">f8"),
-            ("z_angle", ">f8"),
-            ("r_angle", ">f8"),
-            ("snr", ">f4"),
-            ("near_neighbor_dist", ">f8"),
-            ("psfratio", ">f4"),
-            ("pileup", ">f4"),
-            ("acis_streak", "?"),
-            ("caldb_version", "<U6"),
-        ]
-
-        if TASKS.tasks[version].get_result(self).return_code != ReturnCode.OK:
-            return table.Table(dtype=dtype)
-
-        obspar = self.get_obspar()
-        q = Quat(equatorial=(obspar["ra_pnt"], obspar["dec_pnt"], obspar["roll_pnt"]))
 
         hdu_list = fits.open(self.file_path(f"sources/{self.obsid}_{version}.src"))
         sources = table.Table(hdu_list[1].data)
+        # this sets the native endianness. Some packages do not support big endian.
+        sources = table.Table(sources.as_array())
 
         if len(sources) == 0:
-            return table.Table(dtype=dtype)
+            return table.Table()
 
-        sources["pileup"] = self._pileup_value(sources)
-        sources["acis_streak"] = self._on_acis_streak(sources)
+        if "y_angle" not in sources.colnames or "z_angle" not in sources.colnames:
+            obspar = self.get_obspar()
+            q = Quat(
+                equatorial=(obspar["ra_pnt"], obspar["dec_pnt"], obspar["roll_pnt"])
+            )
+            sources["y_angle"], sources["z_angle"] = radec_to_yagzag(
+                sources["RA"], sources["DEC"], q
+            )
+        sources["r_angle"] = np.sqrt(sources["y_angle"] ** 2 + sources["z_angle"] ** 2)
 
-        if "SNR" not in sources.colnames:
+        if "near_neighbor_dist" not in sources.colnames:
+            # this uses y_angle and z_angle
+            sources["near_neighbor_dist"] = utils.get_near_neighbor_dist(
+                sources, sources
+            )
+
+        # checking upper and lower case because it gets renamed below
+        if "SNR" not in sources.colnames and "snr" not in sources.colnames:
             logger.debug(f"{self} adding masked column for SNR.")
             sources["SNR"] = table.MaskedColumn(
                 length=len(sources), mask=np.ones(len(sources))
             )
+
+        if "ecf_radius" not in sources.colnames:
+            ecf = table.Table.read(
+                self.file_path(f"sources/{self.obsid}_psf_size_{version}.fits")
+            )
+            pixel_size = 0.4920 if self.is_acis else 0.13175
+            sources["ecf_radius"] = ecf["R"] * pixel_size
+
+        sources["obsid"] = int(self.obsid)
+        sources["caldb_version"] = self.get_calalign()["caldb_version"]
+        sources["pileup"] = self._pileup_value(sources)
+        sources["acis_streak"] = self._on_acis_streak(sources)
 
         columns = [
             c
@@ -731,43 +798,52 @@ class Observation:
         ]
         sources.rename_columns(*list(zip(*columns, strict=True)))
 
-        sources["obsid"] = int(self.obsid)
-        sources["y_angle"], sources["z_angle"] = radec_to_yagzag(
-            sources["ra"], sources["dec"], q
-        )
-        sources["r_angle"] = np.sqrt(sources["y_angle"] ** 2 + sources["z_angle"] ** 2)
+        return sources
 
-        # calculate the distance to the closest source
-        src1 = sources.as_array()[None]
-        src2 = sources.as_array()[:, None]
-        i = np.diag([np.inf] * len(sources))
-        distance = (
-            np.sqrt(
-                (src1["y_angle"] - src2["y_angle"]) ** 2
-                + (src1["z_angle"] - src2["z_angle"]) ** 2
-            )
-            + i
-        )
-        sources["near_neighbor_dist"] = np.min(distance, axis=0)
-        sources["caldb_version"] = self.get_calalign()["caldb_version"]
+    @stored_result("sources", fmt="table", subdir="cache")
+    def get_sources(self, *, version="celldetect", astromon_format=True):
+        """
+        Returns a table of sources formatted for the astromon_xray_source SQL table.
 
-        cols = [
-            "obsid",
-            "id",
-            "ra",
-            "dec",
-            "net_counts",
-            "y_angle",
-            "z_angle",
-            "r_angle",
-            "snr",
-            "near_neighbor_dist",
-            "psfratio",
-            "pileup",
-            "acis_streak",
-            "caldb_version",
-        ]
-        return sources[cols]
+        If astromon_format is False, returns all the columns in the source detection output.
+        """
+
+        # default dtype to be used when returning an empty list
+        dtype = np.dtype(
+            [
+                ("obsid", ">i8"),
+                ("id", ">i4"),
+                ("ra", ">f8"),
+                ("dec", ">f8"),
+                ("net_counts", ">f4"),
+                ("y_angle", ">f8"),
+                ("z_angle", ">f8"),
+                ("r_angle", ">f8"),
+                ("snr", ">f4"),
+                ("near_neighbor_dist", ">f8"),
+                ("psfratio", ">f4"),
+                ("pileup", ">f4"),
+                ("acis_streak", "?"),
+                ("caldb_version", "<U6"),
+            ]
+        )
+
+        if (
+            TASKS.tasks[version].get_result(self) is not None
+            and TASKS.tasks[version].get_result(self).return_code != ReturnCode.OK
+        ):
+            return table.Table(dtype=dtype)
+
+        sources = self._get_sources(version=version)
+
+        if len(sources) == 0:
+            return table.Table(dtype=dtype)
+
+        return (
+            table.Table(sources[dtype.names], dtype=dtype)
+            if astromon_format
+            else sources
+        )
 
     def _pileup_value(self, src):
         pileup_file = self.file_path(f"images/{self.obsid}_pileup_smeared.img")
@@ -786,12 +862,16 @@ class Observation:
         return hdus[0].data[(pix[1], pix[0])]
 
     def _on_acis_streak(self, src):
-        acis_streaks_file = self.file_path(f"images/{self.obsid}_acis_streaks.txt")
+        acis_streaks_file = self.file_path(f"images/{self.obsid}_acis_streaks.fits")
         result = np.zeros(len(src), dtype=bool)
         if acis_streaks_file.exists():
-            reg = regions.Regions.read(acis_streaks_file)
+            acis_streaks = table.Table.read(acis_streaks_file)
+            polygons = []
+            for row in acis_streaks:
+                vertices = regions.PixCoord(x=row["X"], y=row["Y"])
+                polygons.append(regions.PolygonPixelRegion(vertices=vertices))
             pos = regions.PixCoord(x=src["X"], y=src["Y"])
-            for pol in reg.regions:
+            for pol in polygons:
                 result += pol.contains(pos)
         return result
 
@@ -949,7 +1029,7 @@ class Observation:
         "pileup": "images/{obsid}_pileup.img",
         "pileup_max": "images/{obsid}_pileup_max.img",
         "acis_streaks_bkg": "images/{obsid}_acis_streaks_bkg.fits",
-        "acis_streaks": "images/{obsid}_acis_streaks.txt",
+        "acis_streaks": "images/{obsid}_acis_streaks.fits",
     },
     download=(["evt2", "fov", "asol", "msk", "bpix", "dtf"]),
     variables={
@@ -1025,15 +1105,29 @@ def make_images(obs, inputs, outputs):
             logging_tag=logging_tag,
         )
         try:
+            # the acis_streak_map command only creates ascii files
+            # (even though there is one fits example in the CIAO docs)
+            # and the regions package does not read that text file, so I call acis_streak_map
+            # and then convert the file to fits using dmmakereg
+            acis_streaks_file_ascii = outputs["acis_streaks"].parent / outputs[
+                "acis_streaks"
+            ].name.replace(".fits", ".reg")
             ciao(
                 "acis_streak_map",
                 infile=inputs["events"][0],
                 fovfile=fov_file,
                 bkgroot=outputs["acis_streaks_bkg"],
-                regfile=outputs["acis_streaks"],
+                regfile=acis_streaks_file_ascii,
                 msigma="4",
                 clobber="yes",
                 logging_tag=logging_tag,
+            )
+            ciao(
+                "dmmakereg",
+                f"region({acis_streaks_file_ascii})",
+                outputs["acis_streaks"],
+                "kernel=fits",
+                "clobber=yes",
             )
         except Exception:
             logger.warning(f"{obsid}   acis_streak_map failed")
@@ -1042,6 +1136,7 @@ def make_images(obs, inputs, outputs):
 @task(
     name="wavdetect",
     inputs={
+        "events": "primary/{obsid}_evt2_filtered.fits.gz",
         "image_file": "images/{obsid}_{band}_thresh.img",
         "psf_file": "images/{obsid}_{band}_thresh.psfmap",
         "exposure_file": "images/{obsid}_{band}_thresh.expmap",
@@ -1051,10 +1146,12 @@ def make_images(obs, inputs, outputs):
         "cell": "sources/{obsid}_baseline.cell",
         "img": "sources/{obsid}_baseline.img",
         "nbkg": "sources/{obsid}_baseline.nbkg",
+        "psf_size": "sources/{obsid}_psf_size_baseline.fits",
     },
     variables={
         "band": lambda obs: "wide" if obs.is_hrc else "broad",
     },
+    download=(["evt2"]),
 )
 def wavdetect(obs, inputs, outputs):
     """
@@ -1062,6 +1159,8 @@ def wavdetect(obs, inputs, outputs):
     """
     # possible parameter:
     scales = ["1.4", "2", "4", "8", "16", "32"]
+    band = "wide" if obs.is_hrc else "broad"
+    ecf = 0.9
 
     # if wavdetect fails, it tries again removing the largest two scales
     for _ in range(2):
@@ -1079,25 +1178,243 @@ def wavdetect(obs, inputs, outputs):
                 clobber="yes",
                 logging_tag=str(obs),
             )
+            break
         except Exception:
+            # if wavdetect fails, try again with fewer scales (but at least 3)
             scales = scales[:-1]
             if len(scales) < 3:
                 raise
+
+    obs.ciao(
+        "psfsize_srcs",
+        inputs["events"],
+        outputs["src"],
+        outputs["psf_size"],
+        f"energy={band}",
+        f"ecf={ecf}",
+        "clobber=yes",
+    )
+
     return ReturnCode.OK
+
+
+@task(
+    name="gaussian_detect",
+    inputs={
+        "events": "primary/{obsid}_evt2_filtered.fits.gz",
+        "src": "sources/{obsid}_celldetect.src",
+    },
+    optional_inputs={
+        "psf_size": "sources/{obsid}_psf_size_celldetect.fits",
+    },
+    outputs={
+        "src": "sources/{obsid}_gaussian_detect.src",
+        "psf_size": "sources/{obsid}_psf_size_gaussian_detect.fits",
+    },
+    variables={
+        "band": lambda obs: "wide" if obs.is_hrc else "broad",
+    },
+    download=(["evt2"]),
+)
+def gaussian_detect(obs, inputs, outputs):
+    box_size = 4
+
+    dtype = np.dtype(
+        [
+            ("COMPONENT", ">i4"),
+            ("RA", ">f8"),
+            ("DEC", ">f8"),
+            ("X", ">f8"),
+            ("Y", ">f8"),
+            ("y_angle", ">f8"),
+            ("z_angle", ">f8"),
+            ("RA_ERR", ">f8"),
+            ("DEC_ERR", ">f8"),
+            ("X_ERR", ">f8"),
+            ("Y_ERR", ">f8"),
+            ("params", ">f8", (6,)),
+            ("hess_inv", ">f8", (6, 6)),
+            ("ndof", ">i8"),
+            ("fit_ok", "?"),
+            ("p_signal", ">f8"),
+            ("sigma", ">f8", (2,)),
+            ("rot_angle", ">f8"),
+            ("sigma_y_angle", ">f8"),
+            ("sigma_z_angle", ">f8"),
+            ("corr_y_angle_z_angle", ">f8"),
+            ("source_area", ">f8"),
+            ("NET_COUNTS", ">i8"),
+            ("signal", ">f8"),
+            ("background", ">f8"),
+            ("snr", ">f8"),
+            ("ks_y_angle", ">f8"),
+            ("ks_z_angle", ">f8"),
+            ("ks_p_value_y_angle", ">f8"),
+            ("ks_p_value_z_angle", ">f8"),
+            ("ks_sign_y_angle", ">i8"),
+            ("ks_sign_z_angle", ">i8"),
+            ("ecf_radius", ">f8"),
+            ("PSFRATIO", ">f8"),
+            ("CORR_RA_DEC", ">f8"),
+            ("CORR_X_Y", ">f8"),
+        ]
+    )
+
+    input_sources = table.Table.read(inputs["src"])
+    if len(input_sources) == 0:
+        results = table.Table(dtype=dtype)
+        results.write(outputs["src"], format="fits", overwrite=True)
+        return ReturnCode.OK
+
+    events = table.Table.read(inputs["events"], hdu=1)
+    wcs = utils.get_wcs_from_fits_header(inputs["events"], hdu=1)
+    events["RA"], events["DEC"] = wcs.pixel_to_world_values(events["x"], events["y"])
+
+    obs_info = obs.get_info()
+    att = Quat([obs_info["ra_nom"], obs_info["dec_nom"], obs_info["roll_nom"]])
+    events["y_angle"], events["z_angle"] = radec_to_yagzag(
+        events["RA"], events["DEC"], att
+    )
+    input_sources["y_angle"], input_sources["z_angle"] = radec_to_yagzag(
+        input_sources["RA"], input_sources["DEC"], att
+    )
+
+    results = []
+    for source in input_sources:
+        sel = (np.abs(events["y_angle"] - source["y_angle"]) < box_size) & (
+            np.abs(events["z_angle"] - source["z_angle"]) < box_size
+        )
+        res = source_detection.fit_gaussian_2d(
+            events[sel],
+            source,
+            # columns=("y_angle", "z_angle"),
+            box_size=box_size,
+        )
+        results.append(res)
+
+    results = table.Table(results)
+
+    ecf = table.Table.read(inputs["psf_size"])
+    pixel_size = 0.4920 if obs.is_acis else 0.13175
+    results["ecf_radius"] = ecf["R"] * pixel_size
+    results["PSFRATIO"] = (
+        np.sqrt(results["sigma"][:, 0] * results["sigma"][:, 1]) / results["ecf_radius"]
+    )
+
+    results.rename_column("n", "NET_COUNTS")
+
+    results["RA"], results["DEC"] = yagzag_to_radec(
+        results["y_angle"], results["z_angle"], att
+    )
+    results["X"], results["Y"] = wcs.world_to_pixel_values(
+        results["RA"], results["DEC"]
+    )
+
+    # the uncertainties in yag/zag are given by the marginalized inverse Hessian matrix
+    yag_zag_cov = np.asarray(results["hess_inv"][:, :2, :2])
+
+    # and to propagate the uncertainties from yag/zag to ra/dec and x/y
+    # linearize the transformations around the nominal attitude
+    # I do this the dumb way: by finite differences
+
+    d_arc = 1e-3
+    ra_nom, dec_nom = yagzag_to_radec(0, 0, att)
+
+    # RA/dec
+    yagzag_to_radec_matrix = (
+        np.vstack(
+            [
+                np.array(yagzag_to_radec(d_arc, 0, att)) - np.array([ra_nom, dec_nom]),
+                np.array(yagzag_to_radec(0, d_arc, att)) - np.array([ra_nom, dec_nom]),
+            ]
+        ).T
+        / d_arc
+    )
+
+    ra_dec_cov = yagzag_to_radec_matrix @ yag_zag_cov @ yagzag_to_radec_matrix.T
+
+    results["RA_ERR"] = np.sqrt(ra_dec_cov[:, 0, 0])
+    results["DEC_ERR"] = np.sqrt(ra_dec_cov[:, 1, 1])
+    results["CORR_RA_DEC"] = ra_dec_cov[:, 0, 1] / (
+        results["RA_ERR"] * results["DEC_ERR"]
+    )
+
+    # X/Y
+    yagzag_to_pixel_matrix = np.vstack(
+        [
+            wcs.world_to_pixel_values(
+                ra_nom + yagzag_to_radec_matrix.T[0, 0],
+                dec_nom + yagzag_to_radec_matrix.T[0, 1],
+            ),
+            wcs.world_to_pixel_values(
+                ra_nom + yagzag_to_radec_matrix.T[1, 0],
+                dec_nom + yagzag_to_radec_matrix.T[1, 1],
+            ),
+        ]
+    ).T
+
+    pixel_cov = yagzag_to_pixel_matrix @ yag_zag_cov @ yagzag_to_pixel_matrix.T
+
+    results["X_ERR"] = np.sqrt(pixel_cov[:, 0, 0])
+    results["Y_ERR"] = np.sqrt(pixel_cov[:, 1, 1])
+    results["CORR_X_Y"] = pixel_cov[:, 0, 1] / (results["X_ERR"] * results["Y_ERR"])
+
+    units = {
+        "RA": u.deg,
+        "DEC": u.deg,
+        "X": u.pixel,
+        "Y": u.pixel,
+        "y_angle": u.arcsec,
+        "z_angle": u.arcsec,
+        "RA_ERR": u.deg,
+        "DEC_ERR": u.deg,
+        "X_ERR": u.pixel,
+        "Y_ERR": u.pixel,
+    }
+    for col, unit in units.items():
+        results[col].unit = unit
+
+    cols = [
+        "COMPONENT",
+        "RA",
+        "DEC",
+        "X",
+        "Y",
+        "y_angle",
+        "z_angle",
+        "RA_ERR",
+        "DEC_ERR",
+        "X_ERR",
+        "Y_ERR",
+    ]
+    cols += [col for col in results.colnames if col not in cols]
+    results = results[cols]
+
+    results = results[results["fit_ok"]]
+
+    if not outputs["src"].parent.exists():
+        outputs["src"].parent.mkdir(exist_ok=True, parents=True)
+
+    results.write(outputs["src"], format="fits", overwrite=True)
+
+    shutil.copyfile(inputs["psf_size"], outputs["psf_size"])
 
 
 @task(
     name="celldetect",
     inputs={
+        "events": "primary/{obsid}_evt2_filtered.fits.gz",
         "image_file": "images/{obsid}_{band}_thresh.img",
         "psf_file": "images/{obsid}_{band}_thresh.psfmap",
     },
     outputs={
         "src": "sources/{obsid}_celldetect.src",
+        # "psf_size": "sources/{obsid}_psf_size_celldetect.fits",
     },
     variables={
         "band": lambda obs: "wide" if obs.is_hrc else "broad",
     },
+    download=(["evt2"]),
 )
 def celldetect(obs, inputs, outputs):
     """
@@ -1116,6 +1433,39 @@ def celldetect(obs, inputs, outputs):
         clobber="yes",
         logging_tag=str(obs),
     )
+
+    return ReturnCode.OK
+
+
+@task(
+    name="celldetect_psf_size",
+    inputs={
+        "events": "primary/{obsid}_evt2_filtered.fits.gz",
+        "src": "sources/{obsid}_celldetect.src",
+    },
+    outputs={
+        "psf_size": "sources/{obsid}_psf_size_celldetect.fits",
+    },
+)
+def celldetect_psf_size(obs, inputs, outputs):
+    """
+    Run celldetect.
+    """
+    band = "wide" if obs.is_hrc else "broad"
+    ecf = 0.9
+
+    sources = table.Table.read(inputs["src"])
+    # it seems CIAO chokes on an empty source list
+    if len(sources) > 0:
+        obs.ciao(
+            "psfsize_srcs",
+            inputs["events"],
+            inputs["src"],
+            outputs["psf_size"],
+            f"energy={band}",
+            f"ecf={ecf}",
+            "clobber=yes",
+        )
 
     return ReturnCode.OK
 

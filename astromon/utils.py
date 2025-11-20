@@ -4,6 +4,7 @@ import os
 import re
 import subprocess
 import tempfile
+import warnings
 from contextlib import AbstractContextManager
 from pathlib import Path
 
@@ -11,6 +12,7 @@ import numpy as np
 import Ska.Shell
 from astropy.io import fits
 from astropy.table import Table, hstack, join
+from astropy.wcs import WCS, FITSFixedWarning
 from cxotime import CxoTime
 from Quaternion import Quat
 
@@ -22,6 +24,8 @@ __all__ = [
     "logging_call_decorator",
     "calalign_from_files",
     "get_calalign_offsets",
+    "get_wcs_from_fits_header",
+    "get_near_neighbor_dist",
 ]
 
 
@@ -542,3 +546,85 @@ def get_calalign_offsets(all_matches, ref_calalign=None, calalign_dir=None):
     result["after_caldb"] = result["since"] < all_matches["time"]
 
     return result
+
+
+def get_wcs_from_fits_header(filename=None, hdu=0, header=None):
+    if filename is None and header is None:
+        raise ValueError("Either filename or header must be provided")
+    if filename is not None and header is not None:
+        raise ValueError("Either filename or header must be provided, not both")
+
+    if header is None:
+        hdus = fits.open(filename)
+        header = hdus[hdu].header
+
+    ctypes = {val: key for key, val in header["TCTYP*"].items()}
+
+    ra_col = ctypes.pop("RA---TAN", None)
+    dec_col = ctypes.pop("DEC--TAN", None)
+
+    c1 = (
+        m.group(1)
+        if ra_col is not None and (m := re.search(r"(\d+)$", ra_col))
+        else None
+    )
+    c2 = (
+        m.group(1)
+        if dec_col is not None and (m := re.search(r"(\d+)$", dec_col))
+        else None
+    )
+
+    if c1 is None or c2 is None:
+        raise ValueError("Could not determine WCS columns")
+
+    params = {
+        "CTYPE1": header[f"TCTYP{c1}"],
+        "CRVAL1": header[f"TCRVL{c1}"],
+        "CRPIX1": header[f"TCRPX{c1}"] + 1,
+        "CDELT1": header[f"TCDLT{c1}"],
+        "CUNIT1": header[f"TCUNI{c1}"],
+        "CTYPE2": header[f"TCTYP{c2}"],
+        "CRVAL2": header[f"TCRVL{c2}"],
+        "CRPIX2": header[f"TCRPX{c2}"] + 1,
+        "CDELT2": header[f"TCDLT{c2}"],
+        "CUNIT2": header[f"TCUNI{c2}"],
+    }
+    with warnings.catch_warnings():
+        # For some reason FITS/WCS seems to think many of the CXC header
+        # keywords are non-standard and need to be fixed.
+        warnings.simplefilter("ignore", category=FITSFixedWarning)
+        wcs = WCS(params)
+    return wcs
+
+
+def get_near_neighbor_dist(sources, all_sources=None, id_col="COMPONENT"):
+    """
+    Calculate the distance from each source in `sources` to the nearest source in `all_sources`.
+
+    The distance is the euclidean distance in the y_angle/z_angle plane.
+
+    If `all_sources` is None, `sources` is used for both.
+
+    Parameters
+    ----------
+    sources : astropy.table.Table
+        The sources to calculate the nearest neighbor distance for.
+    all_sources : astropy.table.Table
+        The sources to use as potential neighbors.
+    id_col : str
+        The column to use as the unique identifier for each source.
+    """
+    all_sources = sources if all_sources is None else all_sources
+
+    src1 = sources.as_array()[None]
+    src2 = all_sources.as_array()[:, None]
+    distance = np.sqrt(
+        (src1["y_angle"] - src2["y_angle"]) ** 2
+        + (src1["z_angle"] - src2["z_angle"]) ** 2
+    )
+    # add a large value to the distance where the sources are the same
+    # (a source should not be its own closest neighbor)
+    distance += np.where(src1[id_col] == src2[id_col], np.inf, 0).reshape(
+        distance.shape
+    )
+    return np.min(distance, axis=0)
