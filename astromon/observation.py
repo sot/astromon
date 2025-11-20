@@ -98,6 +98,9 @@ Mapping between observation category names and numerical values.
 """
 
 
+ARCHIVE_DIR = Path(os.environ["SKA"]) / "data" / "astromon" / "archive"
+
+
 @functools.cache
 def ciao_fails(ciao_prefix, workdir):
     try:
@@ -167,7 +170,7 @@ class Observation:
         self.archive_dir = (
             (Path(archive_dir).expanduser() / subdir / self.obsid)
             if archive_dir
-            else None
+            else ARCHIVE_DIR / subdir / self.obsid
         )
         self.storage = Storage(
             workdir=self.workdir,
@@ -389,10 +392,18 @@ class Observation:
             if process.returncode:
                 raise Exception(f"{self.obsid} failed to download")
 
-    def _download_arc5gl(self, ftypes):
+    def _download_arc5gl(self, ftypes, revision=None, force=False):
         """
         Download data from chandra public archive
         """
+
+        if ftypes != ["obspar"] and revision is None:
+            # the first thing we do is to get the obspar file, to know the revision number.
+            # self.get_obspar calls self.download with ftypes=['obspar'], and that is why we just
+            # checked that ftypes is not ['obspar'], to avoid infinite recursion.
+            # The obspar is cached, so this happens only once.
+            obspar = self.get_obspar()
+            revision = obspar["revision"]
 
         for ftype in ftypes:
             if ftype == "obspar":
@@ -410,7 +421,7 @@ class Observation:
                 continue
             logger.info(f"{self}   {ftype=}")
             dest_files = self.file_glob(f"{dest}/*{ftype}*")
-            if dest_files:
+            if dest_files and not force:
                 logger.info(f"{self}     skipping download of *{ftype}*")
                 continue
             logger.info(f"{self}     {src} -> {dest}")
@@ -420,11 +431,13 @@ class Observation:
             with chdir(dest):
                 arc5gl = Ska.arc5gl.Arc5gl()
                 arc5gl.sendline(f"obsid={self.obsid}")
+                if revision is not None:
+                    arc5gl.sendline(f"version={revision}")
                 arc5gl.sendline(f"get {src}")
                 del arc5gl
 
     @logging_call_decorator
-    def download(self, ftypes=None):
+    def download(self, ftypes=None, revision=None, force=False):
         """
         Download observation files using the Chandra archive or arc5gl.
 
@@ -438,7 +451,7 @@ class Observation:
         if self._source == "archive":
             return self._download_archive(ftypes)
         elif self._source == "arc5gl":
-            return self._download_arc5gl(ftypes)
+            return self._download_arc5gl(ftypes, revision=revision, force=force)
         if self._source is None:
             raise Exception("No data source has been specified as fallback")
         raise Exception(f'Unknown data source: "{self._source}"')
@@ -817,6 +830,57 @@ class Observation:
             calalign["caldb_version"] = hdus[1].header["CALDBVER"]
             return calalign
 
+    def get_asol_files(self):
+        return [self.file_path(f) for f in self._get_asol_files_cached()]
+
+    @stored_result("asol", subdir="cache")
+    def _get_asol_files_cached(self):
+        # this function is cached because it downloads the events file if needed
+        # and that can be slow.
+        # asol file is specified in events file header
+        # trying filtered event file first, because they are usually cached
+        evt = self.file_path(f"primary/{self.obsid}_evt2_filtered.fits.gz")
+        if not evt.exists():
+            # if the filtered event file is not found, fall back to the unfiltered version
+            self.download(["evt2"])
+            evt_files = self.file_glob("primary/*_evt2.fits*")
+            if len(evt_files) == 0:
+                raise Exception("Expected one evt file, there are none")
+            evt = evt_files[0]
+
+        self.download(["asol"])
+
+        hdu = fits.open(evt)
+        if "ASOLFILE" in hdu[1].header:
+            filenames = hdu[1].header["ASOLFILE"].split(",")
+            filenames = [
+                (fi + ".gz" if fi.endswith(".fits") else fi) for fi in filenames
+            ]
+            asol = [self.file_path(f"secondary/{filename}") for filename in filenames]
+
+            # the file does not exist, check if the file revision is different
+            # from the current revision
+            if not asol[0].exists() and (
+                mr := re.search(r"N(?P<revision>\d\d\d)_asol1.fits", asol[0].name)
+            ):
+                revision = int(mr.group("revision"))
+                cur_revision = int(self.get_obspar()["revision"])
+                if revision != cur_revision:
+                    self.download(["asol"], revision=revision, force=True)
+        else:
+            # asol file is not given in the event file,
+            # see if there is something and hope for the best
+            asol = self.file_glob("secondary/*asol*fits*")
+
+        if any(not f.exists() for f in asol):
+            missing = ", ".join([str(f) for f in asol if not f.exists()])
+            raise Exception(f"Aspect solution files not found: {missing}")
+
+        # the result needs to be a relative path so it can be cached for later use
+        # because the files might currently be in a temporary directory
+        asol = [f.relative_to(f.parent.parent) for f in asol]
+        return asol
+
     def dmcoords(self, name, **kwargs):
         """
         Call dmcoords with the given arguments.
@@ -839,16 +903,19 @@ class Observation:
         kwargs: dict
             Arguments to pass to dmcoords.
         """
-        self.download(["evt2", "asol"])
 
+        # trying filtered event file first, because they are usually cached
         evt = self.file_path(f"primary/{self.obsid}_evt2_filtered.fits.gz")
-        if not evt:
-            raise Exception("Expected ine evt file, there are none")
+        if not evt.exists():
+            # if the filtered event file is not found, fall back to the unfiltered version
+            self.download(["evt2"])
+            evt_files = self.file_glob("primary/*_evt2.fits*")
+            if len(evt_files) == 0:
+                raise Exception("Expected one evt file, there are none")
+            evt = evt_files[0]
 
-        asol_files = self.file_glob(f"secondary/*{self.obsid}_*asol*fits*")
-        if len(asol_files) != 1:
-            raise Exception(f"Expected 1 asol file, there are {len(asol_files)}")
-        asol = asol_files[0]
+        # asol file is specified in events file header
+        asol = self.get_asol_files()[0]
 
         args = [evt, f"asolfile={asol}"]
         # if I do not unlearn, the following two calls in succession will hang
@@ -903,6 +970,10 @@ def make_images(obs, inputs, outputs):
     ciao = obs.ciao
     obsid = obs.obsid
 
+    # this makes sure the asol file is downloaded, even in rare cases where it is not downloaded
+    # when "asol" is downloaded
+    asol = ",".join([str(a) for a in obs.get_asol_files()])
+
     process = subprocess.Popen(
         ["dmlist", f"{evt_filt}[2]", "count"],
         stdout=subprocess.PIPE,
@@ -923,9 +994,7 @@ def make_images(obs, inputs, outputs):
         "fluximage",
         infile=evt_filt,
         outroot=outputs["image_file"].parent / f"{obsid}",
-        # not setting aspect solution file because there can be more than one,
-        # and fluximage does a better job at finding the correct one.
-        # asolfile=inputs["asol_file"][0],
+        asolfile=asol,
         badpixfile=inputs["badpixfile"][0],
         maskfile=inputs["maskfile"][0],
         bands=band,
@@ -958,7 +1027,7 @@ def make_images(obs, inputs, outputs):
         try:
             ciao(
                 "acis_streak_map",
-                infile=inputs["events"],
+                infile=inputs["events"][0],
                 fovfile=fov_file,
                 bkgroot=outputs["acis_streaks_bkg"],
                 regfile=outputs["acis_streaks"],

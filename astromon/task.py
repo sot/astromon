@@ -501,7 +501,8 @@ class Task:
         opt_inputs = {
             key: obs.file_path(val) for key, val in params["optional_inputs"].items()
         }
-        outputs = {key: obs.file_path(val) for key, val in params["outputs"].items()}
+        # if the task will run, the outputs have to be in the working directory
+        outputs = {key: obs.workdir / val for key, val in params["outputs"].items()}
 
         if set(inputs) & set(opt_inputs):
             raise ValueError(

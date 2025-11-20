@@ -14,6 +14,7 @@ entry_points = {
         "astromon-cross-match=astromon.scripts.get_cat_obs_data:main",
         "astromon-web-pages=astromon.web.celmon:main",
         "astromon-calc-rms=astromon.scripts.calc_astrometry_rms:main",
+        "astromon-excluded-region=astromon.scripts.excluded_region:main",
     ]
 }
 

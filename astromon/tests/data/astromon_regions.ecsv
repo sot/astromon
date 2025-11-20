@@ -2,6 +2,8 @@
 # ---
 # datatype:
 # - {name: region_id, datatype: int32}
+# - {name: region_id_str, datatype: string}
+# - {name: last_modified, datatype: string}
 # - {name: ra, datatype: float64}
 # - {name: dec, datatype: float64}
 # - {name: radius, datatype: float32}
@@ -9,8 +11,8 @@
 # - {name: user, datatype: string}
 # - {name: comments, datatype: string}
 # schema: astropy-2.0
-region_id ra dec radius obsid user comments
-9 128.8361839984206 -45.17654050321445 200.0 0 j 0
-11 187.70263686010165 12.392113543877699 5.0 0 jgonzalez 0
-12 187.7012375888888 12.392933540654155 5.0 0 jgonzalez 0
-13 187.70459582969386 12.391566869690632 5.0 0 jgonzalez 0
+region_id region_id_str last_modified ra dec radius obsid user comments
+9 8f53da3773 2025:317:14:47:27.097 128.8361839984206 -45.17654050321445 200.0 0 j 0
+11 40fc4e84fb 2025:317:14:47:27.097 187.70263686010165 12.392113543877699 5.0 0 jgonzalez 0
+12 63b66ed331 2025:317:14:47:27.097 187.7012375888888 12.392933540654155 5.0 0 jgonzalez 0
+13 a1c54bdab6 2025:317:14:47:27.097 187.70459582969386 12.391566869690632 5.0 0 jgonzalez 0

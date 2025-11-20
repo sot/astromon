@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import os
 import warnings
@@ -11,12 +12,23 @@ from astropy import units as u
 from astropy.coordinates import SkyCoord
 from astropy.table.table import Table
 from cxotime import CxoTime
+from mica.archive.obspar import get_obspar
 from ska_helpers.retry import tables_open_file
 
 from astromon import observation
 from astromon.utils import MissingTableException
 
-__all__ = ["get_table", "get_cross_matches", "save", "add_regions", "remove_regions"]
+__all__ = [
+    "get_table",
+    "get_cross_matches",
+    "save",
+    "add_regions",
+    "update_regions",
+    "remove_regions",
+    "sync_regions",
+    "get_regions",
+    "is_in_excluded_region",
+]
 
 if "ASTROMON_FILE" in os.environ:
     FILE = Path(os.environ["ASTROMON_FILE"])
@@ -96,6 +108,8 @@ ASTROMON_OBS_DTYPE = np.dtype(
 ASTROMON_REGION_DTYPE = np.dtype(
     [
         ("region_id", np.int32),
+        ("region_id_str", "S10"),
+        ("last_modified", "S21"),
         ("ra", np.float64),
         ("dec", np.float64),
         ("radius", np.float32),
@@ -240,11 +254,27 @@ def connect(dbfile=None, mode="r"):
                 logger.debug(f"{dbfile} closed (2)")
 
 
-def save(table_name, data, dbfile):
+def save(table_name, data, dbfile, ignore_obsid=False):
     """
     Insert data into a table, deleting previous entries for the same OBSID.
 
     If the table does not exist, it is created using pre-existing table definitions.
+
+    If `ignore_obsid` is `False`, and `data` has an "obsid" column, this function replaces all rows
+    in the table whose OBSID is in `data["obsid"]`. It does not replace the whole table. If `data`
+    has all rows of a given obsid removed, those entries are NOT removed from the table. For
+    example, the following code has no effect:
+
+        data = db.get_table("astromon_xray_src", dbfile)
+        data = data[data['obsid'] != 12345]
+        db.save("astromon_xray_src", data, dbfile)
+
+    To remove all entries for a given obsid, set `ignore_obsid=True`. If you do that,
+    the entire table is replaced by `data`. The following removes all entries for obsid 12345:
+
+        data = db.get_table("astromon_xray_src", dbfile)
+        data = data[data['obsid'] != 12345]
+        db.save("astromon_xray_src", data, dbfile, ignore_obsid=True)
 
     Parameters
     ----------
@@ -254,6 +284,8 @@ def save(table_name, data, dbfile):
     dbfile: :any:`pathlib.Path`
         File where tables are stored.
         The default is `$ASTROMON_FILE` or `$SKA/data/astromon/astromon.h5`
+    ignore_obsid: bool
+        If True, do not consider obsid to decide which rows to keep in the table.
     """
     with connect(dbfile, mode="r+") as h5:
         if not h5.isopen:
@@ -281,7 +313,7 @@ def save(table_name, data, dbfile):
 
         if table_name in h5.root:
             node = h5.get_node(f"/{table_name}")
-            if "obsid" in data.dtype.names:
+            if not ignore_obsid and "obsid" in data.dtype.names:
                 # remove rows for these obsids
                 obsids = np.unique(data["obsid"])
                 data_out = node[:].astype(dtype)
@@ -311,12 +343,12 @@ def remove_regions(regions, dbfile=None):
     """
     with connect(dbfile, mode="r+") as h5:
         all_regions = get_table("astromon_regions", h5)
-        all_regions = all_regions[~np.in1d(all_regions["region_id"], regions)]
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            if "astromon_regions" in h5.root:
-                h5.remove_node("/astromon_regions")
-            h5.create_table("/", "astromon_regions", all_regions.as_array())
+        sel = ~np.in1d(all_regions["region_id"], regions)
+        all_regions = all_regions[sel]
+
+        # We just removed some regions. In the process, maybe all rows for a given obsid were
+        # removed. In the following, if ignore_obsids is False, these rows would not be removed.
+        save("astromon_regions", all_regions, dbfile, ignore_obsid=True)
 
 
 def add_regions(regions, dbfile=None):
@@ -338,22 +370,200 @@ def add_regions(regions, dbfile=None):
         logger = logging.getLogger("astromon")
         logger.info(f"Adding regions: {regions}")
         all_regions = get_table("astromon_regions", h5)
-        if "astromon_meta" in h5.root:
+
+        if "astromon_meta" in h5.root and len(h5.root.astromon_meta) > 0:
             meta = Table(h5.root.astromon_meta[:], dtype=DTYPES["astromon_meta"])
         else:
             meta = Table(np.zeros(1, dtype=DTYPES["astromon_meta"]))
+
         rid = meta["last_region_id"][0] + 1
         regions = Table(regions)
         names = [n for n in all_regions.dtype.names if n in regions.dtype.names]
         b = np.zeros(len(regions), dtype=all_regions.dtype)
         b[names] = regions[names].as_array().astype(all_regions.dtype[names])
         b["region_id"] = np.arange(rid, rid + len(b))
+        b["last_modified"] = CxoTime.now().date
+        # we need to ensure region_id_str are unique. Using the auto-incrementing region_id does
+        # not work when we want to synchronize two or more DBs, because adding different regions
+        # to each DB could generate the same region_id and cause a collision when syncing.
+        # With a 40-bit random number/string, the probability of collision is less than 10^9.
+        region_id_str = [
+            hashlib.sha256(str(row).encode()).hexdigest()[:10] for row in b
+        ]
+        while np.any(sel := np.isin(region_id_str, all_regions["region_id_str"])):
+            region_id_str[sel] = [
+                hashlib.sha256(str(row).encode()).hexdigest()[:10]
+                for row in region_id_str[sel]
+            ]
+        b["region_id_str"] = region_id_str
         b = Table(b)
         all_regions = table.vstack([all_regions, b])
         meta["last_region_id"][0] = b["region_id"][-1]
         save("astromon_regions", all_regions, h5)
         save("astromon_meta", meta, h5)
         return b
+
+
+def update_regions(regions, dbfile=None):
+    """
+    Update exclusion regions in the astromon_regions table.
+
+    Things to keep in mind:
+
+        - last_modified is updated automatically.
+        - Changes region_id_str are ignored.
+        - Entries that do not differ from the values in the table are not updated
+          (last_modified is not set).
+        - This does not remove regions. Use :any:`remove_regions` for that.
+
+    Raises an exception if:
+
+        - the astromon_regions table is not in the dbfile.
+        - any of the region_id in `regions` does not exist in the table.
+
+    Parameters
+    ----------
+    regions: `astropy.table.Table`-compatible
+        This parameter gets converted to an `astropy.table.Table`.
+    dbfile: :any:`pathlib.Path`
+        File where tables are stored.
+        The default is `$ASTROMON_FILE` or `$SKA/data/astromon/astromon.h5`
+    """
+    with connect(dbfile, mode="r+") as h5:
+        logger = logging.getLogger("astromon")
+        logger.info(f"Updating regions: {regions}")
+
+        all_regions = get_table("astromon_regions", h5)
+
+        _, from_idx, to_idx = np.intersect1d(
+            regions["region_id_str"], all_regions["region_id_str"], return_indices=True
+        )
+
+        last_modified = CxoTime.now().date
+        for to_i, from_i in zip(to_idx, from_idx, strict=True):
+            if not np.array_equal(all_regions[to_i], regions[from_i]):
+                all_regions[to_i] = regions[from_i]
+                all_regions[to_i]["last_modified"] = last_modified
+
+        save("astromon_regions", all_regions, h5)
+
+        return regions
+
+
+def get_regions(obsid=None, dbfile=None, radius=5 * u.arcmin):
+    """
+    Get exclusion regions from the astromon_regions table.
+
+    Parameters
+    ----------
+    obsid: int
+        If provided, only return regions with obsid=0 or centered around the nominal pointing
+        of the given obsid, as stored in the obspar file.
+    dbfile: :any:`pathlib.Path`
+        File where tables are stored.
+        The default is `$ASTROMON_FILE` or `$SKA/data/astromon/astromon.h5`
+    radius: :any:`astropy.units.Quantity`
+        Maximum distance from the nominal pointing of the observation to include a region.
+        Only used if obsid is provided. Default is 5 arcmin.
+    Returns
+    -------
+    :any:`astropy.table.Table`
+    """
+    regions = get_table("astromon_regions", dbfile)
+    if obsid is not None:
+        obspar = get_obspar(obsid)
+        obs_loc = SkyCoord(obspar["ra_nom"] * u.deg, obspar["dec_nom"] * u.deg)
+
+        loc = SkyCoord(regions["ra"] * u.deg, regions["dec"] * u.deg)
+        regions = regions[
+            (obs_loc.separation(loc) < radius) | (regions["obsid"] == obsid)
+        ]
+    return regions
+
+
+def sync_regions(from_file, to_file, remove=False):
+    """
+    Sync exclusion regions from one astromon DB file to another.
+
+    Parameters
+    ----------
+    from_file: :any:`pathlib.Path`
+        Source DB file.
+    to_file: :any:`pathlib.Path`
+        Destination DB file.
+    """
+    from_regions = get_table("astromon_regions", from_file)
+    to_regions = get_table("astromon_regions", to_file)
+    meta = get_table("astromon_meta", to_file)
+    # update records that are in both, and last_modified is newer in from_file
+    _, from_idx, to_idx = np.intersect1d(
+        from_regions["region_id_str"], to_regions["region_id_str"], return_indices=True
+    )
+    sel = from_regions["last_modified"][from_idx] > to_regions["last_modified"][to_idx]
+    up_to_idx = to_idx[sel]
+    up_from_idx = from_idx[sel]
+    for i1, i2 in zip(up_to_idx, up_from_idx, strict=True):
+        to_regions[i1] = from_regions[i2]
+    # remove records that are in to_file but not in from_file
+    missing = ~np.in1d(to_regions["region_id_str"], from_regions["region_id_str"])
+    if remove and np.any(missing):
+        to_regions = to_regions[~missing]
+    # add records that are only in from_file
+    new = ~np.in1d(from_regions["region_id_str"], to_regions["region_id_str"])
+    if np.any(new):
+        # make sure that region_id is not repeated
+        # if there are repeated region_ids, assign new ones continuing from last_region_id in meta
+        new_regions = from_regions[new]
+        repeated_ids = np.isin(new_regions["region_id"], to_regions["region_id"])
+        if np.any(repeated_ids):
+            n_repeats = np.sum(repeated_ids)
+            start_id = meta["last_region_id"][0] + 1
+            new_regions["region_id"][repeated_ids] = np.arange(n_repeats) + start_id
+        to_regions = table.vstack([to_regions, new_regions])
+        meta["last_region_id"][0] = to_regions["region_id"].max()
+
+    to_regions.sort("region_id")
+
+    save("astromon_regions", to_regions, to_file)
+    save("astromon_meta", meta, to_file)
+
+
+def is_in_excluded_region(position, obsid=None, regions=None, dbfile=None):
+    """
+    Returns a mask to remove x-ray sources that are close to excluded regions.
+
+    Parameters
+    ----------
+    position: :any:`astropy.coordinates.SkyCoord`
+        Array of :class:`astropy.coordinates.SkyCoord` objects.
+    obsid: array-like
+        Array of OBSIDs corresponding to each position.
+    """
+    squeeze = not np.shape(position)
+    position = np.atleast_1d(position)
+
+    if obsid is not None:
+        obsid = np.atleast_1d(obsid)
+        if obsid.shape != position.shape:
+            raise ValueError("obsid and position must have the same shape")
+
+    if regions is None:
+        regions = get_table("astromon_regions", dbfile)
+    ii, jj = np.broadcast_arrays(
+        np.arange(len(position))[None, :], np.arange(len(regions))[:, None]
+    )
+    i, j = ii.flatten(), jj.flatten()
+    regions["loc"] = SkyCoord(regions["ra"] * u.deg, regions["dec"] * u.deg)
+    in_region = (
+        position[i].separation(regions["loc"][j]) < regions["radius"][j] * u.arcsec
+    )
+    if obsid is not None:
+        in_region &= (regions["obsid"][j] <= 0) | (regions["obsid"][j] == obsid[i])
+    in_region = in_region.reshape(ii.shape)
+    result = np.any(in_region, axis=0)
+    if squeeze:
+        return result.squeeze()
+    return result
 
 
 def set_formats(dat):
