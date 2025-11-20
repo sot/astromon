@@ -779,7 +779,7 @@ class Observation:
             ecf = table.Table.read(
                 self.file_path(f"sources/{self.obsid}_psf_size_{version}.fits")
             )
-            pixel_size = 0.4920 if self.is_acis else 0.1495
+            pixel_size = 0.4920 if self.is_acis else 0.13175
             sources["ecf_radius"] = ecf["R"] * pixel_size
 
         sources["obsid"] = int(self.obsid)
@@ -1295,7 +1295,7 @@ def gaussian_detect(obs, inputs, outputs):
     results = table.Table(results)
 
     ecf = table.Table.read(inputs["psf_size"])
-    pixel_size = 0.4920 if obs.is_acis else 0.1495
+    pixel_size = 0.4920 if obs.is_acis else 0.13175
     results["ecf_radius"] = ecf["R"] * pixel_size
     results["PSFRATIO"] = (
         np.sqrt(results["sigma"][:, 0] * results["sigma"][:, 1]) / results["ecf_radius"]
