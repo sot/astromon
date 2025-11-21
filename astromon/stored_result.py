@@ -245,6 +245,7 @@ class StorableClass:
         """
         self.storage.archive(*regex)
 
+
 class StoredResult:
     def __init__(
         self,
