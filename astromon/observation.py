@@ -99,7 +99,7 @@ Mapping between observation category names and numerical values.
 """
 
 
-ARCHIVE_DIR = Path(os.environ["SKA"]) / "data" / "astromon" / "archive"
+ARCHIVE_DIR = Path(os.environ["SKA"]) / "data" / "astromon" / "xray_observations"
 
 
 @functools.cache
