@@ -4,11 +4,11 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>astromon.observation &#8212; Astromon 1.2.1 documentation</title>
+    <title>astromon.observation &#8212; Astromon 1.3.0 documentation</title>
     <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=fa44fd50" />
     <link rel="stylesheet" type="text/css" href="../../_static/bootstrap-astropy.css?v=f4f7060c" />
     
-    <script src="../../_static/documentation_options.js?v=ca842793"></script>
+    <script src="../../_static/documentation_options.js?v=1f29e9d3"></script>
     <script src="../../_static/doctools.js?v=9bcbadda"></script>
     <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
     <script type="text/javascript" src="../../_static/sidebar.js"></script>
@@ -44,7 +44,7 @@
     <h3>Navigation</h3>
     <ul>
       <li>
-	<a href="../../index.html">Astromon 1.2.1 documentation</a>
+	<a href="../../index.html">Astromon 1.3.0 documentation</a>
 	 &#187;
       </li>
       <li><a href="../index.html" accesskey="U">Module code</a> &#187;</li>
@@ -87,10 +87,11 @@
 <span class="kn">from</span> <span class="nn">astropy.coordinates</span> <span class="kn">import</span> <span class="n">SkyCoord</span>
 <span class="kn">from</span> <span class="nn">astropy.io</span> <span class="kn">import</span> <span class="n">ascii</span><span class="p">,</span> <span class="n">fits</span>
 <span class="kn">from</span> <span class="nn">astropy.wcs</span> <span class="kn">import</span> <span class="n">WCS</span><span class="p">,</span> <span class="n">FITSFixedWarning</span>
-<span class="kn">from</span> <span class="nn">chandra_aca.transform</span> <span class="kn">import</span> <span class="n">radec_to_yagzag</span>
+<span class="kn">from</span> <span class="nn">chandra_aca.transform</span> <span class="kn">import</span> <span class="n">radec_to_yagzag</span><span class="p">,</span> <span class="n">yagzag_to_radec</span>
 <span class="kn">from</span> <span class="nn">Quaternion</span> <span class="kn">import</span> <span class="n">Quat</span>
 <span class="kn">from</span> <span class="nn">ska_helpers.logging</span> <span class="kn">import</span> <span class="n">basic_logger</span>
 
+<span class="kn">from</span> <span class="nn">astromon</span> <span class="kn">import</span> <span class="n">source_detection</span><span class="p">,</span> <span class="n">utils</span>
 <span class="kn">from</span> <span class="nn">astromon.stored_result</span> <span class="kn">import</span> <span class="n">Storage</span><span class="p">,</span> <span class="n">stored_result</span>
 <span class="kn">from</span> <span class="nn">astromon.task</span> <span class="kn">import</span> <span class="n">TASKS</span><span class="p">,</span> <span class="n">ReturnCode</span><span class="p">,</span> <span class="n">ReturnValue</span><span class="p">,</span> <span class="n">dependencies</span><span class="p">,</span> <span class="n">run_tasks</span><span class="p">,</span> <span class="n">task</span>
 <span class="kn">from</span> <span class="nn">astromon.utils</span> <span class="kn">import</span> <span class="n">Ciao</span><span class="p">,</span> <span class="n">chdir</span><span class="p">,</span> <span class="n">logging_call_decorator</span>
@@ -158,6 +159,9 @@
 <span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">Mapping between observation category names and numerical values.</span>
 <span class="sd">&quot;&quot;&quot;</span>
+
+
+<span class="n">ARCHIVE_DIR</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;SKA&quot;</span><span class="p">])</span> <span class="o">/</span> <span class="s2">&quot;data&quot;</span> <span class="o">/</span> <span class="s2">&quot;astromon&quot;</span> <span class="o">/</span> <span class="s2">&quot;xray_observations&quot;</span>
 
 
 <span class="nd">@functools</span><span class="o">.</span><span class="n">cache</span>
@@ -231,7 +235,7 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">archive_dir</span> <span class="o">=</span> <span class="p">(</span>
             <span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="n">archive_dir</span><span class="p">)</span><span class="o">.</span><span class="n">expanduser</span><span class="p">()</span> <span class="o">/</span> <span class="n">subdir</span> <span class="o">/</span> <span class="bp">self</span><span class="o">.</span><span class="n">obsid</span><span class="p">)</span>
             <span class="k">if</span> <span class="n">archive_dir</span>
-            <span class="k">else</span> <span class="kc">None</span>
+            <span class="k">else</span> <span class="n">ARCHIVE_DIR</span> <span class="o">/</span> <span class="n">subdir</span> <span class="o">/</span> <span class="bp">self</span><span class="o">.</span><span class="n">obsid</span>
         <span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">storage</span> <span class="o">=</span> <span class="n">Storage</span><span class="p">(</span>
             <span class="n">workdir</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">workdir</span><span class="p">,</span>
@@ -246,8 +250,9 @@
                 <span class="s2">&quot;cache&quot;</span><span class="p">,</span>
                 <span class="s2">&quot;*_wide_flux.img&quot;</span><span class="p">,</span>
                 <span class="s2">&quot;*_broad_flux.img&quot;</span><span class="p">,</span>
-                <span class="s2">&quot;*_acis_streaks.txt&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;*_acis_streaks.fits&quot;</span><span class="p">,</span>
                 <span class="s2">&quot;*.src&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;*_psf_size_*.fits&quot;</span><span class="p">,</span>
             <span class="p">]</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">archive_regex</span> <span class="o">=</span> <span class="n">archive_regex</span>
@@ -420,6 +425,69 @@
 
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_obsid_info</span>
 
+    <span class="nd">@stored_result</span><span class="p">(</span><span class="s2">&quot;ra_dec_wcs&quot;</span><span class="p">,</span> <span class="n">fmt</span><span class="o">=</span><span class="s2">&quot;pickle&quot;</span><span class="p">,</span> <span class="n">subdir</span><span class="o">=</span><span class="s2">&quot;cache&quot;</span><span class="p">)</span>
+    <span class="nd">@dependencies</span><span class="p">(</span><span class="n">download</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;evt2&quot;</span><span class="p">])</span>
+    <span class="k">def</span> <span class="nf">get_ra_dec_wcs</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get WCS to convert between sky coordinates (x, y) and (ra, dec).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">event_files</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_glob</span><span class="p">(</span><span class="s2">&quot;primary/*_evt2.fits*&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">event_files</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="si">}</span><span class="s2"> No evt2 file for OBSID </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">obsid</span><span class="si">}</span><span class="s2">.&quot;</span><span class="p">)</span>
+
+        <span class="n">wcs</span> <span class="o">=</span> <span class="n">utils</span><span class="o">.</span><span class="n">get_wcs_from_fits_header</span><span class="p">(</span><span class="n">event_files</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">hdu</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">wcs</span>
+
+<div class="viewcode-block" id="Observation.get_off_axis_angle">
+<a class="viewcode-back" href="../../api.html#astromon.observation.Observation.get_off_axis_angle">[docs]</a>
+    <span class="k">def</span> <span class="nf">get_off_axis_angle</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ra</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">dec</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">x</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get APPROXIMATE off-axis angle in arcmin for given (ra, dec) or sky (x, y) coordinates.</span>
+
+<span class="sd">        This is not the most accurate calculation of the off-axis angle. It uses the coordinates in</span>
+<span class="sd">        the sky coordinate system, which is a tangent plane at the nominal pointing. It is still</span>
+<span class="sd">        within 1 arcsec of the true off-axis angle for all cases we care about.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        ra: np.array</span>
+<span class="sd">            Right ascension in degrees.</span>
+<span class="sd">        dec: np.array</span>
+<span class="sd">            Declination in degrees.</span>
+<span class="sd">        x: np.array</span>
+<span class="sd">            Sky X coordinate in pixels.</span>
+<span class="sd">        y: np.array</span>
+<span class="sd">            Sky Y coordinate in pixels.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        np.array</span>
+<span class="sd">            Off-axis angle in arcmin. Same shape as input arrays.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">errors</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">ra</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">)</span> <span class="o">!=</span> <span class="p">(</span><span class="n">dec</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">):</span>
+            <span class="n">errors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;Both ra and dec must be provided together.&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">x</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">)</span> <span class="o">!=</span> <span class="p">(</span><span class="n">y</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">):</span>
+            <span class="n">errors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;Both x and y must be provided together.&quot;</span><span class="p">)</span>
+        <span class="n">radec</span> <span class="o">=</span> <span class="n">ra</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">dec</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+        <span class="n">skyxy</span> <span class="o">=</span> <span class="n">x</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">y</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="n">radec</span> <span class="ow">and</span> <span class="n">skyxy</span><span class="p">:</span>
+            <span class="n">errors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;Either ra/dec or x/y must be provided, not both.&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="p">(</span><span class="n">radec</span> <span class="ow">or</span> <span class="n">skyxy</span><span class="p">):</span>
+            <span class="n">errors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;Either ra/dec or x/y must be provided.&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">errors</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s2">&quot; &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">errors</span><span class="p">))</span>
+
+        <span class="n">wcs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_ra_dec_wcs</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">skyxy</span><span class="p">:</span>
+            <span class="n">xy</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">])</span><span class="o">.</span><span class="n">T</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">xy</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">wcs</span><span class="o">.</span><span class="n">world_to_pixel_values</span><span class="p">(</span><span class="n">ra</span><span class="p">,</span> <span class="n">dec</span><span class="p">))</span><span class="o">.</span><span class="n">T</span>
+        <span class="n">uv</span> <span class="o">=</span> <span class="p">(</span><span class="n">wcs</span><span class="o">.</span><span class="n">wcs</span><span class="o">.</span><span class="n">cdelt</span> <span class="o">*</span> <span class="p">(</span><span class="n">xy</span> <span class="o">-</span> <span class="n">wcs</span><span class="o">.</span><span class="n">wcs</span><span class="o">.</span><span class="n">crpix</span><span class="p">))</span><span class="o">.</span><span class="n">T</span>
+        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">uv</span><span class="o">**</span><span class="mi">2</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">))</span> <span class="o">*</span> <span class="mi">60</span></div>
+
+
     <span class="nd">@logging_call_decorator</span>
     <span class="k">def</span> <span class="nf">_download_archive</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ftypes</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
@@ -459,10 +527,18 @@
             <span class="k">if</span> <span class="n">process</span><span class="o">.</span><span class="n">returncode</span><span class="p">:</span>
                 <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">obsid</span><span class="si">}</span><span class="s2"> failed to download&quot;</span><span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">_download_arc5gl</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ftypes</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">_download_arc5gl</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ftypes</span><span class="p">,</span> <span class="n">revision</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">force</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Download data from chandra public archive</span>
 <span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="k">if</span> <span class="n">ftypes</span> <span class="o">!=</span> <span class="p">[</span><span class="s2">&quot;obspar&quot;</span><span class="p">]</span> <span class="ow">and</span> <span class="n">revision</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="c1"># the first thing we do is to get the obspar file, to know the revision number.</span>
+            <span class="c1"># self.get_obspar calls self.download with ftypes=[&#39;obspar&#39;], and that is why we just</span>
+            <span class="c1"># checked that ftypes is not [&#39;obspar&#39;], to avoid infinite recursion.</span>
+            <span class="c1"># The obspar is cached, so this happens only once.</span>
+            <span class="n">obspar</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_obspar</span><span class="p">()</span>
+            <span class="n">revision</span> <span class="o">=</span> <span class="n">obspar</span><span class="p">[</span><span class="s2">&quot;revision&quot;</span><span class="p">]</span>
 
         <span class="k">for</span> <span class="n">ftype</span> <span class="ow">in</span> <span class="n">ftypes</span><span class="p">:</span>
             <span class="k">if</span> <span class="n">ftype</span> <span class="o">==</span> <span class="s2">&quot;obspar&quot;</span><span class="p">:</span>
@@ -480,7 +556,7 @@
                 <span class="k">continue</span>
             <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="si">}</span><span class="s2">   </span><span class="si">{</span><span class="n">ftype</span><span class="si">=}</span><span class="s2">&quot;</span><span class="p">)</span>
             <span class="n">dest_files</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_glob</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">dest</span><span class="si">}</span><span class="s2">/*</span><span class="si">{</span><span class="n">ftype</span><span class="si">}</span><span class="s2">*&quot;</span><span class="p">)</span>
-            <span class="k">if</span> <span class="n">dest_files</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">dest_files</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">force</span><span class="p">:</span>
                 <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="si">}</span><span class="s2">     skipping download of *</span><span class="si">{</span><span class="n">ftype</span><span class="si">}</span><span class="s2">*&quot;</span><span class="p">)</span>
                 <span class="k">continue</span>
             <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="si">}</span><span class="s2">     </span><span class="si">{</span><span class="n">src</span><span class="si">}</span><span class="s2"> -&gt; </span><span class="si">{</span><span class="n">dest</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
@@ -490,13 +566,15 @@
             <span class="k">with</span> <span class="n">chdir</span><span class="p">(</span><span class="n">dest</span><span class="p">):</span>
                 <span class="n">arc5gl</span> <span class="o">=</span> <span class="n">Ska</span><span class="o">.</span><span class="n">arc5gl</span><span class="o">.</span><span class="n">Arc5gl</span><span class="p">()</span>
                 <span class="n">arc5gl</span><span class="o">.</span><span class="n">sendline</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;obsid=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">obsid</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">revision</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="n">arc5gl</span><span class="o">.</span><span class="n">sendline</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;version=</span><span class="si">{</span><span class="n">revision</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
                 <span class="n">arc5gl</span><span class="o">.</span><span class="n">sendline</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;get </span><span class="si">{</span><span class="n">src</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
                 <span class="k">del</span> <span class="n">arc5gl</span>
 
 <div class="viewcode-block" id="Observation.download">
 <a class="viewcode-back" href="../../api.html#astromon.observation.Observation.download">[docs]</a>
     <span class="nd">@logging_call_decorator</span>
-    <span class="k">def</span> <span class="nf">download</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ftypes</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">download</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ftypes</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">revision</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">force</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Download observation files using the Chandra archive or arc5gl.</span>
 
@@ -510,7 +588,7 @@
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_source</span> <span class="o">==</span> <span class="s2">&quot;archive&quot;</span><span class="p">:</span>
             <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_download_archive</span><span class="p">(</span><span class="n">ftypes</span><span class="p">)</span>
         <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">_source</span> <span class="o">==</span> <span class="s2">&quot;arc5gl&quot;</span><span class="p">:</span>
-            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_download_arc5gl</span><span class="p">(</span><span class="n">ftypes</span><span class="p">)</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_download_arc5gl</span><span class="p">(</span><span class="n">ftypes</span><span class="p">,</span> <span class="n">revision</span><span class="o">=</span><span class="n">revision</span><span class="p">,</span> <span class="n">force</span><span class="o">=</span><span class="n">force</span><span class="p">)</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_source</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s2">&quot;No data source has been specified as fallback&quot;</span><span class="p">)</span>
         <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;Unknown data source: &quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_source</span><span class="si">}</span><span class="s1">&quot;&#39;</span><span class="p">)</span></div>
@@ -755,57 +833,62 @@
             <span class="k">return</span> <span class="n">ReturnValue</span><span class="p">(</span><span class="n">return_code</span><span class="o">=</span><span class="n">ReturnCode</span><span class="o">.</span><span class="n">OK</span><span class="p">)</span></div>
 
 
-    <span class="nd">@stored_result</span><span class="p">(</span><span class="s2">&quot;sources&quot;</span><span class="p">,</span> <span class="n">fmt</span><span class="o">=</span><span class="s2">&quot;table&quot;</span><span class="p">,</span> <span class="n">subdir</span><span class="o">=</span><span class="s2">&quot;cache&quot;</span><span class="p">)</span>
     <span class="nd">@dependencies</span><span class="p">(</span>
         <span class="n">optional_files</span><span class="o">=</span><span class="p">{</span>
             <span class="s2">&quot;sources&quot;</span><span class="p">:</span> <span class="s2">&quot;sources/</span><span class="si">{obsid}</span><span class="s2">_</span><span class="si">{version}</span><span class="s2">.src&quot;</span><span class="p">,</span>
             <span class="s2">&quot;pileup&quot;</span><span class="p">:</span> <span class="s2">&quot;images/</span><span class="si">{obsid}</span><span class="s2">_pileup_smeared.img&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;acis_streaks&quot;</span><span class="p">:</span> <span class="s2">&quot;images/</span><span class="si">{obsid}</span><span class="s2">_acis_streaks.txt&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;acis_streaks&quot;</span><span class="p">:</span> <span class="s2">&quot;images/</span><span class="si">{obsid}</span><span class="s2">_acis_streaks.fits&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;psf_size&quot;</span><span class="p">:</span> <span class="s2">&quot;sources/</span><span class="si">{obsid}</span><span class="s2">_psf_size_</span><span class="si">{version}</span><span class="s2">.fits&quot;</span><span class="p">,</span>
         <span class="p">},</span>
     <span class="p">)</span>
     <span class="nd">@logging_call_decorator</span>
-    <span class="k">def</span> <span class="nf">get_sources</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">version</span><span class="o">=</span><span class="s2">&quot;celldetect&quot;</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">_get_sources</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">version</span><span class="o">=</span><span class="s2">&quot;celldetect&quot;</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">        Returns a table of sources formatted for the astromon_xray_source SQL table</span>
+<span class="sd">        Read the output from CIAO source detection, add some columns, and return an astropy Table.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="c1"># default dtype to be used when returning an empty list</span>
-        <span class="n">dtype</span> <span class="o">=</span> <span class="p">[</span>
-            <span class="p">(</span><span class="s2">&quot;obsid&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;i8&quot;</span><span class="p">),</span>
-            <span class="p">(</span><span class="s2">&quot;id&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;i4&quot;</span><span class="p">),</span>
-            <span class="p">(</span><span class="s2">&quot;ra&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">),</span>
-            <span class="p">(</span><span class="s2">&quot;dec&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">),</span>
-            <span class="p">(</span><span class="s2">&quot;net_counts&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f4&quot;</span><span class="p">),</span>
-            <span class="p">(</span><span class="s2">&quot;y_angle&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">),</span>
-            <span class="p">(</span><span class="s2">&quot;z_angle&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">),</span>
-            <span class="p">(</span><span class="s2">&quot;r_angle&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">),</span>
-            <span class="p">(</span><span class="s2">&quot;snr&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f4&quot;</span><span class="p">),</span>
-            <span class="p">(</span><span class="s2">&quot;near_neighbor_dist&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">),</span>
-            <span class="p">(</span><span class="s2">&quot;psfratio&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f4&quot;</span><span class="p">),</span>
-            <span class="p">(</span><span class="s2">&quot;pileup&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f4&quot;</span><span class="p">),</span>
-            <span class="p">(</span><span class="s2">&quot;acis_streak&quot;</span><span class="p">,</span> <span class="s2">&quot;?&quot;</span><span class="p">),</span>
-            <span class="p">(</span><span class="s2">&quot;caldb_version&quot;</span><span class="p">,</span> <span class="s2">&quot;&lt;U6&quot;</span><span class="p">),</span>
-        <span class="p">]</span>
-
-        <span class="k">if</span> <span class="n">TASKS</span><span class="o">.</span><span class="n">tasks</span><span class="p">[</span><span class="n">version</span><span class="p">]</span><span class="o">.</span><span class="n">get_result</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">return_code</span> <span class="o">!=</span> <span class="n">ReturnCode</span><span class="o">.</span><span class="n">OK</span><span class="p">:</span>
-            <span class="k">return</span> <span class="n">table</span><span class="o">.</span><span class="n">Table</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
-
-        <span class="n">obspar</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_obspar</span><span class="p">()</span>
-        <span class="n">q</span> <span class="o">=</span> <span class="n">Quat</span><span class="p">(</span><span class="n">equatorial</span><span class="o">=</span><span class="p">(</span><span class="n">obspar</span><span class="p">[</span><span class="s2">&quot;ra_pnt&quot;</span><span class="p">],</span> <span class="n">obspar</span><span class="p">[</span><span class="s2">&quot;dec_pnt&quot;</span><span class="p">],</span> <span class="n">obspar</span><span class="p">[</span><span class="s2">&quot;roll_pnt&quot;</span><span class="p">]))</span>
 
         <span class="n">hdu_list</span> <span class="o">=</span> <span class="n">fits</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">file_path</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;sources/</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">obsid</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">version</span><span class="si">}</span><span class="s2">.src&quot;</span><span class="p">))</span>
         <span class="n">sources</span> <span class="o">=</span> <span class="n">table</span><span class="o">.</span><span class="n">Table</span><span class="p">(</span><span class="n">hdu_list</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">data</span><span class="p">)</span>
+        <span class="c1"># this sets the native endianness. Some packages do not support big endian.</span>
+        <span class="n">sources</span> <span class="o">=</span> <span class="n">table</span><span class="o">.</span><span class="n">Table</span><span class="p">(</span><span class="n">sources</span><span class="o">.</span><span class="n">as_array</span><span class="p">())</span>
 
         <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">sources</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-            <span class="k">return</span> <span class="n">table</span><span class="o">.</span><span class="n">Table</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">table</span><span class="o">.</span><span class="n">Table</span><span class="p">()</span>
 
-        <span class="n">sources</span><span class="p">[</span><span class="s2">&quot;pileup&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pileup_value</span><span class="p">(</span><span class="n">sources</span><span class="p">)</span>
-        <span class="n">sources</span><span class="p">[</span><span class="s2">&quot;acis_streak&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_on_acis_streak</span><span class="p">(</span><span class="n">sources</span><span class="p">)</span>
+        <span class="k">if</span> <span class="s2">&quot;y_angle&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">sources</span><span class="o">.</span><span class="n">colnames</span> <span class="ow">or</span> <span class="s2">&quot;z_angle&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">sources</span><span class="o">.</span><span class="n">colnames</span><span class="p">:</span>
+            <span class="n">obspar</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_obspar</span><span class="p">()</span>
+            <span class="n">q</span> <span class="o">=</span> <span class="n">Quat</span><span class="p">(</span>
+                <span class="n">equatorial</span><span class="o">=</span><span class="p">(</span><span class="n">obspar</span><span class="p">[</span><span class="s2">&quot;ra_pnt&quot;</span><span class="p">],</span> <span class="n">obspar</span><span class="p">[</span><span class="s2">&quot;dec_pnt&quot;</span><span class="p">],</span> <span class="n">obspar</span><span class="p">[</span><span class="s2">&quot;roll_pnt&quot;</span><span class="p">])</span>
+            <span class="p">)</span>
+            <span class="n">sources</span><span class="p">[</span><span class="s2">&quot;y_angle&quot;</span><span class="p">],</span> <span class="n">sources</span><span class="p">[</span><span class="s2">&quot;z_angle&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">radec_to_yagzag</span><span class="p">(</span>
+                <span class="n">sources</span><span class="p">[</span><span class="s2">&quot;RA&quot;</span><span class="p">],</span> <span class="n">sources</span><span class="p">[</span><span class="s2">&quot;DEC&quot;</span><span class="p">],</span> <span class="n">q</span>
+            <span class="p">)</span>
+        <span class="n">sources</span><span class="p">[</span><span class="s2">&quot;r_angle&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">sources</span><span class="p">[</span><span class="s2">&quot;y_angle&quot;</span><span class="p">]</span> <span class="o">**</span> <span class="mi">2</span> <span class="o">+</span> <span class="n">sources</span><span class="p">[</span><span class="s2">&quot;z_angle&quot;</span><span class="p">]</span> <span class="o">**</span> <span class="mi">2</span><span class="p">)</span>
 
-        <span class="k">if</span> <span class="s2">&quot;SNR&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">sources</span><span class="o">.</span><span class="n">colnames</span><span class="p">:</span>
+        <span class="k">if</span> <span class="s2">&quot;near_neighbor_dist&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">sources</span><span class="o">.</span><span class="n">colnames</span><span class="p">:</span>
+            <span class="c1"># this uses y_angle and z_angle</span>
+            <span class="n">sources</span><span class="p">[</span><span class="s2">&quot;near_neighbor_dist&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">utils</span><span class="o">.</span><span class="n">get_near_neighbor_dist</span><span class="p">(</span>
+                <span class="n">sources</span><span class="p">,</span> <span class="n">sources</span>
+            <span class="p">)</span>
+
+        <span class="c1"># checking upper and lower case because it gets renamed below</span>
+        <span class="k">if</span> <span class="s2">&quot;SNR&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">sources</span><span class="o">.</span><span class="n">colnames</span> <span class="ow">and</span> <span class="s2">&quot;snr&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">sources</span><span class="o">.</span><span class="n">colnames</span><span class="p">:</span>
             <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="si">}</span><span class="s2"> adding masked column for SNR.&quot;</span><span class="p">)</span>
             <span class="n">sources</span><span class="p">[</span><span class="s2">&quot;SNR&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">table</span><span class="o">.</span><span class="n">MaskedColumn</span><span class="p">(</span>
                 <span class="n">length</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="n">sources</span><span class="p">),</span> <span class="n">mask</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">sources</span><span class="p">))</span>
             <span class="p">)</span>
+
+        <span class="k">if</span> <span class="s2">&quot;ecf_radius&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">sources</span><span class="o">.</span><span class="n">colnames</span><span class="p">:</span>
+            <span class="n">ecf</span> <span class="o">=</span> <span class="n">table</span><span class="o">.</span><span class="n">Table</span><span class="o">.</span><span class="n">read</span><span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">file_path</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;sources/</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">obsid</span><span class="si">}</span><span class="s2">_psf_size_</span><span class="si">{</span><span class="n">version</span><span class="si">}</span><span class="s2">.fits&quot;</span><span class="p">)</span>
+            <span class="p">)</span>
+            <span class="n">pixel_size</span> <span class="o">=</span> <span class="mf">0.4920</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">is_acis</span> <span class="k">else</span> <span class="mf">0.13175</span>
+            <span class="n">sources</span><span class="p">[</span><span class="s2">&quot;ecf_radius&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">ecf</span><span class="p">[</span><span class="s2">&quot;R&quot;</span><span class="p">]</span> <span class="o">*</span> <span class="n">pixel_size</span>
+
+        <span class="n">sources</span><span class="p">[</span><span class="s2">&quot;obsid&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">obsid</span><span class="p">)</span>
+        <span class="n">sources</span><span class="p">[</span><span class="s2">&quot;caldb_version&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_calalign</span><span class="p">()[</span><span class="s2">&quot;caldb_version&quot;</span><span class="p">]</span>
+        <span class="n">sources</span><span class="p">[</span><span class="s2">&quot;pileup&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pileup_value</span><span class="p">(</span><span class="n">sources</span><span class="p">)</span>
+        <span class="n">sources</span><span class="p">[</span><span class="s2">&quot;acis_streak&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_on_acis_streak</span><span class="p">(</span><span class="n">sources</span><span class="p">)</span>
 
         <span class="n">columns</span> <span class="o">=</span> <span class="p">[</span>
             <span class="n">c</span>
@@ -818,43 +901,52 @@
         <span class="p">]</span>
         <span class="n">sources</span><span class="o">.</span><span class="n">rename_columns</span><span class="p">(</span><span class="o">*</span><span class="nb">list</span><span class="p">(</span><span class="nb">zip</span><span class="p">(</span><span class="o">*</span><span class="n">columns</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">True</span><span class="p">)))</span>
 
-        <span class="n">sources</span><span class="p">[</span><span class="s2">&quot;obsid&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">obsid</span><span class="p">)</span>
-        <span class="n">sources</span><span class="p">[</span><span class="s2">&quot;y_angle&quot;</span><span class="p">],</span> <span class="n">sources</span><span class="p">[</span><span class="s2">&quot;z_angle&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">radec_to_yagzag</span><span class="p">(</span>
-            <span class="n">sources</span><span class="p">[</span><span class="s2">&quot;ra&quot;</span><span class="p">],</span> <span class="n">sources</span><span class="p">[</span><span class="s2">&quot;dec&quot;</span><span class="p">],</span> <span class="n">q</span>
-        <span class="p">)</span>
-        <span class="n">sources</span><span class="p">[</span><span class="s2">&quot;r_angle&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">sources</span><span class="p">[</span><span class="s2">&quot;y_angle&quot;</span><span class="p">]</span> <span class="o">**</span> <span class="mi">2</span> <span class="o">+</span> <span class="n">sources</span><span class="p">[</span><span class="s2">&quot;z_angle&quot;</span><span class="p">]</span> <span class="o">**</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">sources</span>
 
-        <span class="c1"># calculate the distance to the closest source</span>
-        <span class="n">src1</span> <span class="o">=</span> <span class="n">sources</span><span class="o">.</span><span class="n">as_array</span><span class="p">()[</span><span class="kc">None</span><span class="p">]</span>
-        <span class="n">src2</span> <span class="o">=</span> <span class="n">sources</span><span class="o">.</span><span class="n">as_array</span><span class="p">()[:,</span> <span class="kc">None</span><span class="p">]</span>
-        <span class="n">i</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">diag</span><span class="p">([</span><span class="n">np</span><span class="o">.</span><span class="n">inf</span><span class="p">]</span> <span class="o">*</span> <span class="nb">len</span><span class="p">(</span><span class="n">sources</span><span class="p">))</span>
-        <span class="n">distance</span> <span class="o">=</span> <span class="p">(</span>
-            <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span>
-                <span class="p">(</span><span class="n">src1</span><span class="p">[</span><span class="s2">&quot;y_angle&quot;</span><span class="p">]</span> <span class="o">-</span> <span class="n">src2</span><span class="p">[</span><span class="s2">&quot;y_angle&quot;</span><span class="p">])</span> <span class="o">**</span> <span class="mi">2</span>
-                <span class="o">+</span> <span class="p">(</span><span class="n">src1</span><span class="p">[</span><span class="s2">&quot;z_angle&quot;</span><span class="p">]</span> <span class="o">-</span> <span class="n">src2</span><span class="p">[</span><span class="s2">&quot;z_angle&quot;</span><span class="p">])</span> <span class="o">**</span> <span class="mi">2</span>
-            <span class="p">)</span>
-            <span class="o">+</span> <span class="n">i</span>
-        <span class="p">)</span>
-        <span class="n">sources</span><span class="p">[</span><span class="s2">&quot;near_neighbor_dist&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">distance</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
-        <span class="n">sources</span><span class="p">[</span><span class="s2">&quot;caldb_version&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_calalign</span><span class="p">()[</span><span class="s2">&quot;caldb_version&quot;</span><span class="p">]</span>
+    <span class="nd">@stored_result</span><span class="p">(</span><span class="s2">&quot;sources&quot;</span><span class="p">,</span> <span class="n">fmt</span><span class="o">=</span><span class="s2">&quot;table&quot;</span><span class="p">,</span> <span class="n">subdir</span><span class="o">=</span><span class="s2">&quot;cache&quot;</span><span class="p">)</span>
+    <span class="k">def</span> <span class="nf">get_sources</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">version</span><span class="o">=</span><span class="s2">&quot;celldetect&quot;</span><span class="p">,</span> <span class="n">astromon_format</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Returns a table of sources formatted for the astromon_xray_source SQL table.</span>
 
-        <span class="n">cols</span> <span class="o">=</span> <span class="p">[</span>
-            <span class="s2">&quot;obsid&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;id&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;ra&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;dec&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;net_counts&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;y_angle&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;z_angle&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;r_angle&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;snr&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;near_neighbor_dist&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;psfratio&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;pileup&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;acis_streak&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;caldb_version&quot;</span><span class="p">,</span>
-        <span class="p">]</span>
-        <span class="k">return</span> <span class="n">sources</span><span class="p">[</span><span class="n">cols</span><span class="p">]</span>
+<span class="sd">        If astromon_format is False, returns all the columns in the source detection output.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="c1"># default dtype to be used when returning an empty list</span>
+        <span class="n">dtype</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">dtype</span><span class="p">(</span>
+            <span class="p">[</span>
+                <span class="p">(</span><span class="s2">&quot;obsid&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;i8&quot;</span><span class="p">),</span>
+                <span class="p">(</span><span class="s2">&quot;id&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;i4&quot;</span><span class="p">),</span>
+                <span class="p">(</span><span class="s2">&quot;ra&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">),</span>
+                <span class="p">(</span><span class="s2">&quot;dec&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">),</span>
+                <span class="p">(</span><span class="s2">&quot;net_counts&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f4&quot;</span><span class="p">),</span>
+                <span class="p">(</span><span class="s2">&quot;y_angle&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">),</span>
+                <span class="p">(</span><span class="s2">&quot;z_angle&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">),</span>
+                <span class="p">(</span><span class="s2">&quot;r_angle&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">),</span>
+                <span class="p">(</span><span class="s2">&quot;snr&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f4&quot;</span><span class="p">),</span>
+                <span class="p">(</span><span class="s2">&quot;near_neighbor_dist&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">),</span>
+                <span class="p">(</span><span class="s2">&quot;psfratio&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f4&quot;</span><span class="p">),</span>
+                <span class="p">(</span><span class="s2">&quot;pileup&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f4&quot;</span><span class="p">),</span>
+                <span class="p">(</span><span class="s2">&quot;acis_streak&quot;</span><span class="p">,</span> <span class="s2">&quot;?&quot;</span><span class="p">),</span>
+                <span class="p">(</span><span class="s2">&quot;caldb_version&quot;</span><span class="p">,</span> <span class="s2">&quot;&lt;U6&quot;</span><span class="p">),</span>
+            <span class="p">]</span>
+        <span class="p">)</span>
+
+        <span class="k">if</span> <span class="p">(</span>
+            <span class="n">TASKS</span><span class="o">.</span><span class="n">tasks</span><span class="p">[</span><span class="n">version</span><span class="p">]</span><span class="o">.</span><span class="n">get_result</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+            <span class="ow">and</span> <span class="n">TASKS</span><span class="o">.</span><span class="n">tasks</span><span class="p">[</span><span class="n">version</span><span class="p">]</span><span class="o">.</span><span class="n">get_result</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">return_code</span> <span class="o">!=</span> <span class="n">ReturnCode</span><span class="o">.</span><span class="n">OK</span>
+        <span class="p">):</span>
+            <span class="k">return</span> <span class="n">table</span><span class="o">.</span><span class="n">Table</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+
+        <span class="n">sources</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_sources</span><span class="p">(</span><span class="n">version</span><span class="o">=</span><span class="n">version</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">sources</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">table</span><span class="o">.</span><span class="n">Table</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="p">(</span>
+            <span class="n">table</span><span class="o">.</span><span class="n">Table</span><span class="p">(</span><span class="n">sources</span><span class="p">[</span><span class="n">dtype</span><span class="o">.</span><span class="n">names</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">astromon_format</span>
+            <span class="k">else</span> <span class="n">sources</span>
+        <span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">_pileup_value</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">src</span><span class="p">):</span>
         <span class="n">pileup_file</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_path</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;images/</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">obsid</span><span class="si">}</span><span class="s2">_pileup_smeared.img&quot;</span><span class="p">)</span>
@@ -873,12 +965,16 @@
         <span class="k">return</span> <span class="n">hdus</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">data</span><span class="p">[(</span><span class="n">pix</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">pix</span><span class="p">[</span><span class="mi">0</span><span class="p">])]</span>
 
     <span class="k">def</span> <span class="nf">_on_acis_streak</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">src</span><span class="p">):</span>
-        <span class="n">acis_streaks_file</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_path</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;images/</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">obsid</span><span class="si">}</span><span class="s2">_acis_streaks.txt&quot;</span><span class="p">)</span>
+        <span class="n">acis_streaks_file</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_path</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;images/</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">obsid</span><span class="si">}</span><span class="s2">_acis_streaks.fits&quot;</span><span class="p">)</span>
         <span class="n">result</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">src</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">bool</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">acis_streaks_file</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
-            <span class="n">reg</span> <span class="o">=</span> <span class="n">regions</span><span class="o">.</span><span class="n">Regions</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="n">acis_streaks_file</span><span class="p">)</span>
+            <span class="n">acis_streaks</span> <span class="o">=</span> <span class="n">table</span><span class="o">.</span><span class="n">Table</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="n">acis_streaks_file</span><span class="p">)</span>
+            <span class="n">polygons</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">acis_streaks</span><span class="p">:</span>
+                <span class="n">vertices</span> <span class="o">=</span> <span class="n">regions</span><span class="o">.</span><span class="n">PixCoord</span><span class="p">(</span><span class="n">x</span><span class="o">=</span><span class="n">row</span><span class="p">[</span><span class="s2">&quot;X&quot;</span><span class="p">],</span> <span class="n">y</span><span class="o">=</span><span class="n">row</span><span class="p">[</span><span class="s2">&quot;Y&quot;</span><span class="p">])</span>
+                <span class="n">polygons</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">regions</span><span class="o">.</span><span class="n">PolygonPixelRegion</span><span class="p">(</span><span class="n">vertices</span><span class="o">=</span><span class="n">vertices</span><span class="p">))</span>
             <span class="n">pos</span> <span class="o">=</span> <span class="n">regions</span><span class="o">.</span><span class="n">PixCoord</span><span class="p">(</span><span class="n">x</span><span class="o">=</span><span class="n">src</span><span class="p">[</span><span class="s2">&quot;X&quot;</span><span class="p">],</span> <span class="n">y</span><span class="o">=</span><span class="n">src</span><span class="p">[</span><span class="s2">&quot;Y&quot;</span><span class="p">])</span>
-            <span class="k">for</span> <span class="n">pol</span> <span class="ow">in</span> <span class="n">reg</span><span class="o">.</span><span class="n">regions</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">pol</span> <span class="ow">in</span> <span class="n">polygons</span><span class="p">:</span>
                 <span class="n">result</span> <span class="o">+=</span> <span class="n">pol</span><span class="o">.</span><span class="n">contains</span><span class="p">(</span><span class="n">pos</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">result</span>
 
@@ -917,6 +1013,57 @@
             <span class="n">calalign</span><span class="p">[</span><span class="s2">&quot;caldb_version&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">hdus</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">header</span><span class="p">[</span><span class="s2">&quot;CALDBVER&quot;</span><span class="p">]</span>
             <span class="k">return</span> <span class="n">calalign</span>
 
+    <span class="k">def</span> <span class="nf">get_asol_files</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">file_path</span><span class="p">(</span><span class="n">f</span><span class="p">)</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_asol_files_cached</span><span class="p">()]</span>
+
+    <span class="nd">@stored_result</span><span class="p">(</span><span class="s2">&quot;asol&quot;</span><span class="p">,</span> <span class="n">subdir</span><span class="o">=</span><span class="s2">&quot;cache&quot;</span><span class="p">)</span>
+    <span class="k">def</span> <span class="nf">_get_asol_files_cached</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c1"># this function is cached because it downloads the events file if needed</span>
+        <span class="c1"># and that can be slow.</span>
+        <span class="c1"># asol file is specified in events file header</span>
+        <span class="c1"># trying filtered event file first, because they are usually cached</span>
+        <span class="n">evt</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_path</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;primary/</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">obsid</span><span class="si">}</span><span class="s2">_evt2_filtered.fits.gz&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">evt</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+            <span class="c1"># if the filtered event file is not found, fall back to the unfiltered version</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">download</span><span class="p">([</span><span class="s2">&quot;evt2&quot;</span><span class="p">])</span>
+            <span class="n">evt_files</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_glob</span><span class="p">(</span><span class="s2">&quot;primary/*_evt2.fits*&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">evt_files</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s2">&quot;Expected one evt file, there are none&quot;</span><span class="p">)</span>
+            <span class="n">evt</span> <span class="o">=</span> <span class="n">evt_files</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">download</span><span class="p">([</span><span class="s2">&quot;asol&quot;</span><span class="p">])</span>
+
+        <span class="n">hdu</span> <span class="o">=</span> <span class="n">fits</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="n">evt</span><span class="p">)</span>
+        <span class="k">if</span> <span class="s2">&quot;ASOLFILE&quot;</span> <span class="ow">in</span> <span class="n">hdu</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">header</span><span class="p">:</span>
+            <span class="n">filenames</span> <span class="o">=</span> <span class="n">hdu</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">header</span><span class="p">[</span><span class="s2">&quot;ASOLFILE&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;,&quot;</span><span class="p">)</span>
+            <span class="n">filenames</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="p">(</span><span class="n">fi</span> <span class="o">+</span> <span class="s2">&quot;.gz&quot;</span> <span class="k">if</span> <span class="n">fi</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s2">&quot;.fits&quot;</span><span class="p">)</span> <span class="k">else</span> <span class="n">fi</span><span class="p">)</span> <span class="k">for</span> <span class="n">fi</span> <span class="ow">in</span> <span class="n">filenames</span>
+            <span class="p">]</span>
+            <span class="n">asol</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">file_path</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;secondary/</span><span class="si">{</span><span class="n">filename</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span> <span class="k">for</span> <span class="n">filename</span> <span class="ow">in</span> <span class="n">filenames</span><span class="p">]</span>
+
+            <span class="c1"># the file does not exist, check if the file revision is different</span>
+            <span class="c1"># from the current revision</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">asol</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span> <span class="ow">and</span> <span class="p">(</span>
+                <span class="n">mr</span> <span class="o">:=</span> <span class="n">re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;N(?P&lt;revision&gt;\d\d\d)_asol1.fits&quot;</span><span class="p">,</span> <span class="n">asol</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+            <span class="p">):</span>
+                <span class="n">revision</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">mr</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="s2">&quot;revision&quot;</span><span class="p">))</span>
+                <span class="n">cur_revision</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_obspar</span><span class="p">()[</span><span class="s2">&quot;revision&quot;</span><span class="p">])</span>
+                <span class="k">if</span> <span class="n">revision</span> <span class="o">!=</span> <span class="n">cur_revision</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">download</span><span class="p">([</span><span class="s2">&quot;asol&quot;</span><span class="p">],</span> <span class="n">revision</span><span class="o">=</span><span class="n">revision</span><span class="p">,</span> <span class="n">force</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># asol file is not given in the event file,</span>
+            <span class="c1"># see if there is something and hope for the best</span>
+            <span class="n">asol</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_glob</span><span class="p">(</span><span class="s2">&quot;secondary/*asol*fits*&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="ow">not</span> <span class="n">f</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">asol</span><span class="p">):</span>
+            <span class="n">missing</span> <span class="o">=</span> <span class="s2">&quot;, &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="nb">str</span><span class="p">(</span><span class="n">f</span><span class="p">)</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">asol</span> <span class="k">if</span> <span class="ow">not</span> <span class="n">f</span><span class="o">.</span><span class="n">exists</span><span class="p">()])</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Aspect solution files not found: </span><span class="si">{</span><span class="n">missing</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="c1"># the result needs to be a relative path so it can be cached for later use</span>
+        <span class="c1"># because the files might currently be in a temporary directory</span>
+        <span class="n">asol</span> <span class="o">=</span> <span class="p">[</span><span class="n">f</span><span class="o">.</span><span class="n">relative_to</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">parent</span><span class="o">.</span><span class="n">parent</span><span class="p">)</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">asol</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">asol</span>
+
 <div class="viewcode-block" id="Observation.dmcoords">
 <a class="viewcode-back" href="../../api.html#astromon.observation.Observation.dmcoords">[docs]</a>
     <span class="k">def</span> <span class="nf">dmcoords</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
@@ -941,16 +1088,19 @@
 <span class="sd">        kwargs: dict</span>
 <span class="sd">            Arguments to pass to dmcoords.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">download</span><span class="p">([</span><span class="s2">&quot;evt2&quot;</span><span class="p">,</span> <span class="s2">&quot;asol&quot;</span><span class="p">])</span>
 
+        <span class="c1"># trying filtered event file first, because they are usually cached</span>
         <span class="n">evt</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_path</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;primary/</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">obsid</span><span class="si">}</span><span class="s2">_evt2_filtered.fits.gz&quot;</span><span class="p">)</span>
-        <span class="k">if</span> <span class="ow">not</span> <span class="n">evt</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s2">&quot;Expected ine evt file, there are none&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">evt</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+            <span class="c1"># if the filtered event file is not found, fall back to the unfiltered version</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">download</span><span class="p">([</span><span class="s2">&quot;evt2&quot;</span><span class="p">])</span>
+            <span class="n">evt_files</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_glob</span><span class="p">(</span><span class="s2">&quot;primary/*_evt2.fits*&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">evt_files</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s2">&quot;Expected one evt file, there are none&quot;</span><span class="p">)</span>
+            <span class="n">evt</span> <span class="o">=</span> <span class="n">evt_files</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
 
-        <span class="n">asol_files</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_glob</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;secondary/*</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">obsid</span><span class="si">}</span><span class="s2">_*asol*fits*&quot;</span><span class="p">)</span>
-        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">asol_files</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">1</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Expected 1 asol file, there are </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">asol_files</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-        <span class="n">asol</span> <span class="o">=</span> <span class="n">asol_files</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="c1"># asol file is specified in events file header</span>
+        <span class="n">asol</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_asol_files</span><span class="p">()[</span><span class="mi">0</span><span class="p">]</span>
 
         <span class="n">args</span> <span class="o">=</span> <span class="p">[</span><span class="n">evt</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;asolfile=</span><span class="si">{</span><span class="n">asol</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">]</span>
         <span class="c1"># if I do not unlearn, the following two calls in succession will hang</span>
@@ -986,7 +1136,7 @@
         <span class="s2">&quot;pileup&quot;</span><span class="p">:</span> <span class="s2">&quot;images/</span><span class="si">{obsid}</span><span class="s2">_pileup.img&quot;</span><span class="p">,</span>
         <span class="s2">&quot;pileup_max&quot;</span><span class="p">:</span> <span class="s2">&quot;images/</span><span class="si">{obsid}</span><span class="s2">_pileup_max.img&quot;</span><span class="p">,</span>
         <span class="s2">&quot;acis_streaks_bkg&quot;</span><span class="p">:</span> <span class="s2">&quot;images/</span><span class="si">{obsid}</span><span class="s2">_acis_streaks_bkg.fits&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;acis_streaks&quot;</span><span class="p">:</span> <span class="s2">&quot;images/</span><span class="si">{obsid}</span><span class="s2">_acis_streaks.txt&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;acis_streaks&quot;</span><span class="p">:</span> <span class="s2">&quot;images/</span><span class="si">{obsid}</span><span class="s2">_acis_streaks.fits&quot;</span><span class="p">,</span>
     <span class="p">},</span>
     <span class="n">download</span><span class="o">=</span><span class="p">([</span><span class="s2">&quot;evt2&quot;</span><span class="p">,</span> <span class="s2">&quot;fov&quot;</span><span class="p">,</span> <span class="s2">&quot;asol&quot;</span><span class="p">,</span> <span class="s2">&quot;msk&quot;</span><span class="p">,</span> <span class="s2">&quot;bpix&quot;</span><span class="p">,</span> <span class="s2">&quot;dtf&quot;</span><span class="p">]),</span>
     <span class="n">variables</span><span class="o">=</span><span class="p">{</span>
@@ -1006,6 +1156,10 @@
     <span class="n">band</span> <span class="o">=</span> <span class="s2">&quot;wide&quot;</span> <span class="k">if</span> <span class="n">obs</span><span class="o">.</span><span class="n">is_hrc</span> <span class="ow">is</span> <span class="kc">True</span> <span class="k">else</span> <span class="s2">&quot;broad&quot;</span>
     <span class="n">ciao</span> <span class="o">=</span> <span class="n">obs</span><span class="o">.</span><span class="n">ciao</span>
     <span class="n">obsid</span> <span class="o">=</span> <span class="n">obs</span><span class="o">.</span><span class="n">obsid</span>
+
+    <span class="c1"># this makes sure the asol file is downloaded, even in rare cases where it is not downloaded</span>
+    <span class="c1"># when &quot;asol&quot; is downloaded</span>
+    <span class="n">asol</span> <span class="o">=</span> <span class="s2">&quot;,&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="nb">str</span><span class="p">(</span><span class="n">a</span><span class="p">)</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">obs</span><span class="o">.</span><span class="n">get_asol_files</span><span class="p">()])</span>
 
     <span class="n">process</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">Popen</span><span class="p">(</span>
         <span class="p">[</span><span class="s2">&quot;dmlist&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">evt_filt</span><span class="si">}</span><span class="s2">[2]&quot;</span><span class="p">,</span> <span class="s2">&quot;count&quot;</span><span class="p">],</span>
@@ -1027,9 +1181,7 @@
         <span class="s2">&quot;fluximage&quot;</span><span class="p">,</span>
         <span class="n">infile</span><span class="o">=</span><span class="n">evt_filt</span><span class="p">,</span>
         <span class="n">outroot</span><span class="o">=</span><span class="n">outputs</span><span class="p">[</span><span class="s2">&quot;image_file&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">parent</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">obsid</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
-        <span class="c1"># not setting aspect solution file because there can be more than one,</span>
-        <span class="c1"># and fluximage does a better job at finding the correct one.</span>
-        <span class="c1"># asolfile=inputs[&quot;asol_file&quot;][0],</span>
+        <span class="n">asolfile</span><span class="o">=</span><span class="n">asol</span><span class="p">,</span>
         <span class="n">badpixfile</span><span class="o">=</span><span class="n">inputs</span><span class="p">[</span><span class="s2">&quot;badpixfile&quot;</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span>
         <span class="n">maskfile</span><span class="o">=</span><span class="n">inputs</span><span class="p">[</span><span class="s2">&quot;maskfile&quot;</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span>
         <span class="n">bands</span><span class="o">=</span><span class="n">band</span><span class="p">,</span>
@@ -1060,15 +1212,29 @@
             <span class="n">logging_tag</span><span class="o">=</span><span class="n">logging_tag</span><span class="p">,</span>
         <span class="p">)</span>
         <span class="k">try</span><span class="p">:</span>
+            <span class="c1"># the acis_streak_map command only creates ascii files</span>
+            <span class="c1"># (even though there is one fits example in the CIAO docs)</span>
+            <span class="c1"># and the regions package does not read that text file, so I call acis_streak_map</span>
+            <span class="c1"># and then convert the file to fits using dmmakereg</span>
+            <span class="n">acis_streaks_file_ascii</span> <span class="o">=</span> <span class="n">outputs</span><span class="p">[</span><span class="s2">&quot;acis_streaks&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">parent</span> <span class="o">/</span> <span class="n">outputs</span><span class="p">[</span>
+                <span class="s2">&quot;acis_streaks&quot;</span>
+            <span class="p">]</span><span class="o">.</span><span class="n">name</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">&quot;.fits&quot;</span><span class="p">,</span> <span class="s2">&quot;.reg&quot;</span><span class="p">)</span>
             <span class="n">ciao</span><span class="p">(</span>
                 <span class="s2">&quot;acis_streak_map&quot;</span><span class="p">,</span>
-                <span class="n">infile</span><span class="o">=</span><span class="n">inputs</span><span class="p">[</span><span class="s2">&quot;events&quot;</span><span class="p">],</span>
+                <span class="n">infile</span><span class="o">=</span><span class="n">inputs</span><span class="p">[</span><span class="s2">&quot;events&quot;</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span>
                 <span class="n">fovfile</span><span class="o">=</span><span class="n">fov_file</span><span class="p">,</span>
                 <span class="n">bkgroot</span><span class="o">=</span><span class="n">outputs</span><span class="p">[</span><span class="s2">&quot;acis_streaks_bkg&quot;</span><span class="p">],</span>
-                <span class="n">regfile</span><span class="o">=</span><span class="n">outputs</span><span class="p">[</span><span class="s2">&quot;acis_streaks&quot;</span><span class="p">],</span>
+                <span class="n">regfile</span><span class="o">=</span><span class="n">acis_streaks_file_ascii</span><span class="p">,</span>
                 <span class="n">msigma</span><span class="o">=</span><span class="s2">&quot;4&quot;</span><span class="p">,</span>
                 <span class="n">clobber</span><span class="o">=</span><span class="s2">&quot;yes&quot;</span><span class="p">,</span>
                 <span class="n">logging_tag</span><span class="o">=</span><span class="n">logging_tag</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="n">ciao</span><span class="p">(</span>
+                <span class="s2">&quot;dmmakereg&quot;</span><span class="p">,</span>
+                <span class="sa">f</span><span class="s2">&quot;region(</span><span class="si">{</span><span class="n">acis_streaks_file_ascii</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">,</span>
+                <span class="n">outputs</span><span class="p">[</span><span class="s2">&quot;acis_streaks&quot;</span><span class="p">],</span>
+                <span class="s2">&quot;kernel=fits&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;clobber=yes&quot;</span><span class="p">,</span>
             <span class="p">)</span>
         <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
             <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">obsid</span><span class="si">}</span><span class="s2">   acis_streak_map failed&quot;</span><span class="p">)</span>
@@ -1077,6 +1243,7 @@
 <span class="nd">@task</span><span class="p">(</span>
     <span class="n">name</span><span class="o">=</span><span class="s2">&quot;wavdetect&quot;</span><span class="p">,</span>
     <span class="n">inputs</span><span class="o">=</span><span class="p">{</span>
+        <span class="s2">&quot;events&quot;</span><span class="p">:</span> <span class="s2">&quot;primary/</span><span class="si">{obsid}</span><span class="s2">_evt2_filtered.fits.gz&quot;</span><span class="p">,</span>
         <span class="s2">&quot;image_file&quot;</span><span class="p">:</span> <span class="s2">&quot;images/</span><span class="si">{obsid}</span><span class="s2">_</span><span class="si">{band}</span><span class="s2">_thresh.img&quot;</span><span class="p">,</span>
         <span class="s2">&quot;psf_file&quot;</span><span class="p">:</span> <span class="s2">&quot;images/</span><span class="si">{obsid}</span><span class="s2">_</span><span class="si">{band}</span><span class="s2">_thresh.psfmap&quot;</span><span class="p">,</span>
         <span class="s2">&quot;exposure_file&quot;</span><span class="p">:</span> <span class="s2">&quot;images/</span><span class="si">{obsid}</span><span class="s2">_</span><span class="si">{band}</span><span class="s2">_thresh.expmap&quot;</span><span class="p">,</span>
@@ -1086,10 +1253,12 @@
         <span class="s2">&quot;cell&quot;</span><span class="p">:</span> <span class="s2">&quot;sources/</span><span class="si">{obsid}</span><span class="s2">_baseline.cell&quot;</span><span class="p">,</span>
         <span class="s2">&quot;img&quot;</span><span class="p">:</span> <span class="s2">&quot;sources/</span><span class="si">{obsid}</span><span class="s2">_baseline.img&quot;</span><span class="p">,</span>
         <span class="s2">&quot;nbkg&quot;</span><span class="p">:</span> <span class="s2">&quot;sources/</span><span class="si">{obsid}</span><span class="s2">_baseline.nbkg&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;psf_size&quot;</span><span class="p">:</span> <span class="s2">&quot;sources/</span><span class="si">{obsid}</span><span class="s2">_psf_size_baseline.fits&quot;</span><span class="p">,</span>
     <span class="p">},</span>
     <span class="n">variables</span><span class="o">=</span><span class="p">{</span>
         <span class="s2">&quot;band&quot;</span><span class="p">:</span> <span class="k">lambda</span> <span class="n">obs</span><span class="p">:</span> <span class="s2">&quot;wide&quot;</span> <span class="k">if</span> <span class="n">obs</span><span class="o">.</span><span class="n">is_hrc</span> <span class="k">else</span> <span class="s2">&quot;broad&quot;</span><span class="p">,</span>
     <span class="p">},</span>
+    <span class="n">download</span><span class="o">=</span><span class="p">([</span><span class="s2">&quot;evt2&quot;</span><span class="p">]),</span>
 <span class="p">)</span>
 <span class="k">def</span> <span class="nf">wavdetect</span><span class="p">(</span><span class="n">obs</span><span class="p">,</span> <span class="n">inputs</span><span class="p">,</span> <span class="n">outputs</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
@@ -1097,6 +1266,8 @@
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="c1"># possible parameter:</span>
     <span class="n">scales</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;1.4&quot;</span><span class="p">,</span> <span class="s2">&quot;2&quot;</span><span class="p">,</span> <span class="s2">&quot;4&quot;</span><span class="p">,</span> <span class="s2">&quot;8&quot;</span><span class="p">,</span> <span class="s2">&quot;16&quot;</span><span class="p">,</span> <span class="s2">&quot;32&quot;</span><span class="p">]</span>
+    <span class="n">band</span> <span class="o">=</span> <span class="s2">&quot;wide&quot;</span> <span class="k">if</span> <span class="n">obs</span><span class="o">.</span><span class="n">is_hrc</span> <span class="k">else</span> <span class="s2">&quot;broad&quot;</span>
+    <span class="n">ecf</span> <span class="o">=</span> <span class="mf">0.9</span>
 
     <span class="c1"># if wavdetect fails, it tries again removing the largest two scales</span>
     <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">2</span><span class="p">):</span>
@@ -1114,25 +1285,243 @@
                 <span class="n">clobber</span><span class="o">=</span><span class="s2">&quot;yes&quot;</span><span class="p">,</span>
                 <span class="n">logging_tag</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">obs</span><span class="p">),</span>
             <span class="p">)</span>
+            <span class="k">break</span>
         <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="c1"># if wavdetect fails, try again with fewer scales (but at least 3)</span>
             <span class="n">scales</span> <span class="o">=</span> <span class="n">scales</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
             <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">scales</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">3</span><span class="p">:</span>
                 <span class="k">raise</span>
+
+    <span class="n">obs</span><span class="o">.</span><span class="n">ciao</span><span class="p">(</span>
+        <span class="s2">&quot;psfsize_srcs&quot;</span><span class="p">,</span>
+        <span class="n">inputs</span><span class="p">[</span><span class="s2">&quot;events&quot;</span><span class="p">],</span>
+        <span class="n">outputs</span><span class="p">[</span><span class="s2">&quot;src&quot;</span><span class="p">],</span>
+        <span class="n">outputs</span><span class="p">[</span><span class="s2">&quot;psf_size&quot;</span><span class="p">],</span>
+        <span class="sa">f</span><span class="s2">&quot;energy=</span><span class="si">{</span><span class="n">band</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+        <span class="sa">f</span><span class="s2">&quot;ecf=</span><span class="si">{</span><span class="n">ecf</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;clobber=yes&quot;</span><span class="p">,</span>
+    <span class="p">)</span>
+
     <span class="k">return</span> <span class="n">ReturnCode</span><span class="o">.</span><span class="n">OK</span>
+
+
+<span class="nd">@task</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;gaussian_detect&quot;</span><span class="p">,</span>
+    <span class="n">inputs</span><span class="o">=</span><span class="p">{</span>
+        <span class="s2">&quot;events&quot;</span><span class="p">:</span> <span class="s2">&quot;primary/</span><span class="si">{obsid}</span><span class="s2">_evt2_filtered.fits.gz&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;src&quot;</span><span class="p">:</span> <span class="s2">&quot;sources/</span><span class="si">{obsid}</span><span class="s2">_celldetect.src&quot;</span><span class="p">,</span>
+    <span class="p">},</span>
+    <span class="n">optional_inputs</span><span class="o">=</span><span class="p">{</span>
+        <span class="s2">&quot;psf_size&quot;</span><span class="p">:</span> <span class="s2">&quot;sources/</span><span class="si">{obsid}</span><span class="s2">_psf_size_celldetect.fits&quot;</span><span class="p">,</span>
+    <span class="p">},</span>
+    <span class="n">outputs</span><span class="o">=</span><span class="p">{</span>
+        <span class="s2">&quot;src&quot;</span><span class="p">:</span> <span class="s2">&quot;sources/</span><span class="si">{obsid}</span><span class="s2">_gaussian_detect.src&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;psf_size&quot;</span><span class="p">:</span> <span class="s2">&quot;sources/</span><span class="si">{obsid}</span><span class="s2">_psf_size_gaussian_detect.fits&quot;</span><span class="p">,</span>
+    <span class="p">},</span>
+    <span class="n">variables</span><span class="o">=</span><span class="p">{</span>
+        <span class="s2">&quot;band&quot;</span><span class="p">:</span> <span class="k">lambda</span> <span class="n">obs</span><span class="p">:</span> <span class="s2">&quot;wide&quot;</span> <span class="k">if</span> <span class="n">obs</span><span class="o">.</span><span class="n">is_hrc</span> <span class="k">else</span> <span class="s2">&quot;broad&quot;</span><span class="p">,</span>
+    <span class="p">},</span>
+    <span class="n">download</span><span class="o">=</span><span class="p">([</span><span class="s2">&quot;evt2&quot;</span><span class="p">]),</span>
+<span class="p">)</span>
+<span class="k">def</span> <span class="nf">gaussian_detect</span><span class="p">(</span><span class="n">obs</span><span class="p">,</span> <span class="n">inputs</span><span class="p">,</span> <span class="n">outputs</span><span class="p">):</span>
+    <span class="n">box_size</span> <span class="o">=</span> <span class="mi">4</span>
+
+    <span class="n">dtype</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">dtype</span><span class="p">(</span>
+        <span class="p">[</span>
+            <span class="p">(</span><span class="s2">&quot;COMPONENT&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;i4&quot;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">&quot;RA&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">&quot;DEC&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">&quot;X&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">&quot;Y&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">&quot;y_angle&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">&quot;z_angle&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">&quot;RA_ERR&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">&quot;DEC_ERR&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">&quot;X_ERR&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">&quot;Y_ERR&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">&quot;params&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">,</span> <span class="p">(</span><span class="mi">6</span><span class="p">,)),</span>
+            <span class="p">(</span><span class="s2">&quot;hess_inv&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">,</span> <span class="p">(</span><span class="mi">6</span><span class="p">,</span> <span class="mi">6</span><span class="p">)),</span>
+            <span class="p">(</span><span class="s2">&quot;ndof&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;i8&quot;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">&quot;fit_ok&quot;</span><span class="p">,</span> <span class="s2">&quot;?&quot;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">&quot;p_signal&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">&quot;sigma&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">,</span> <span class="p">(</span><span class="mi">2</span><span class="p">,)),</span>
+            <span class="p">(</span><span class="s2">&quot;rot_angle&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">&quot;sigma_y_angle&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">&quot;sigma_z_angle&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">&quot;corr_y_angle_z_angle&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">&quot;source_area&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">&quot;NET_COUNTS&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;i8&quot;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">&quot;signal&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">&quot;background&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">&quot;snr&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">&quot;ks_y_angle&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">&quot;ks_z_angle&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">&quot;ks_p_value_y_angle&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">&quot;ks_p_value_z_angle&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">&quot;ks_sign_y_angle&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;i8&quot;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">&quot;ks_sign_z_angle&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;i8&quot;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">&quot;ecf_radius&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">&quot;PSFRATIO&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">&quot;CORR_RA_DEC&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">&quot;CORR_X_Y&quot;</span><span class="p">,</span> <span class="s2">&quot;&gt;f8&quot;</span><span class="p">),</span>
+        <span class="p">]</span>
+    <span class="p">)</span>
+
+    <span class="n">input_sources</span> <span class="o">=</span> <span class="n">table</span><span class="o">.</span><span class="n">Table</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="n">inputs</span><span class="p">[</span><span class="s2">&quot;src&quot;</span><span class="p">])</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">input_sources</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="n">results</span> <span class="o">=</span> <span class="n">table</span><span class="o">.</span><span class="n">Table</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+        <span class="n">results</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">outputs</span><span class="p">[</span><span class="s2">&quot;src&quot;</span><span class="p">],</span> <span class="nb">format</span><span class="o">=</span><span class="s2">&quot;fits&quot;</span><span class="p">,</span> <span class="n">overwrite</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">ReturnCode</span><span class="o">.</span><span class="n">OK</span>
+
+    <span class="n">events</span> <span class="o">=</span> <span class="n">table</span><span class="o">.</span><span class="n">Table</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="n">inputs</span><span class="p">[</span><span class="s2">&quot;events&quot;</span><span class="p">],</span> <span class="n">hdu</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+    <span class="n">wcs</span> <span class="o">=</span> <span class="n">utils</span><span class="o">.</span><span class="n">get_wcs_from_fits_header</span><span class="p">(</span><span class="n">inputs</span><span class="p">[</span><span class="s2">&quot;events&quot;</span><span class="p">],</span> <span class="n">hdu</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+    <span class="n">events</span><span class="p">[</span><span class="s2">&quot;RA&quot;</span><span class="p">],</span> <span class="n">events</span><span class="p">[</span><span class="s2">&quot;DEC&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">wcs</span><span class="o">.</span><span class="n">pixel_to_world_values</span><span class="p">(</span><span class="n">events</span><span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">],</span> <span class="n">events</span><span class="p">[</span><span class="s2">&quot;y&quot;</span><span class="p">])</span>
+
+    <span class="n">obs_info</span> <span class="o">=</span> <span class="n">obs</span><span class="o">.</span><span class="n">get_info</span><span class="p">()</span>
+    <span class="n">att</span> <span class="o">=</span> <span class="n">Quat</span><span class="p">([</span><span class="n">obs_info</span><span class="p">[</span><span class="s2">&quot;ra_nom&quot;</span><span class="p">],</span> <span class="n">obs_info</span><span class="p">[</span><span class="s2">&quot;dec_nom&quot;</span><span class="p">],</span> <span class="n">obs_info</span><span class="p">[</span><span class="s2">&quot;roll_nom&quot;</span><span class="p">]])</span>
+    <span class="n">events</span><span class="p">[</span><span class="s2">&quot;y_angle&quot;</span><span class="p">],</span> <span class="n">events</span><span class="p">[</span><span class="s2">&quot;z_angle&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">radec_to_yagzag</span><span class="p">(</span>
+        <span class="n">events</span><span class="p">[</span><span class="s2">&quot;RA&quot;</span><span class="p">],</span> <span class="n">events</span><span class="p">[</span><span class="s2">&quot;DEC&quot;</span><span class="p">],</span> <span class="n">att</span>
+    <span class="p">)</span>
+    <span class="n">input_sources</span><span class="p">[</span><span class="s2">&quot;y_angle&quot;</span><span class="p">],</span> <span class="n">input_sources</span><span class="p">[</span><span class="s2">&quot;z_angle&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">radec_to_yagzag</span><span class="p">(</span>
+        <span class="n">input_sources</span><span class="p">[</span><span class="s2">&quot;RA&quot;</span><span class="p">],</span> <span class="n">input_sources</span><span class="p">[</span><span class="s2">&quot;DEC&quot;</span><span class="p">],</span> <span class="n">att</span>
+    <span class="p">)</span>
+
+    <span class="n">results</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">source</span> <span class="ow">in</span> <span class="n">input_sources</span><span class="p">:</span>
+        <span class="n">sel</span> <span class="o">=</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">events</span><span class="p">[</span><span class="s2">&quot;y_angle&quot;</span><span class="p">]</span> <span class="o">-</span> <span class="n">source</span><span class="p">[</span><span class="s2">&quot;y_angle&quot;</span><span class="p">])</span> <span class="o">&lt;</span> <span class="n">box_size</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span>
+            <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">events</span><span class="p">[</span><span class="s2">&quot;z_angle&quot;</span><span class="p">]</span> <span class="o">-</span> <span class="n">source</span><span class="p">[</span><span class="s2">&quot;z_angle&quot;</span><span class="p">])</span> <span class="o">&lt;</span> <span class="n">box_size</span>
+        <span class="p">)</span>
+        <span class="n">res</span> <span class="o">=</span> <span class="n">source_detection</span><span class="o">.</span><span class="n">fit_gaussian_2d</span><span class="p">(</span>
+            <span class="n">events</span><span class="p">[</span><span class="n">sel</span><span class="p">],</span>
+            <span class="n">source</span><span class="p">,</span>
+            <span class="c1"># columns=(&quot;y_angle&quot;, &quot;z_angle&quot;),</span>
+            <span class="n">box_size</span><span class="o">=</span><span class="n">box_size</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">results</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">res</span><span class="p">)</span>
+
+    <span class="n">results</span> <span class="o">=</span> <span class="n">table</span><span class="o">.</span><span class="n">Table</span><span class="p">(</span><span class="n">results</span><span class="p">)</span>
+
+    <span class="n">ecf</span> <span class="o">=</span> <span class="n">table</span><span class="o">.</span><span class="n">Table</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="n">inputs</span><span class="p">[</span><span class="s2">&quot;psf_size&quot;</span><span class="p">])</span>
+    <span class="n">pixel_size</span> <span class="o">=</span> <span class="mf">0.4920</span> <span class="k">if</span> <span class="n">obs</span><span class="o">.</span><span class="n">is_acis</span> <span class="k">else</span> <span class="mf">0.13175</span>
+    <span class="n">results</span><span class="p">[</span><span class="s2">&quot;ecf_radius&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">ecf</span><span class="p">[</span><span class="s2">&quot;R&quot;</span><span class="p">]</span> <span class="o">*</span> <span class="n">pixel_size</span>
+    <span class="n">results</span><span class="p">[</span><span class="s2">&quot;PSFRATIO&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">results</span><span class="p">[</span><span class="s2">&quot;sigma&quot;</span><span class="p">][:,</span> <span class="mi">0</span><span class="p">]</span> <span class="o">*</span> <span class="n">results</span><span class="p">[</span><span class="s2">&quot;sigma&quot;</span><span class="p">][:,</span> <span class="mi">1</span><span class="p">])</span> <span class="o">/</span> <span class="n">results</span><span class="p">[</span><span class="s2">&quot;ecf_radius&quot;</span><span class="p">]</span>
+    <span class="p">)</span>
+
+    <span class="n">results</span><span class="o">.</span><span class="n">rename_column</span><span class="p">(</span><span class="s2">&quot;n&quot;</span><span class="p">,</span> <span class="s2">&quot;NET_COUNTS&quot;</span><span class="p">)</span>
+
+    <span class="n">results</span><span class="p">[</span><span class="s2">&quot;RA&quot;</span><span class="p">],</span> <span class="n">results</span><span class="p">[</span><span class="s2">&quot;DEC&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">yagzag_to_radec</span><span class="p">(</span>
+        <span class="n">results</span><span class="p">[</span><span class="s2">&quot;y_angle&quot;</span><span class="p">],</span> <span class="n">results</span><span class="p">[</span><span class="s2">&quot;z_angle&quot;</span><span class="p">],</span> <span class="n">att</span>
+    <span class="p">)</span>
+    <span class="n">results</span><span class="p">[</span><span class="s2">&quot;X&quot;</span><span class="p">],</span> <span class="n">results</span><span class="p">[</span><span class="s2">&quot;Y&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">wcs</span><span class="o">.</span><span class="n">world_to_pixel_values</span><span class="p">(</span>
+        <span class="n">results</span><span class="p">[</span><span class="s2">&quot;RA&quot;</span><span class="p">],</span> <span class="n">results</span><span class="p">[</span><span class="s2">&quot;DEC&quot;</span><span class="p">]</span>
+    <span class="p">)</span>
+
+    <span class="c1"># the uncertainties in yag/zag are given by the marginalized inverse Hessian matrix</span>
+    <span class="n">yag_zag_cov</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">results</span><span class="p">[</span><span class="s2">&quot;hess_inv&quot;</span><span class="p">][:,</span> <span class="p">:</span><span class="mi">2</span><span class="p">,</span> <span class="p">:</span><span class="mi">2</span><span class="p">])</span>
+
+    <span class="c1"># and to propagate the uncertainties from yag/zag to ra/dec and x/y</span>
+    <span class="c1"># linearize the transformations around the nominal attitude</span>
+    <span class="c1"># I do this the dumb way: by finite differences</span>
+
+    <span class="n">d_arc</span> <span class="o">=</span> <span class="mf">1e-3</span>
+    <span class="n">ra_nom</span><span class="p">,</span> <span class="n">dec_nom</span> <span class="o">=</span> <span class="n">yagzag_to_radec</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">att</span><span class="p">)</span>
+
+    <span class="c1"># RA/dec</span>
+    <span class="n">yagzag_to_radec_matrix</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="n">np</span><span class="o">.</span><span class="n">vstack</span><span class="p">(</span>
+            <span class="p">[</span>
+                <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">yagzag_to_radec</span><span class="p">(</span><span class="n">d_arc</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">att</span><span class="p">))</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">ra_nom</span><span class="p">,</span> <span class="n">dec_nom</span><span class="p">]),</span>
+                <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">yagzag_to_radec</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">d_arc</span><span class="p">,</span> <span class="n">att</span><span class="p">))</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">ra_nom</span><span class="p">,</span> <span class="n">dec_nom</span><span class="p">]),</span>
+            <span class="p">]</span>
+        <span class="p">)</span><span class="o">.</span><span class="n">T</span>
+        <span class="o">/</span> <span class="n">d_arc</span>
+    <span class="p">)</span>
+
+    <span class="n">ra_dec_cov</span> <span class="o">=</span> <span class="n">yagzag_to_radec_matrix</span> <span class="o">@</span> <span class="n">yag_zag_cov</span> <span class="o">@</span> <span class="n">yagzag_to_radec_matrix</span><span class="o">.</span><span class="n">T</span>
+
+    <span class="n">results</span><span class="p">[</span><span class="s2">&quot;RA_ERR&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">ra_dec_cov</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">])</span>
+    <span class="n">results</span><span class="p">[</span><span class="s2">&quot;DEC_ERR&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">ra_dec_cov</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">])</span>
+    <span class="n">results</span><span class="p">[</span><span class="s2">&quot;CORR_RA_DEC&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">ra_dec_cov</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span> <span class="o">/</span> <span class="p">(</span>
+        <span class="n">results</span><span class="p">[</span><span class="s2">&quot;RA_ERR&quot;</span><span class="p">]</span> <span class="o">*</span> <span class="n">results</span><span class="p">[</span><span class="s2">&quot;DEC_ERR&quot;</span><span class="p">]</span>
+    <span class="p">)</span>
+
+    <span class="c1"># X/Y</span>
+    <span class="n">yagzag_to_pixel_matrix</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">vstack</span><span class="p">(</span>
+        <span class="p">[</span>
+            <span class="n">wcs</span><span class="o">.</span><span class="n">world_to_pixel_values</span><span class="p">(</span>
+                <span class="n">ra_nom</span> <span class="o">+</span> <span class="n">yagzag_to_radec_matrix</span><span class="o">.</span><span class="n">T</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">],</span>
+                <span class="n">dec_nom</span> <span class="o">+</span> <span class="n">yagzag_to_radec_matrix</span><span class="o">.</span><span class="n">T</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span>
+            <span class="p">),</span>
+            <span class="n">wcs</span><span class="o">.</span><span class="n">world_to_pixel_values</span><span class="p">(</span>
+                <span class="n">ra_nom</span> <span class="o">+</span> <span class="n">yagzag_to_radec_matrix</span><span class="o">.</span><span class="n">T</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">],</span>
+                <span class="n">dec_nom</span> <span class="o">+</span> <span class="n">yagzag_to_radec_matrix</span><span class="o">.</span><span class="n">T</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span>
+            <span class="p">),</span>
+        <span class="p">]</span>
+    <span class="p">)</span><span class="o">.</span><span class="n">T</span>
+
+    <span class="n">pixel_cov</span> <span class="o">=</span> <span class="n">yagzag_to_pixel_matrix</span> <span class="o">@</span> <span class="n">yag_zag_cov</span> <span class="o">@</span> <span class="n">yagzag_to_pixel_matrix</span><span class="o">.</span><span class="n">T</span>
+
+    <span class="n">results</span><span class="p">[</span><span class="s2">&quot;X_ERR&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">pixel_cov</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">])</span>
+    <span class="n">results</span><span class="p">[</span><span class="s2">&quot;Y_ERR&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">pixel_cov</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">])</span>
+    <span class="n">results</span><span class="p">[</span><span class="s2">&quot;CORR_X_Y&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">pixel_cov</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span> <span class="o">/</span> <span class="p">(</span><span class="n">results</span><span class="p">[</span><span class="s2">&quot;X_ERR&quot;</span><span class="p">]</span> <span class="o">*</span> <span class="n">results</span><span class="p">[</span><span class="s2">&quot;Y_ERR&quot;</span><span class="p">])</span>
+
+    <span class="n">units</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">&quot;RA&quot;</span><span class="p">:</span> <span class="n">u</span><span class="o">.</span><span class="n">deg</span><span class="p">,</span>
+        <span class="s2">&quot;DEC&quot;</span><span class="p">:</span> <span class="n">u</span><span class="o">.</span><span class="n">deg</span><span class="p">,</span>
+        <span class="s2">&quot;X&quot;</span><span class="p">:</span> <span class="n">u</span><span class="o">.</span><span class="n">pixel</span><span class="p">,</span>
+        <span class="s2">&quot;Y&quot;</span><span class="p">:</span> <span class="n">u</span><span class="o">.</span><span class="n">pixel</span><span class="p">,</span>
+        <span class="s2">&quot;y_angle&quot;</span><span class="p">:</span> <span class="n">u</span><span class="o">.</span><span class="n">arcsec</span><span class="p">,</span>
+        <span class="s2">&quot;z_angle&quot;</span><span class="p">:</span> <span class="n">u</span><span class="o">.</span><span class="n">arcsec</span><span class="p">,</span>
+        <span class="s2">&quot;RA_ERR&quot;</span><span class="p">:</span> <span class="n">u</span><span class="o">.</span><span class="n">deg</span><span class="p">,</span>
+        <span class="s2">&quot;DEC_ERR&quot;</span><span class="p">:</span> <span class="n">u</span><span class="o">.</span><span class="n">deg</span><span class="p">,</span>
+        <span class="s2">&quot;X_ERR&quot;</span><span class="p">:</span> <span class="n">u</span><span class="o">.</span><span class="n">pixel</span><span class="p">,</span>
+        <span class="s2">&quot;Y_ERR&quot;</span><span class="p">:</span> <span class="n">u</span><span class="o">.</span><span class="n">pixel</span><span class="p">,</span>
+    <span class="p">}</span>
+    <span class="k">for</span> <span class="n">col</span><span class="p">,</span> <span class="n">unit</span> <span class="ow">in</span> <span class="n">units</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+        <span class="n">results</span><span class="p">[</span><span class="n">col</span><span class="p">]</span><span class="o">.</span><span class="n">unit</span> <span class="o">=</span> <span class="n">unit</span>
+
+    <span class="n">cols</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="s2">&quot;COMPONENT&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;RA&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;DEC&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;X&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;Y&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;y_angle&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;z_angle&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;RA_ERR&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;DEC_ERR&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;X_ERR&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;Y_ERR&quot;</span><span class="p">,</span>
+    <span class="p">]</span>
+    <span class="n">cols</span> <span class="o">+=</span> <span class="p">[</span><span class="n">col</span> <span class="k">for</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">results</span><span class="o">.</span><span class="n">colnames</span> <span class="k">if</span> <span class="n">col</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">cols</span><span class="p">]</span>
+    <span class="n">results</span> <span class="o">=</span> <span class="n">results</span><span class="p">[</span><span class="n">cols</span><span class="p">]</span>
+
+    <span class="n">results</span> <span class="o">=</span> <span class="n">results</span><span class="p">[</span><span class="n">results</span><span class="p">[</span><span class="s2">&quot;fit_ok&quot;</span><span class="p">]]</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">outputs</span><span class="p">[</span><span class="s2">&quot;src&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">parent</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+        <span class="n">outputs</span><span class="p">[</span><span class="s2">&quot;src&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">parent</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">parents</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+    <span class="n">results</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">outputs</span><span class="p">[</span><span class="s2">&quot;src&quot;</span><span class="p">],</span> <span class="nb">format</span><span class="o">=</span><span class="s2">&quot;fits&quot;</span><span class="p">,</span> <span class="n">overwrite</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+    <span class="n">shutil</span><span class="o">.</span><span class="n">copyfile</span><span class="p">(</span><span class="n">inputs</span><span class="p">[</span><span class="s2">&quot;psf_size&quot;</span><span class="p">],</span> <span class="n">outputs</span><span class="p">[</span><span class="s2">&quot;psf_size&quot;</span><span class="p">])</span>
 
 
 <span class="nd">@task</span><span class="p">(</span>
     <span class="n">name</span><span class="o">=</span><span class="s2">&quot;celldetect&quot;</span><span class="p">,</span>
     <span class="n">inputs</span><span class="o">=</span><span class="p">{</span>
+        <span class="s2">&quot;events&quot;</span><span class="p">:</span> <span class="s2">&quot;primary/</span><span class="si">{obsid}</span><span class="s2">_evt2_filtered.fits.gz&quot;</span><span class="p">,</span>
         <span class="s2">&quot;image_file&quot;</span><span class="p">:</span> <span class="s2">&quot;images/</span><span class="si">{obsid}</span><span class="s2">_</span><span class="si">{band}</span><span class="s2">_thresh.img&quot;</span><span class="p">,</span>
         <span class="s2">&quot;psf_file&quot;</span><span class="p">:</span> <span class="s2">&quot;images/</span><span class="si">{obsid}</span><span class="s2">_</span><span class="si">{band}</span><span class="s2">_thresh.psfmap&quot;</span><span class="p">,</span>
     <span class="p">},</span>
     <span class="n">outputs</span><span class="o">=</span><span class="p">{</span>
         <span class="s2">&quot;src&quot;</span><span class="p">:</span> <span class="s2">&quot;sources/</span><span class="si">{obsid}</span><span class="s2">_celldetect.src&quot;</span><span class="p">,</span>
+        <span class="c1"># &quot;psf_size&quot;: &quot;sources/{obsid}_psf_size_celldetect.fits&quot;,</span>
     <span class="p">},</span>
     <span class="n">variables</span><span class="o">=</span><span class="p">{</span>
         <span class="s2">&quot;band&quot;</span><span class="p">:</span> <span class="k">lambda</span> <span class="n">obs</span><span class="p">:</span> <span class="s2">&quot;wide&quot;</span> <span class="k">if</span> <span class="n">obs</span><span class="o">.</span><span class="n">is_hrc</span> <span class="k">else</span> <span class="s2">&quot;broad&quot;</span><span class="p">,</span>
     <span class="p">},</span>
+    <span class="n">download</span><span class="o">=</span><span class="p">([</span><span class="s2">&quot;evt2&quot;</span><span class="p">]),</span>
 <span class="p">)</span>
 <span class="k">def</span> <span class="nf">celldetect</span><span class="p">(</span><span class="n">obs</span><span class="p">,</span> <span class="n">inputs</span><span class="p">,</span> <span class="n">outputs</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
@@ -1151,6 +1540,39 @@
         <span class="n">clobber</span><span class="o">=</span><span class="s2">&quot;yes&quot;</span><span class="p">,</span>
         <span class="n">logging_tag</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">obs</span><span class="p">),</span>
     <span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">ReturnCode</span><span class="o">.</span><span class="n">OK</span>
+
+
+<span class="nd">@task</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;celldetect_psf_size&quot;</span><span class="p">,</span>
+    <span class="n">inputs</span><span class="o">=</span><span class="p">{</span>
+        <span class="s2">&quot;events&quot;</span><span class="p">:</span> <span class="s2">&quot;primary/</span><span class="si">{obsid}</span><span class="s2">_evt2_filtered.fits.gz&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;src&quot;</span><span class="p">:</span> <span class="s2">&quot;sources/</span><span class="si">{obsid}</span><span class="s2">_celldetect.src&quot;</span><span class="p">,</span>
+    <span class="p">},</span>
+    <span class="n">outputs</span><span class="o">=</span><span class="p">{</span>
+        <span class="s2">&quot;psf_size&quot;</span><span class="p">:</span> <span class="s2">&quot;sources/</span><span class="si">{obsid}</span><span class="s2">_psf_size_celldetect.fits&quot;</span><span class="p">,</span>
+    <span class="p">},</span>
+<span class="p">)</span>
+<span class="k">def</span> <span class="nf">celldetect_psf_size</span><span class="p">(</span><span class="n">obs</span><span class="p">,</span> <span class="n">inputs</span><span class="p">,</span> <span class="n">outputs</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Run celldetect.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">band</span> <span class="o">=</span> <span class="s2">&quot;wide&quot;</span> <span class="k">if</span> <span class="n">obs</span><span class="o">.</span><span class="n">is_hrc</span> <span class="k">else</span> <span class="s2">&quot;broad&quot;</span>
+    <span class="n">ecf</span> <span class="o">=</span> <span class="mf">0.9</span>
+
+    <span class="n">sources</span> <span class="o">=</span> <span class="n">table</span><span class="o">.</span><span class="n">Table</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="n">inputs</span><span class="p">[</span><span class="s2">&quot;src&quot;</span><span class="p">])</span>
+    <span class="c1"># it seems CIAO chokes on an empty source list</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">sources</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="n">obs</span><span class="o">.</span><span class="n">ciao</span><span class="p">(</span>
+            <span class="s2">&quot;psfsize_srcs&quot;</span><span class="p">,</span>
+            <span class="n">inputs</span><span class="p">[</span><span class="s2">&quot;events&quot;</span><span class="p">],</span>
+            <span class="n">inputs</span><span class="p">[</span><span class="s2">&quot;src&quot;</span><span class="p">],</span>
+            <span class="n">outputs</span><span class="p">[</span><span class="s2">&quot;psf_size&quot;</span><span class="p">],</span>
+            <span class="sa">f</span><span class="s2">&quot;energy=</span><span class="si">{</span><span class="n">band</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="sa">f</span><span class="s2">&quot;ecf=</span><span class="si">{</span><span class="n">ecf</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;clobber=yes&quot;</span><span class="p">,</span>
+        <span class="p">)</span>
 
     <span class="k">return</span> <span class="n">ReturnCode</span><span class="o">.</span><span class="n">OK</span>
 

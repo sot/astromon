@@ -4,11 +4,11 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>astromon.utils &#8212; Astromon 1.2.1 documentation</title>
+    <title>astromon.utils &#8212; Astromon 1.3.0 documentation</title>
     <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=fa44fd50" />
     <link rel="stylesheet" type="text/css" href="../../_static/bootstrap-astropy.css?v=f4f7060c" />
     
-    <script src="../../_static/documentation_options.js?v=ca842793"></script>
+    <script src="../../_static/documentation_options.js?v=1f29e9d3"></script>
     <script src="../../_static/doctools.js?v=9bcbadda"></script>
     <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
     <script type="text/javascript" src="../../_static/sidebar.js"></script>
@@ -44,7 +44,7 @@
     <h3>Navigation</h3>
     <ul>
       <li>
-	<a href="../../index.html">Astromon 1.2.1 documentation</a>
+	<a href="../../index.html">Astromon 1.3.0 documentation</a>
 	 &#187;
       </li>
       <li><a href="../index.html" accesskey="U">Module code</a> &#187;</li>
@@ -66,6 +66,7 @@
 <span class="kn">import</span> <span class="nn">re</span>
 <span class="kn">import</span> <span class="nn">subprocess</span>
 <span class="kn">import</span> <span class="nn">tempfile</span>
+<span class="kn">import</span> <span class="nn">warnings</span>
 <span class="kn">from</span> <span class="nn">contextlib</span> <span class="kn">import</span> <span class="n">AbstractContextManager</span>
 <span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
 
@@ -73,6 +74,7 @@
 <span class="kn">import</span> <span class="nn">Ska.Shell</span>
 <span class="kn">from</span> <span class="nn">astropy.io</span> <span class="kn">import</span> <span class="n">fits</span>
 <span class="kn">from</span> <span class="nn">astropy.table</span> <span class="kn">import</span> <span class="n">Table</span><span class="p">,</span> <span class="n">hstack</span><span class="p">,</span> <span class="n">join</span>
+<span class="kn">from</span> <span class="nn">astropy.wcs</span> <span class="kn">import</span> <span class="n">WCS</span><span class="p">,</span> <span class="n">FITSFixedWarning</span>
 <span class="kn">from</span> <span class="nn">cxotime</span> <span class="kn">import</span> <span class="n">CxoTime</span>
 <span class="kn">from</span> <span class="nn">Quaternion</span> <span class="kn">import</span> <span class="n">Quat</span>
 
@@ -84,6 +86,8 @@
     <span class="s2">&quot;logging_call_decorator&quot;</span><span class="p">,</span>
     <span class="s2">&quot;calalign_from_files&quot;</span><span class="p">,</span>
     <span class="s2">&quot;get_calalign_offsets&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;get_wcs_from_fits_header&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;get_near_neighbor_dist&quot;</span><span class="p">,</span>
 <span class="p">]</span>
 
 
@@ -621,6 +625,91 @@
     <span class="n">result</span><span class="p">[</span><span class="s2">&quot;after_caldb&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">result</span><span class="p">[</span><span class="s2">&quot;since&quot;</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">all_matches</span><span class="p">[</span><span class="s2">&quot;time&quot;</span><span class="p">]</span>
 
     <span class="k">return</span> <span class="n">result</span></div>
+
+
+
+<span class="k">def</span> <span class="nf">get_wcs_from_fits_header</span><span class="p">(</span><span class="n">filename</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">hdu</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">header</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">filename</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">header</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Either filename or header must be provided&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">filename</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">header</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Either filename or header must be provided, not both&quot;</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">header</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">hdus</span> <span class="o">=</span> <span class="n">fits</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span>
+        <span class="n">header</span> <span class="o">=</span> <span class="n">hdus</span><span class="p">[</span><span class="n">hdu</span><span class="p">]</span><span class="o">.</span><span class="n">header</span>
+
+    <span class="n">ctypes</span> <span class="o">=</span> <span class="p">{</span><span class="n">val</span><span class="p">:</span> <span class="n">key</span> <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">val</span> <span class="ow">in</span> <span class="n">header</span><span class="p">[</span><span class="s2">&quot;TCTYP*&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
+
+    <span class="n">ra_col</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;RA---TAN&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+    <span class="n">dec_col</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;DEC--TAN&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+
+    <span class="n">c1</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="n">m</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">ra_col</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="p">(</span><span class="n">m</span> <span class="o">:=</span> <span class="n">re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;(\d+)$&quot;</span><span class="p">,</span> <span class="n">ra_col</span><span class="p">))</span>
+        <span class="k">else</span> <span class="kc">None</span>
+    <span class="p">)</span>
+    <span class="n">c2</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="n">m</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">dec_col</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="p">(</span><span class="n">m</span> <span class="o">:=</span> <span class="n">re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;(\d+)$&quot;</span><span class="p">,</span> <span class="n">dec_col</span><span class="p">))</span>
+        <span class="k">else</span> <span class="kc">None</span>
+    <span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">c1</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">c2</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Could not determine WCS columns&quot;</span><span class="p">)</span>
+
+    <span class="n">params</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">&quot;CTYPE1&quot;</span><span class="p">:</span> <span class="n">header</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;TCTYP</span><span class="si">{</span><span class="n">c1</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">],</span>
+        <span class="s2">&quot;CRVAL1&quot;</span><span class="p">:</span> <span class="n">header</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;TCRVL</span><span class="si">{</span><span class="n">c1</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">],</span>
+        <span class="s2">&quot;CRPIX1&quot;</span><span class="p">:</span> <span class="n">header</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;TCRPX</span><span class="si">{</span><span class="n">c1</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span>
+        <span class="s2">&quot;CDELT1&quot;</span><span class="p">:</span> <span class="n">header</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;TCDLT</span><span class="si">{</span><span class="n">c1</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">],</span>
+        <span class="s2">&quot;CUNIT1&quot;</span><span class="p">:</span> <span class="n">header</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;TCUNI</span><span class="si">{</span><span class="n">c1</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">],</span>
+        <span class="s2">&quot;CTYPE2&quot;</span><span class="p">:</span> <span class="n">header</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;TCTYP</span><span class="si">{</span><span class="n">c2</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">],</span>
+        <span class="s2">&quot;CRVAL2&quot;</span><span class="p">:</span> <span class="n">header</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;TCRVL</span><span class="si">{</span><span class="n">c2</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">],</span>
+        <span class="s2">&quot;CRPIX2&quot;</span><span class="p">:</span> <span class="n">header</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;TCRPX</span><span class="si">{</span><span class="n">c2</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span>
+        <span class="s2">&quot;CDELT2&quot;</span><span class="p">:</span> <span class="n">header</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;TCDLT</span><span class="si">{</span><span class="n">c2</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">],</span>
+        <span class="s2">&quot;CUNIT2&quot;</span><span class="p">:</span> <span class="n">header</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;TCUNI</span><span class="si">{</span><span class="n">c2</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">],</span>
+    <span class="p">}</span>
+    <span class="k">with</span> <span class="n">warnings</span><span class="o">.</span><span class="n">catch_warnings</span><span class="p">():</span>
+        <span class="c1"># For some reason FITS/WCS seems to think many of the CXC header</span>
+        <span class="c1"># keywords are non-standard and need to be fixed.</span>
+        <span class="n">warnings</span><span class="o">.</span><span class="n">simplefilter</span><span class="p">(</span><span class="s2">&quot;ignore&quot;</span><span class="p">,</span> <span class="n">category</span><span class="o">=</span><span class="n">FITSFixedWarning</span><span class="p">)</span>
+        <span class="n">wcs</span> <span class="o">=</span> <span class="n">WCS</span><span class="p">(</span><span class="n">params</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">wcs</span>
+
+
+<div class="viewcode-block" id="get_near_neighbor_dist">
+<a class="viewcode-back" href="../../api.html#astromon.utils.get_near_neighbor_dist">[docs]</a>
+<span class="k">def</span> <span class="nf">get_near_neighbor_dist</span><span class="p">(</span><span class="n">sources</span><span class="p">,</span> <span class="n">all_sources</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">id_col</span><span class="o">=</span><span class="s2">&quot;COMPONENT&quot;</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Calculate the distance from each source in `sources` to the nearest source in `all_sources`.</span>
+
+<span class="sd">    The distance is the euclidean distance in the y_angle/z_angle plane.</span>
+
+<span class="sd">    If `all_sources` is None, `sources` is used for both.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    sources : astropy.table.Table</span>
+<span class="sd">        The sources to calculate the nearest neighbor distance for.</span>
+<span class="sd">    all_sources : astropy.table.Table</span>
+<span class="sd">        The sources to use as potential neighbors.</span>
+<span class="sd">    id_col : str</span>
+<span class="sd">        The column to use as the unique identifier for each source.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">all_sources</span> <span class="o">=</span> <span class="n">sources</span> <span class="k">if</span> <span class="n">all_sources</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">all_sources</span>
+
+    <span class="n">src1</span> <span class="o">=</span> <span class="n">sources</span><span class="o">.</span><span class="n">as_array</span><span class="p">()[</span><span class="kc">None</span><span class="p">]</span>
+    <span class="n">src2</span> <span class="o">=</span> <span class="n">all_sources</span><span class="o">.</span><span class="n">as_array</span><span class="p">()[:,</span> <span class="kc">None</span><span class="p">]</span>
+    <span class="n">distance</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span>
+        <span class="p">(</span><span class="n">src1</span><span class="p">[</span><span class="s2">&quot;y_angle&quot;</span><span class="p">]</span> <span class="o">-</span> <span class="n">src2</span><span class="p">[</span><span class="s2">&quot;y_angle&quot;</span><span class="p">])</span> <span class="o">**</span> <span class="mi">2</span>
+        <span class="o">+</span> <span class="p">(</span><span class="n">src1</span><span class="p">[</span><span class="s2">&quot;z_angle&quot;</span><span class="p">]</span> <span class="o">-</span> <span class="n">src2</span><span class="p">[</span><span class="s2">&quot;z_angle&quot;</span><span class="p">])</span> <span class="o">**</span> <span class="mi">2</span>
+    <span class="p">)</span>
+    <span class="c1"># add a large value to the distance where the sources are the same</span>
+    <span class="c1"># (a source should not be its own closest neighbor)</span>
+    <span class="n">distance</span> <span class="o">+=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">src1</span><span class="p">[</span><span class="n">id_col</span><span class="p">]</span> <span class="o">==</span> <span class="n">src2</span><span class="p">[</span><span class="n">id_col</span><span class="p">],</span> <span class="n">np</span><span class="o">.</span><span class="n">inf</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span>
+        <span class="n">distance</span><span class="o">.</span><span class="n">shape</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">distance</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span></div>
 
 </pre></div>
 
