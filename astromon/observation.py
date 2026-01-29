@@ -1124,9 +1124,13 @@ def make_images(obs, inputs, outputs):
             )
             # to make matters worse, dmmakereg chokes on txt files with no regions
             with open(acis_streaks_file_ascii, "r") as fh:
-                n_regions = len([line for line in fh.readlines() if re.search("Polygon", line)])
+                n_regions = len(
+                    [line for line in fh.readlines() if re.search("Polygon", line)]
+                )
             if n_regions > 0:
-                obs.ciao.logger.info(f"{logging_tag} acis_streak_map found {n_regions} streaks")
+                obs.ciao.logger.info(
+                    f"{logging_tag} acis_streak_map found {n_regions} streaks"
+                )
                 ciao(
                     "dmmakereg",
                     f"region({acis_streaks_file_ascii})",
