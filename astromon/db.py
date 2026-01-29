@@ -317,7 +317,7 @@ def save(table_name, data, dbfile, ignore_obsid=False):
                 # remove rows for these obsids
                 obsids = np.unique(data["obsid"])
                 data_out = node[:].astype(dtype)
-                data_out = data_out[~np.in1d(data_out["obsid"], obsids)]
+                data_out = data_out[~np.isin(data_out["obsid"], obsids)]
                 # append current data
                 data = np.concatenate((data_out, data))
             h5.remove_node(node)
@@ -343,7 +343,7 @@ def remove_regions(regions, dbfile=None):
     """
     with connect(dbfile, mode="r+") as h5:
         all_regions = get_table("astromon_regions", h5)
-        sel = ~np.in1d(all_regions["region_id"], regions)
+        sel = ~np.isin(all_regions["region_id"], regions)
         all_regions = all_regions[sel]
 
         # We just removed some regions. In the process, maybe all rows for a given obsid were
@@ -505,11 +505,11 @@ def sync_regions(from_file, to_file, remove=False):
     for i1, i2 in zip(up_to_idx, up_from_idx, strict=True):
         to_regions[i1] = from_regions[i2]
     # remove records that are in to_file but not in from_file
-    missing = ~np.in1d(to_regions["region_id_str"], from_regions["region_id_str"])
+    missing = ~np.isin(to_regions["region_id_str"], from_regions["region_id_str"])
     if remove and np.any(missing):
         to_regions = to_regions[~missing]
     # add records that are only in from_file
-    new = ~np.in1d(from_regions["region_id_str"], to_regions["region_id_str"])
+    new = ~np.isin(from_regions["region_id_str"], to_regions["region_id_str"])
     if np.any(new):
         # make sure that region_id is not repeated
         # if there are repeated region_ids, assign new ones continuing from last_region_id in meta
