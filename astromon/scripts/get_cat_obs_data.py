@@ -347,7 +347,7 @@ def main():  # noqa: PLR0912, PLR0915
         obsids = np.array(obsids, dtype=int)
         try:
             astromon_obs = db.get_table("astromon_obs", dbfile=db_file)
-            exceptions = np.in1d(obsids, astromon_obs["obsid"])
+            exceptions = np.isin(obsids, astromon_obs["obsid"])
             n_exceptions = np.sum(exceptions)
             if n_exceptions:
                 exceptions_str = str(obsids[exceptions])[1:-1]

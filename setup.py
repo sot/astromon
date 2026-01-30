@@ -34,11 +34,13 @@ setup(
         "astromon.scripts",
         "astromon.scripts.calalign",
         "astromon.scripts.calalign.check",
+        "astromon.tests",
         "astromon.web",
     ],
     package_data={
         "astromon": ["sql/x-corr/*.sql", "sql/tables/*.sql"],
         "astromon.web": ["templates/*"],
+        "astromon.tests": ["data/*"],
     },
     data_files=data_files,
     license=(

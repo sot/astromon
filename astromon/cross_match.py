@@ -478,7 +478,7 @@ def filter_matches(  # noqa: PLR0912
         ok &= np.abs(sim_z_offset) <= sim_z
 
     if exclude_categories:
-        ok &= ~np.in1d(matches["category"], exclude_categories)
+        ok &= ~np.isin(matches["category"], exclude_categories)
 
     for key, val in kwargs.items():
         if isinstance(val, list):
@@ -712,7 +712,7 @@ def simple_cross_match(
         (astromon_xray_src["snr"] > snr)
         & (astromon_xray_src["near_neighbor_dist"] > near_neighbor_dist)
     ]
-    astromon_cat_src = astromon_cat_src[np.in1d(astromon_cat_src["catalog"], catalogs)]
+    astromon_cat_src = astromon_cat_src[np.isin(astromon_cat_src["catalog"], catalogs)]
 
     # I can rename and drop these to match the standard in astromon.db because I just made copies
     astromon_cat_src.rename_columns(
