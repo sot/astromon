@@ -34,6 +34,7 @@ setup(
         "astromon.scripts",
         "astromon.scripts.calalign",
         "astromon.scripts.calalign.check",
+        "astromon.tests",
         "astromon.web",
     ],
     package_data={
