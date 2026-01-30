@@ -40,6 +40,7 @@ setup(
     package_data={
         "astromon": ["sql/x-corr/*.sql", "sql/tables/*.sql"],
         "astromon.web": ["templates/*"],
+        "astromon.tests": ["data/*"],
     },
     data_files=data_files,
     license=(
