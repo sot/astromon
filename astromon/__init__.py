@@ -8,3 +8,12 @@ from .db import get_cross_matches
 logger = ska_helpers.logging.basic_logger(
     "astromon", level="CRITICAL", format="%(asctime)s %(funcName)-25s: %(message)s"
 )
+
+
+def test(*args, **kwargs):
+    """
+    Run py.test unit tests.
+    """
+    import testr
+
+    return testr.test(*args, **kwargs)
