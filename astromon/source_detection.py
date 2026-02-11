@@ -244,12 +244,14 @@ def fit_gaussian_2d(events, source, columns=("y_angle", "z_angle"), box_size=4):
     # An estimate of how much the data deviates from the model:
     # the 1-sample Kolmogorov-Smirnov (KS) statistic of the marginal distributions.
     # assuming the marginal distributions are Gaussian. This is clearly not perfect.
-    yag_model = lambda xx: signal * normal_prob_1d(
-        xx, result.x[0], sigma_x
-    ) + background * 1 / (2 * box_size)
-    zag_model = lambda yy: signal * normal_prob_1d(
-        yy, result.x[1], sigma_y
-    ) + background * 1 / (2 * box_size)
+    yag_model = lambda xx: (
+        signal * normal_prob_1d(xx, result.x[0], sigma_x)
+        + background * 1 / (2 * box_size)
+    )
+    zag_model = lambda yy: (
+        signal * normal_prob_1d(yy, result.x[1], sigma_y)
+        + background * 1 / (2 * box_size)
+    )
 
     x = np.linspace(-4, 4, 1001)
     dx = np.diff(x)[0]
