@@ -4,13 +4,13 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>astromon.cross_match &#8212; Astromon 1.3.0 documentation</title>
-    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=fa44fd50" />
+    <title>astromon.cross_match &#8212; Astromon 1.3.1 documentation</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=03e43079" />
     <link rel="stylesheet" type="text/css" href="../../_static/bootstrap-astropy.css?v=f4f7060c" />
     
-    <script src="../../_static/documentation_options.js?v=1f29e9d3"></script>
-    <script src="../../_static/doctools.js?v=9bcbadda"></script>
-    <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/documentation_options.js?v=bb516dca"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script type="text/javascript" src="../../_static/sidebar.js"></script>
     <script type="text/javascript" src="../../_static/copybutton.js"></script>
     <link rel="index" title="Index" href="../../genindex.html" />
@@ -44,7 +44,7 @@
     <h3>Navigation</h3>
     <ul>
       <li>
-	<a href="../../index.html">Astromon 1.3.0 documentation</a>
+	<a href="../../index.html">Astromon 1.3.1 documentation</a>
 	 &#187;
       </li>
       <li><a href="../index.html" accesskey="U">Module code</a> &#187;</li>
@@ -62,21 +62,21 @@
   <h1>Source code for astromon.cross_match</h1><div class="highlight"><pre>
 <span></span><span class="sd">&quot;&quot;&quot; &quot;&quot;&quot;</span>
 
-<span class="kn">import</span> <span class="nn">logging</span>
-<span class="kn">import</span> <span class="nn">re</span>
-<span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">re</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
 
-<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
-<span class="kn">import</span> <span class="nn">requests</span>
-<span class="kn">from</span> <span class="nn">astropy</span> <span class="kn">import</span> <span class="n">coordinates</span> <span class="k">as</span> <span class="n">coords</span>
-<span class="kn">from</span> <span class="nn">astropy</span> <span class="kn">import</span> <span class="n">io</span><span class="p">,</span> <span class="n">table</span>
-<span class="kn">from</span> <span class="nn">astropy</span> <span class="kn">import</span> <span class="n">units</span> <span class="k">as</span> <span class="n">u</span>
-<span class="kn">from</span> <span class="nn">astroquery.vizier</span> <span class="kn">import</span> <span class="n">Vizier</span>
-<span class="kn">from</span> <span class="nn">cxotime</span> <span class="kn">import</span> <span class="n">CxoTime</span>
-<span class="kn">from</span> <span class="nn">Ska.DBI</span> <span class="kn">import</span> <span class="n">DBI</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">requests</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">astropy</span><span class="w"> </span><span class="kn">import</span> <span class="n">coordinates</span> <span class="k">as</span> <span class="n">coords</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">astropy</span><span class="w"> </span><span class="kn">import</span> <span class="n">io</span><span class="p">,</span> <span class="n">table</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">astropy</span><span class="w"> </span><span class="kn">import</span> <span class="n">units</span> <span class="k">as</span> <span class="n">u</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">astroquery.vizier</span><span class="w"> </span><span class="kn">import</span> <span class="n">Vizier</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">cxotime</span><span class="w"> </span><span class="kn">import</span> <span class="n">CxoTime</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">Ska.DBI</span><span class="w"> </span><span class="kn">import</span> <span class="n">DBI</span>
 
-<span class="kn">import</span> <span class="nn">astromon</span>
-<span class="kn">from</span> <span class="nn">astromon</span> <span class="kn">import</span> <span class="n">db</span><span class="p">,</span> <span class="n">observation</span><span class="p">,</span> <span class="n">utils</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">astromon</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">astromon</span><span class="w"> </span><span class="kn">import</span> <span class="n">db</span><span class="p">,</span> <span class="n">observation</span><span class="p">,</span> <span class="n">utils</span>
 
 <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s2">&quot;astromon&quot;</span><span class="p">)</span>
 
@@ -84,7 +84,7 @@
 <span class="n">SIM_Z</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;ACIS-I&quot;</span><span class="p">:</span> <span class="o">-</span><span class="mf">233.587</span><span class="p">,</span> <span class="s2">&quot;ACIS-S&quot;</span><span class="p">:</span> <span class="o">-</span><span class="mf">190.143</span><span class="p">,</span> <span class="s2">&quot;HRC-I&quot;</span><span class="p">:</span> <span class="mf">126.983</span><span class="p">,</span> <span class="s2">&quot;HRC-S&quot;</span><span class="p">:</span> <span class="mf">250.466</span><span class="p">}</span>
 
 
-<span class="k">def</span> <span class="nf">_get_vizier</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="n">ra</span><span class="p">,</span> <span class="n">dec</span><span class="p">,</span> <span class="n">time</span><span class="p">,</span> <span class="n">radius</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_get_vizier</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="n">ra</span><span class="p">,</span> <span class="n">dec</span><span class="p">,</span> <span class="n">time</span><span class="p">,</span> <span class="n">radius</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    This fetches the vizier url, but it doesn&#39;t parse the result.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
@@ -130,7 +130,7 @@
 <span class="p">)</span>
 
 
-<span class="k">def</span> <span class="nf">get_vizier</span><span class="p">(</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_vizier</span><span class="p">(</span>
     <span class="n">pos</span><span class="p">,</span>
     <span class="n">catalog</span><span class="p">,</span>
     <span class="n">cat_identifier</span><span class="p">,</span>
@@ -272,7 +272,7 @@
 <span class="p">}</span>
 
 
-<span class="k">def</span> <span class="nf">_get</span><span class="p">(</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_get</span><span class="p">(</span>
     <span class="n">catalog</span><span class="p">,</span>
     <span class="n">time</span><span class="p">,</span>
     <span class="n">pos</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
@@ -298,7 +298,7 @@
 
 <div class="viewcode-block" id="rough_match">
 <a class="viewcode-back" href="../../api.html#astromon.cross_match.rough_match">[docs]</a>
-<span class="k">def</span> <span class="nf">rough_match</span><span class="p">(</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">rough_match</span><span class="p">(</span>
     <span class="n">sources</span><span class="p">,</span>
     <span class="n">time</span><span class="p">,</span>
     <span class="n">radius</span><span class="o">=</span><span class="mi">3</span> <span class="o">*</span> <span class="n">u</span><span class="o">.</span><span class="n">arcsec</span><span class="p">,</span>
@@ -383,7 +383,7 @@
 
 
 <span class="nd">@utils</span><span class="o">.</span><span class="n">logging_call_decorator</span>
-<span class="k">def</span> <span class="nf">do_sql_cross_match</span><span class="p">(</span><span class="n">selection_name</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">do_sql_cross_match</span><span class="p">(</span><span class="n">selection_name</span><span class="p">):</span>
     <span class="n">sql_script</span> <span class="o">=</span> <span class="p">(</span>
         <span class="n">Path</span><span class="p">(</span><span class="n">astromon</span><span class="o">.</span><span class="vm">__file__</span><span class="p">)</span><span class="o">.</span><span class="n">parent</span> <span class="o">/</span> <span class="s2">&quot;sql&quot;</span> <span class="o">/</span> <span class="s2">&quot;x-corr&quot;</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">selection_name</span><span class="si">}</span><span class="s2">.sql&quot;</span>
     <span class="p">)</span>
@@ -404,7 +404,7 @@
 
 <div class="viewcode-block" id="get_bad_target_mask">
 <a class="viewcode-back" href="../../api.html#astromon.cross_match.get_bad_target_mask">[docs]</a>
-<span class="k">def</span> <span class="nf">get_bad_target_mask</span><span class="p">(</span><span class="n">matches</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_bad_target_mask</span><span class="p">(</span><span class="n">matches</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Returns a mask to remove targets that are known to give cross-matches with large residuals.</span>
 
@@ -439,7 +439,7 @@
 
 <div class="viewcode-block" id="get_excluded_regions_mask">
 <a class="viewcode-back" href="../../api.html#astromon.cross_match.get_excluded_regions_mask">[docs]</a>
-<span class="k">def</span> <span class="nf">get_excluded_regions_mask</span><span class="p">(</span><span class="n">matches</span><span class="p">,</span> <span class="n">regions</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_excluded_regions_mask</span><span class="p">(</span><span class="n">matches</span><span class="p">,</span> <span class="n">regions</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Returns a mask to remove x-ray sources that are close to excluded regions.</span>
 
@@ -467,7 +467,7 @@
 
 <div class="viewcode-block" id="filter_matches">
 <a class="viewcode-back" href="../../api.html#astromon.cross_match.filter_matches">[docs]</a>
-<span class="k">def</span> <span class="nf">filter_matches</span><span class="p">(</span>  <span class="c1"># noqa: PLR0912</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">filter_matches</span><span class="p">(</span>  <span class="c1"># noqa: PLR0912</span>
     <span class="n">matches</span><span class="p">,</span>
     <span class="n">snr</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
     <span class="n">dr</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
@@ -551,7 +551,7 @@
         <span class="n">ok</span> <span class="o">&amp;=</span> <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">sim_z_offset</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="n">sim_z</span>
 
     <span class="k">if</span> <span class="n">exclude_categories</span><span class="p">:</span>
-        <span class="n">ok</span> <span class="o">&amp;=</span> <span class="o">~</span><span class="n">np</span><span class="o">.</span><span class="n">in1d</span><span class="p">(</span><span class="n">matches</span><span class="p">[</span><span class="s2">&quot;category&quot;</span><span class="p">],</span> <span class="n">exclude_categories</span><span class="p">)</span>
+        <span class="n">ok</span> <span class="o">&amp;=</span> <span class="o">~</span><span class="n">np</span><span class="o">.</span><span class="n">isin</span><span class="p">(</span><span class="n">matches</span><span class="p">[</span><span class="s2">&quot;category&quot;</span><span class="p">],</span> <span class="n">exclude_categories</span><span class="p">)</span>
 
     <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">val</span> <span class="ow">in</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">val</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
@@ -571,7 +571,7 @@
 
 <div class="viewcode-block" id="compute_cross_matches">
 <a class="viewcode-back" href="../../api.html#astromon.cross_match.compute_cross_matches">[docs]</a>
-<span class="k">def</span> <span class="nf">compute_cross_matches</span><span class="p">(</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">compute_cross_matches</span><span class="p">(</span>
     <span class="n">name</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
     <span class="n">astromon_obs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
     <span class="n">astromon_xray_src</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
@@ -685,7 +685,7 @@
 
 
 
-<span class="k">def</span> <span class="nf">_join_dtype</span><span class="p">(</span><span class="n">dtype1</span><span class="p">,</span> <span class="n">dtype2</span><span class="p">,</span> <span class="n">keys</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_join_dtype</span><span class="p">(</span><span class="n">dtype1</span><span class="p">,</span> <span class="n">dtype2</span><span class="p">,</span> <span class="n">keys</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Get the dtype resulting from the join of two tables with the given dtypes.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
@@ -699,7 +699,7 @@
 
 <div class="viewcode-block" id="simple_cross_match">
 <a class="viewcode-back" href="../../api.html#astromon.cross_match.simple_cross_match">[docs]</a>
-<span class="k">def</span> <span class="nf">simple_cross_match</span><span class="p">(</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">simple_cross_match</span><span class="p">(</span>
     <span class="n">astromon_obs</span><span class="p">,</span>
     <span class="n">astromon_xray_src</span><span class="p">,</span>
     <span class="n">astromon_cat_src</span><span class="p">,</span>
@@ -791,7 +791,7 @@
         <span class="p">(</span><span class="n">astromon_xray_src</span><span class="p">[</span><span class="s2">&quot;snr&quot;</span><span class="p">]</span> <span class="o">&gt;</span> <span class="n">snr</span><span class="p">)</span>
         <span class="o">&amp;</span> <span class="p">(</span><span class="n">astromon_xray_src</span><span class="p">[</span><span class="s2">&quot;near_neighbor_dist&quot;</span><span class="p">]</span> <span class="o">&gt;</span> <span class="n">near_neighbor_dist</span><span class="p">)</span>
     <span class="p">]</span>
-    <span class="n">astromon_cat_src</span> <span class="o">=</span> <span class="n">astromon_cat_src</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">in1d</span><span class="p">(</span><span class="n">astromon_cat_src</span><span class="p">[</span><span class="s2">&quot;catalog&quot;</span><span class="p">],</span> <span class="n">catalogs</span><span class="p">)]</span>
+    <span class="n">astromon_cat_src</span> <span class="o">=</span> <span class="n">astromon_cat_src</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">isin</span><span class="p">(</span><span class="n">astromon_cat_src</span><span class="p">[</span><span class="s2">&quot;catalog&quot;</span><span class="p">],</span> <span class="n">catalogs</span><span class="p">)]</span>
 
     <span class="c1"># I can rename and drop these to match the standard in astromon.db because I just made copies</span>
     <span class="n">astromon_cat_src</span><span class="o">.</span><span class="n">rename_columns</span><span class="p">(</span>
@@ -896,7 +896,7 @@
 <span class="n">CROSS_MATCH_METHODS</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;simple&quot;</span><span class="p">:</span> <span class="n">simple_cross_match</span><span class="p">}</span>
 
 
-<span class="k">def</span> <span class="nf">_set_formats</span><span class="p">(</span><span class="n">dat</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_set_formats</span><span class="p">(</span><span class="n">dat</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Sets format of columns with float dtype to show 2 decimals, except ra/dec/pileup (4 decimals).</span>
 
@@ -945,7 +945,7 @@
     <a href="#">Back to Top</a></p>
   <p>
     &copy; Copyright 2022, Jean Connelly, Tom Aldcroft, Javier Gonzalez.<br/>
-    Created using <a href="http://www.sphinx-doc.org/en/stable/">Sphinx</a> 8.1.3. &nbsp;
+    Created using <a href="http://www.sphinx-doc.org/en/stable/">Sphinx</a> 9.1.0. &nbsp;
   </p>
 </footer>
   </body>

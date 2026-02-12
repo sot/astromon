@@ -4,13 +4,13 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>astromon.observation &#8212; Astromon 1.3.0 documentation</title>
-    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=fa44fd50" />
+    <title>astromon.observation &#8212; Astromon 1.3.1 documentation</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=03e43079" />
     <link rel="stylesheet" type="text/css" href="../../_static/bootstrap-astropy.css?v=f4f7060c" />
     
-    <script src="../../_static/documentation_options.js?v=1f29e9d3"></script>
-    <script src="../../_static/doctools.js?v=9bcbadda"></script>
-    <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/documentation_options.js?v=bb516dca"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script type="text/javascript" src="../../_static/sidebar.js"></script>
     <script type="text/javascript" src="../../_static/copybutton.js"></script>
     <link rel="index" title="Index" href="../../genindex.html" />
@@ -44,7 +44,7 @@
     <h3>Navigation</h3>
     <ul>
       <li>
-	<a href="../../index.html">Astromon 1.3.0 documentation</a>
+	<a href="../../index.html">Astromon 1.3.1 documentation</a>
 	 &#187;
       </li>
       <li><a href="../index.html" accesskey="U">Module code</a> &#187;</li>
@@ -63,38 +63,38 @@
 <span></span><span class="ch">#!/usr/bin/env python</span>
 
 
-<span class="kn">import</span> <span class="nn">argparse</span>
-<span class="kn">import</span> <span class="nn">collections</span>
-<span class="kn">import</span> <span class="nn">functools</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">argparse</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">collections</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">functools</span>
 
 <span class="c1"># import sys</span>
-<span class="kn">import</span> <span class="nn">os</span>
-<span class="kn">import</span> <span class="nn">re</span>
-<span class="kn">import</span> <span class="nn">shutil</span>
-<span class="kn">import</span> <span class="nn">subprocess</span>
-<span class="kn">import</span> <span class="nn">tempfile</span>
-<span class="kn">import</span> <span class="nn">warnings</span>
-<span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">re</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">shutil</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">subprocess</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">tempfile</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
 
-<span class="kn">import</span> <span class="nn">bs4</span>
-<span class="kn">import</span> <span class="nn">chardet</span>
-<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
-<span class="kn">import</span> <span class="nn">regions</span>
-<span class="kn">import</span> <span class="nn">requests</span>
-<span class="kn">import</span> <span class="nn">Ska.arc5gl</span>
-<span class="kn">from</span> <span class="nn">astropy</span> <span class="kn">import</span> <span class="n">table</span>
-<span class="kn">from</span> <span class="nn">astropy</span> <span class="kn">import</span> <span class="n">units</span> <span class="k">as</span> <span class="n">u</span>
-<span class="kn">from</span> <span class="nn">astropy.coordinates</span> <span class="kn">import</span> <span class="n">SkyCoord</span>
-<span class="kn">from</span> <span class="nn">astropy.io</span> <span class="kn">import</span> <span class="n">ascii</span><span class="p">,</span> <span class="n">fits</span>
-<span class="kn">from</span> <span class="nn">astropy.wcs</span> <span class="kn">import</span> <span class="n">WCS</span><span class="p">,</span> <span class="n">FITSFixedWarning</span>
-<span class="kn">from</span> <span class="nn">chandra_aca.transform</span> <span class="kn">import</span> <span class="n">radec_to_yagzag</span><span class="p">,</span> <span class="n">yagzag_to_radec</span>
-<span class="kn">from</span> <span class="nn">Quaternion</span> <span class="kn">import</span> <span class="n">Quat</span>
-<span class="kn">from</span> <span class="nn">ska_helpers.logging</span> <span class="kn">import</span> <span class="n">basic_logger</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">bs4</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">chardet</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">regions</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">requests</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">Ska.arc5gl</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">astropy</span><span class="w"> </span><span class="kn">import</span> <span class="n">table</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">astropy</span><span class="w"> </span><span class="kn">import</span> <span class="n">units</span> <span class="k">as</span> <span class="n">u</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">astropy.coordinates</span><span class="w"> </span><span class="kn">import</span> <span class="n">SkyCoord</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">astropy.io</span><span class="w"> </span><span class="kn">import</span> <span class="n">ascii</span><span class="p">,</span> <span class="n">fits</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">astropy.wcs</span><span class="w"> </span><span class="kn">import</span> <span class="n">WCS</span><span class="p">,</span> <span class="n">FITSFixedWarning</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">chandra_aca.transform</span><span class="w"> </span><span class="kn">import</span> <span class="n">radec_to_yagzag</span><span class="p">,</span> <span class="n">yagzag_to_radec</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">Quaternion</span><span class="w"> </span><span class="kn">import</span> <span class="n">Quat</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">ska_helpers.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">basic_logger</span>
 
-<span class="kn">from</span> <span class="nn">astromon</span> <span class="kn">import</span> <span class="n">source_detection</span><span class="p">,</span> <span class="n">utils</span>
-<span class="kn">from</span> <span class="nn">astromon.stored_result</span> <span class="kn">import</span> <span class="n">Storage</span><span class="p">,</span> <span class="n">stored_result</span>
-<span class="kn">from</span> <span class="nn">astromon.task</span> <span class="kn">import</span> <span class="n">TASKS</span><span class="p">,</span> <span class="n">ReturnCode</span><span class="p">,</span> <span class="n">ReturnValue</span><span class="p">,</span> <span class="n">dependencies</span><span class="p">,</span> <span class="n">run_tasks</span><span class="p">,</span> <span class="n">task</span>
-<span class="kn">from</span> <span class="nn">astromon.utils</span> <span class="kn">import</span> <span class="n">Ciao</span><span class="p">,</span> <span class="n">chdir</span><span class="p">,</span> <span class="n">logging_call_decorator</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">astromon</span><span class="w"> </span><span class="kn">import</span> <span class="n">source_detection</span><span class="p">,</span> <span class="n">utils</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">astromon.stored_result</span><span class="w"> </span><span class="kn">import</span> <span class="n">Storage</span><span class="p">,</span> <span class="n">stored_result</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">astromon.task</span><span class="w"> </span><span class="kn">import</span> <span class="n">TASKS</span><span class="p">,</span> <span class="n">ReturnCode</span><span class="p">,</span> <span class="n">ReturnValue</span><span class="p">,</span> <span class="n">dependencies</span><span class="p">,</span> <span class="n">run_tasks</span><span class="p">,</span> <span class="n">task</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">astromon.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">Ciao</span><span class="p">,</span> <span class="n">chdir</span><span class="p">,</span> <span class="n">logging_call_decorator</span>
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;Observation&quot;</span><span class="p">]</span>
 
@@ -165,7 +165,7 @@
 
 
 <span class="nd">@functools</span><span class="o">.</span><span class="n">cache</span>
-<span class="k">def</span> <span class="nf">ciao_fails</span><span class="p">(</span><span class="n">ciao_prefix</span><span class="p">,</span> <span class="n">workdir</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">ciao_fails</span><span class="p">(</span><span class="n">ciao_prefix</span><span class="p">,</span> <span class="n">workdir</span><span class="p">):</span>
     <span class="k">try</span><span class="p">:</span>
         <span class="n">Ciao</span><span class="p">(</span>
             <span class="n">prefix</span><span class="o">=</span><span class="n">ciao_prefix</span><span class="p">,</span>
@@ -179,7 +179,7 @@
 
 <div class="viewcode-block" id="Observation">
 <a class="viewcode-back" href="../../api.html#astromon.observation.Observation">[docs]</a>
-<span class="k">class</span> <span class="nc">Observation</span><span class="p">:</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">Observation</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Class to encapsulate calls to CIAO and arc5gl.</span>
 
@@ -206,7 +206,7 @@
 <span class="sd">        If this is False, there will be no calls to CIAO tools (and some methods will just fail).</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
-    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">obsid</span><span class="p">,</span>
         <span class="n">workdir</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
@@ -276,7 +276,7 @@
 
 <div class="viewcode-block" id="Observation.create_archive_symlinks">
 <a class="viewcode-back" href="../../api.html#astromon.observation.Observation.create_archive_symlinks">[docs]</a>
-    <span class="k">def</span> <span class="nf">create_archive_symlinks</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">create_archive_symlinks</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Create symlinks from working directory to the archive.</span>
 
@@ -293,7 +293,7 @@
                         <span class="n">os</span><span class="o">.</span><span class="n">symlink</span><span class="p">(</span><span class="n">file</span><span class="p">,</span> <span class="n">dest</span><span class="p">)</span></div>
 
 
-    <span class="k">def</span> <span class="nf">get_ciao</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_ciao</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_ciao</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">ciao_</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">try</span><span class="p">:</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">ciao_</span> <span class="o">=</span> <span class="n">Ciao</span><span class="p">(</span>
@@ -308,17 +308,17 @@
 
     <span class="n">ciao</span> <span class="o">=</span> <span class="nb">property</span><span class="p">(</span><span class="n">get_ciao</span><span class="p">)</span>
 
-    <span class="k">def</span> <span class="fm">__del__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__del__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;_clear&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_clear</span><span class="p">:</span>
             <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Clearing </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">workdir</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
             <span class="n">shutil</span><span class="o">.</span><span class="n">rmtree</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">workdir</span><span class="p">,</span> <span class="n">ignore_errors</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 
-    <span class="k">def</span> <span class="fm">__str__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__str__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;OBSID=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">obsid</span><span class="si">}</span><span class="s2">&quot;</span>
 
 <div class="viewcode-block" id="Observation.get_info">
 <a class="viewcode-back" href="../../api.html#astromon.observation.Observation.get_info">[docs]</a>
-    <span class="k">def</span> <span class="nf">get_info</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_info</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Get observation info.</span>
 
@@ -330,7 +330,7 @@
         <span class="k">return</span> <span class="n">obsid_info</span></div>
 
 
-    <span class="k">def</span> <span class="nf">file_glob</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pattern</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">file_glob</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pattern</span><span class="p">):</span>
         <span class="n">files</span> <span class="o">=</span> <span class="p">{}</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">archive_dir</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">files</span><span class="o">.</span><span class="n">update</span><span class="p">(</span>
@@ -344,7 +344,7 @@
         <span class="p">)</span>
         <span class="k">return</span> <span class="nb">list</span><span class="p">(</span><span class="n">files</span><span class="o">.</span><span class="n">values</span><span class="p">())</span>
 
-    <span class="k">def</span> <span class="nf">file_path</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">path</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">file_path</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">path</span><span class="p">):</span>
         <span class="k">if</span> <span class="n">Path</span><span class="p">(</span><span class="n">path</span><span class="p">)</span><span class="o">.</span><span class="n">is_absolute</span><span class="p">():</span>
             <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span>
                 <span class="sa">f</span><span class="s2">&quot;argument to Observation.file_path must be a relative path (</span><span class="si">{</span><span class="n">path</span><span class="si">}</span><span class="s2">)&quot;</span>
@@ -357,8 +357,8 @@
         <span class="k">return</span> <span class="n">wp</span>
 
     <span class="nd">@stored_result</span><span class="p">(</span><span class="s2">&quot;seq_summary&quot;</span><span class="p">,</span> <span class="n">fmt</span><span class="o">=</span><span class="s2">&quot;json&quot;</span><span class="p">,</span> <span class="n">subdir</span><span class="o">=</span><span class="s2">&quot;cache&quot;</span><span class="p">)</span>
-    <span class="k">def</span> <span class="nf">_get_sequence_summary</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="k">def</span> <span class="nf">parse_name_value</span><span class="p">(</span><span class="n">child</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_get_sequence_summary</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">def</span><span class="w"> </span><span class="nf">parse_name_value</span><span class="p">(</span><span class="n">child</span><span class="p">):</span>
             <span class="n">names</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;Title&quot;</span><span class="p">,</span> <span class="s2">&quot;PI&quot;</span><span class="p">,</span> <span class="s2">&quot;Observer&quot;</span><span class="p">,</span> <span class="s2">&quot;Subject Category&quot;</span><span class="p">,</span> <span class="s2">&quot;Cycle&quot;</span><span class="p">]</span>
             <span class="k">if</span> <span class="n">m</span> <span class="o">:=</span> <span class="n">re</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="s2">&quot;(.+):(.+)&quot;</span><span class="p">,</span> <span class="n">child</span><span class="p">):</span>
                 <span class="n">_name</span><span class="p">,</span> <span class="n">_value</span> <span class="o">=</span> <span class="n">m</span><span class="o">.</span><span class="n">groups</span><span class="p">()</span>
@@ -386,7 +386,7 @@
         <span class="k">return</span> <span class="n">info</span>
 
     <span class="nd">@stored_result</span><span class="p">(</span><span class="s2">&quot;obspar&quot;</span><span class="p">,</span> <span class="n">fmt</span><span class="o">=</span><span class="s2">&quot;json&quot;</span><span class="p">,</span> <span class="n">subdir</span><span class="o">=</span><span class="s2">&quot;cache&quot;</span><span class="p">)</span>
-    <span class="k">def</span> <span class="nf">get_obspar</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_obspar</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Get the contents of the obs0 file as a dictionary.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -427,7 +427,7 @@
 
     <span class="nd">@stored_result</span><span class="p">(</span><span class="s2">&quot;ra_dec_wcs&quot;</span><span class="p">,</span> <span class="n">fmt</span><span class="o">=</span><span class="s2">&quot;pickle&quot;</span><span class="p">,</span> <span class="n">subdir</span><span class="o">=</span><span class="s2">&quot;cache&quot;</span><span class="p">)</span>
     <span class="nd">@dependencies</span><span class="p">(</span><span class="n">download</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;evt2&quot;</span><span class="p">])</span>
-    <span class="k">def</span> <span class="nf">get_ra_dec_wcs</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_ra_dec_wcs</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Get WCS to convert between sky coordinates (x, y) and (ra, dec).</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -441,7 +441,7 @@
 
 <div class="viewcode-block" id="Observation.get_off_axis_angle">
 <a class="viewcode-back" href="../../api.html#astromon.observation.Observation.get_off_axis_angle">[docs]</a>
-    <span class="k">def</span> <span class="nf">get_off_axis_angle</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ra</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">dec</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">x</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_off_axis_angle</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ra</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">dec</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">x</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Get APPROXIMATE off-axis angle in arcmin for given (ra, dec) or sky (x, y) coordinates.</span>
 
@@ -489,7 +489,7 @@
 
 
     <span class="nd">@logging_call_decorator</span>
-    <span class="k">def</span> <span class="nf">_download_archive</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ftypes</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_download_archive</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ftypes</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Download data from chandra public archive using CIAO&#39;s download_chandra_obsid</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -527,7 +527,7 @@
             <span class="k">if</span> <span class="n">process</span><span class="o">.</span><span class="n">returncode</span><span class="p">:</span>
                 <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">obsid</span><span class="si">}</span><span class="s2"> failed to download&quot;</span><span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">_download_arc5gl</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ftypes</span><span class="p">,</span> <span class="n">revision</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">force</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_download_arc5gl</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ftypes</span><span class="p">,</span> <span class="n">revision</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">force</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Download data from chandra public archive</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -574,7 +574,7 @@
 <div class="viewcode-block" id="Observation.download">
 <a class="viewcode-back" href="../../api.html#astromon.observation.Observation.download">[docs]</a>
     <span class="nd">@logging_call_decorator</span>
-    <span class="k">def</span> <span class="nf">download</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ftypes</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">revision</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">force</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">download</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ftypes</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">revision</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">force</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Download observation files using the Chandra archive or arc5gl.</span>
 
@@ -597,7 +597,7 @@
 <div class="viewcode-block" id="Observation.archive">
 <a class="viewcode-back" href="../../api.html#astromon.observation.Observation.archive">[docs]</a>
     <span class="nd">@logging_call_decorator</span>
-    <span class="k">def</span> <span class="nf">archive</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">regex</span><span class="p">,</span> <span class="n">destination</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">archive</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">regex</span><span class="p">,</span> <span class="n">destination</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Move observation files to an archive location.</span>
 
@@ -649,7 +649,7 @@
 <div class="viewcode-block" id="Observation.repro">
 <a class="viewcode-back" href="../../api.html#astromon.observation.Observation.repro">[docs]</a>
     <span class="nd">@logging_call_decorator</span>
-    <span class="k">def</span> <span class="nf">repro</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">repro</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Reprocess data.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -670,7 +670,7 @@
 <div class="viewcode-block" id="Observation.make_images">
 <a class="viewcode-back" href="../../api.html#astromon.observation.Observation.make_images">[docs]</a>
     <span class="nd">@logging_call_decorator</span>
-    <span class="k">def</span> <span class="nf">make_images</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">make_images</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Create image. Also creates the exposure map and psfmap.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -680,7 +680,7 @@
 <div class="viewcode-block" id="Observation.run_wavdetect">
 <a class="viewcode-back" href="../../api.html#astromon.observation.Observation.run_wavdetect">[docs]</a>
     <span class="nd">@logging_call_decorator</span>
-    <span class="k">def</span> <span class="nf">run_wavdetect</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">run_wavdetect</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Run wavdetect.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -690,7 +690,7 @@
 <div class="viewcode-block" id="Observation.run_celldetect">
 <a class="viewcode-back" href="../../api.html#astromon.observation.Observation.run_celldetect">[docs]</a>
     <span class="nd">@logging_call_decorator</span>
-    <span class="k">def</span> <span class="nf">run_celldetect</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">run_celldetect</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Run celldetect.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -700,7 +700,7 @@
 <div class="viewcode-block" id="Observation.filter_events">
 <a class="viewcode-back" href="../../api.html#astromon.observation.Observation.filter_events">[docs]</a>
     <span class="nd">@logging_call_decorator</span>
-    <span class="k">def</span> <span class="nf">filter_events</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">filter_events</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Filter x-ray events outside a radius around the optical axis.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -710,7 +710,7 @@
 <div class="viewcode-block" id="Observation.filter_sources">
 <a class="viewcode-back" href="../../api.html#astromon.observation.Observation.filter_sources">[docs]</a>
     <span class="nd">@logging_call_decorator</span>
-    <span class="k">def</span> <span class="nf">filter_sources</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">filter_sources</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Filter detected sources outside a radius around the optical axis.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -729,7 +729,7 @@
         <span class="p">},</span>
     <span class="p">)</span>
     <span class="nd">@logging_call_decorator</span>
-    <span class="k">def</span> <span class="nf">calculate_centroids</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">calculate_centroids</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Re-compute centroids.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -768,7 +768,7 @@
 
 
     <span class="nd">@property</span>
-    <span class="k">def</span> <span class="nf">is_selected</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">is_selected</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Check if the observation fulfills the requirements for astromon processing.</span>
 
@@ -801,7 +801,7 @@
 <div class="viewcode-block" id="Observation.process">
 <a class="viewcode-back" href="../../api.html#astromon.observation.Observation.process">[docs]</a>
     <span class="nd">@logging_call_decorator</span>
-    <span class="k">def</span> <span class="nf">process</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">process</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Main routine to process a single obsid with &quot;standard&quot; steps.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -842,7 +842,7 @@
         <span class="p">},</span>
     <span class="p">)</span>
     <span class="nd">@logging_call_decorator</span>
-    <span class="k">def</span> <span class="nf">_get_sources</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">version</span><span class="o">=</span><span class="s2">&quot;celldetect&quot;</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_get_sources</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">version</span><span class="o">=</span><span class="s2">&quot;celldetect&quot;</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Read the output from CIAO source detection, add some columns, and return an astropy Table.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -904,7 +904,7 @@
         <span class="k">return</span> <span class="n">sources</span>
 
     <span class="nd">@stored_result</span><span class="p">(</span><span class="s2">&quot;sources&quot;</span><span class="p">,</span> <span class="n">fmt</span><span class="o">=</span><span class="s2">&quot;table&quot;</span><span class="p">,</span> <span class="n">subdir</span><span class="o">=</span><span class="s2">&quot;cache&quot;</span><span class="p">)</span>
-    <span class="k">def</span> <span class="nf">get_sources</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">version</span><span class="o">=</span><span class="s2">&quot;celldetect&quot;</span><span class="p">,</span> <span class="n">astromon_format</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_sources</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">version</span><span class="o">=</span><span class="s2">&quot;celldetect&quot;</span><span class="p">,</span> <span class="n">astromon_format</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Returns a table of sources formatted for the astromon_xray_source SQL table.</span>
 
@@ -948,7 +948,7 @@
             <span class="k">else</span> <span class="n">sources</span>
         <span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">_pileup_value</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">src</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_pileup_value</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">src</span><span class="p">):</span>
         <span class="n">pileup_file</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_path</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;images/</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">obsid</span><span class="si">}</span><span class="s2">_pileup_smeared.img&quot;</span><span class="p">)</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="n">pileup_file</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
             <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">src</span><span class="p">))</span>
@@ -964,7 +964,7 @@
         <span class="n">pix</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">wcs</span><span class="o">.</span><span class="n">world_to_pixel</span><span class="p">(</span><span class="n">loc</span><span class="p">))</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">int</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">hdus</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">data</span><span class="p">[(</span><span class="n">pix</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">pix</span><span class="p">[</span><span class="mi">0</span><span class="p">])]</span>
 
-    <span class="k">def</span> <span class="nf">_on_acis_streak</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">src</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_on_acis_streak</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">src</span><span class="p">):</span>
         <span class="n">acis_streaks_file</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_path</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;images/</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">obsid</span><span class="si">}</span><span class="s2">_acis_streaks.fits&quot;</span><span class="p">)</span>
         <span class="n">result</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">src</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">bool</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">acis_streaks_file</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
@@ -979,7 +979,7 @@
         <span class="k">return</span> <span class="n">result</span>
 
     <span class="nd">@property</span>
-    <span class="k">def</span> <span class="nf">archive_file_locations</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">archive_file_locations</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="n">instrument</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_obspar</span><span class="p">()[</span><span class="s2">&quot;instrument&quot;</span><span class="p">]</span>
         <span class="k">return</span> <span class="p">{</span>
             <span class="s2">&quot;obspar&quot;</span><span class="p">:</span> <span class="p">(</span><span class="s2">&quot;obspar&quot;</span><span class="p">,</span> <span class="s2">&quot;.&quot;</span><span class="p">),</span>
@@ -999,7 +999,7 @@
         <span class="p">}</span>
 
     <span class="nd">@stored_result</span><span class="p">(</span><span class="s2">&quot;calalign&quot;</span><span class="p">,</span> <span class="n">fmt</span><span class="o">=</span><span class="s2">&quot;json&quot;</span><span class="p">,</span> <span class="n">subdir</span><span class="o">=</span><span class="s2">&quot;cache&quot;</span><span class="p">)</span>
-    <span class="k">def</span> <span class="nf">get_calalign</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_calalign</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">download</span><span class="p">([</span><span class="s2">&quot;acal&quot;</span><span class="p">])</span>
         <span class="n">cal_file</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_glob</span><span class="p">(</span><span class="s2">&quot;secondary/*acal*fits*&quot;</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">cal_file</span><span class="p">:</span>
@@ -1013,11 +1013,11 @@
             <span class="n">calalign</span><span class="p">[</span><span class="s2">&quot;caldb_version&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">hdus</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">header</span><span class="p">[</span><span class="s2">&quot;CALDBVER&quot;</span><span class="p">]</span>
             <span class="k">return</span> <span class="n">calalign</span>
 
-    <span class="k">def</span> <span class="nf">get_asol_files</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_asol_files</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="k">return</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">file_path</span><span class="p">(</span><span class="n">f</span><span class="p">)</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_asol_files_cached</span><span class="p">()]</span>
 
     <span class="nd">@stored_result</span><span class="p">(</span><span class="s2">&quot;asol&quot;</span><span class="p">,</span> <span class="n">subdir</span><span class="o">=</span><span class="s2">&quot;cache&quot;</span><span class="p">)</span>
-    <span class="k">def</span> <span class="nf">_get_asol_files_cached</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_get_asol_files_cached</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="c1"># this function is cached because it downloads the events file if needed</span>
         <span class="c1"># and that can be slow.</span>
         <span class="c1"># asol file is specified in events file header</span>
@@ -1066,7 +1066,7 @@
 
 <div class="viewcode-block" id="Observation.dmcoords">
 <a class="viewcode-back" href="../../api.html#astromon.observation.Observation.dmcoords">[docs]</a>
-    <span class="k">def</span> <span class="nf">dmcoords</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">dmcoords</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Call dmcoords with the given arguments.</span>
 
@@ -1143,7 +1143,7 @@
         <span class="s2">&quot;band&quot;</span><span class="p">:</span> <span class="k">lambda</span> <span class="n">obs</span><span class="p">:</span> <span class="s2">&quot;wide&quot;</span> <span class="k">if</span> <span class="n">obs</span><span class="o">.</span><span class="n">is_hrc</span> <span class="k">else</span> <span class="s2">&quot;broad&quot;</span><span class="p">,</span>
     <span class="p">},</span>
 <span class="p">)</span>
-<span class="k">def</span> <span class="nf">make_images</span><span class="p">(</span><span class="n">obs</span><span class="p">,</span> <span class="n">inputs</span><span class="p">,</span> <span class="n">outputs</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">make_images</span><span class="p">(</span><span class="n">obs</span><span class="p">,</span> <span class="n">inputs</span><span class="p">,</span> <span class="n">outputs</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Create image. Also creates the exposure map and psfmap.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
@@ -1229,13 +1229,25 @@
                 <span class="n">clobber</span><span class="o">=</span><span class="s2">&quot;yes&quot;</span><span class="p">,</span>
                 <span class="n">logging_tag</span><span class="o">=</span><span class="n">logging_tag</span><span class="p">,</span>
             <span class="p">)</span>
-            <span class="n">ciao</span><span class="p">(</span>
-                <span class="s2">&quot;dmmakereg&quot;</span><span class="p">,</span>
-                <span class="sa">f</span><span class="s2">&quot;region(</span><span class="si">{</span><span class="n">acis_streaks_file_ascii</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">,</span>
-                <span class="n">outputs</span><span class="p">[</span><span class="s2">&quot;acis_streaks&quot;</span><span class="p">],</span>
-                <span class="s2">&quot;kernel=fits&quot;</span><span class="p">,</span>
-                <span class="s2">&quot;clobber=yes&quot;</span><span class="p">,</span>
-            <span class="p">)</span>
+            <span class="c1"># to make matters worse, dmmakereg chokes on txt files with no regions</span>
+            <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">acis_streaks_file_ascii</span><span class="p">,</span> <span class="s2">&quot;r&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">fh</span><span class="p">:</span>
+                <span class="n">n_regions</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span>
+                    <span class="p">[</span><span class="n">line</span> <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">fh</span><span class="o">.</span><span class="n">readlines</span><span class="p">()</span> <span class="k">if</span> <span class="n">re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="s2">&quot;Polygon&quot;</span><span class="p">,</span> <span class="n">line</span><span class="p">)]</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">n_regions</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">obs</span><span class="o">.</span><span class="n">ciao</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">logging_tag</span><span class="si">}</span><span class="s2"> acis_streak_map found </span><span class="si">{</span><span class="n">n_regions</span><span class="si">}</span><span class="s2"> streaks&quot;</span>
+                <span class="p">)</span>
+                <span class="n">ciao</span><span class="p">(</span>
+                    <span class="s2">&quot;dmmakereg&quot;</span><span class="p">,</span>
+                    <span class="sa">f</span><span class="s2">&quot;region(</span><span class="si">{</span><span class="n">acis_streaks_file_ascii</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">,</span>
+                    <span class="n">outputs</span><span class="p">[</span><span class="s2">&quot;acis_streaks&quot;</span><span class="p">],</span>
+                    <span class="s2">&quot;kernel=fits&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;clobber=yes&quot;</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="c1"># we want feedback to go to the same place as the output from CIAO</span>
+                <span class="n">obs</span><span class="o">.</span><span class="n">ciao</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">logging_tag</span><span class="si">}</span><span class="s2"> acis_streak_map found no streaks&quot;</span><span class="p">)</span>
         <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
             <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">obsid</span><span class="si">}</span><span class="s2">   acis_streak_map failed&quot;</span><span class="p">)</span>
 
@@ -1260,7 +1272,7 @@
     <span class="p">},</span>
     <span class="n">download</span><span class="o">=</span><span class="p">([</span><span class="s2">&quot;evt2&quot;</span><span class="p">]),</span>
 <span class="p">)</span>
-<span class="k">def</span> <span class="nf">wavdetect</span><span class="p">(</span><span class="n">obs</span><span class="p">,</span> <span class="n">inputs</span><span class="p">,</span> <span class="n">outputs</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">wavdetect</span><span class="p">(</span><span class="n">obs</span><span class="p">,</span> <span class="n">inputs</span><span class="p">,</span> <span class="n">outputs</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Run wavdetect.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
@@ -1323,7 +1335,7 @@
     <span class="p">},</span>
     <span class="n">download</span><span class="o">=</span><span class="p">([</span><span class="s2">&quot;evt2&quot;</span><span class="p">]),</span>
 <span class="p">)</span>
-<span class="k">def</span> <span class="nf">gaussian_detect</span><span class="p">(</span><span class="n">obs</span><span class="p">,</span> <span class="n">inputs</span><span class="p">,</span> <span class="n">outputs</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">gaussian_detect</span><span class="p">(</span><span class="n">obs</span><span class="p">,</span> <span class="n">inputs</span><span class="p">,</span> <span class="n">outputs</span><span class="p">):</span>
     <span class="n">box_size</span> <span class="o">=</span> <span class="mi">4</span>
 
     <span class="n">dtype</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">dtype</span><span class="p">(</span>
@@ -1523,7 +1535,7 @@
     <span class="p">},</span>
     <span class="n">download</span><span class="o">=</span><span class="p">([</span><span class="s2">&quot;evt2&quot;</span><span class="p">]),</span>
 <span class="p">)</span>
-<span class="k">def</span> <span class="nf">celldetect</span><span class="p">(</span><span class="n">obs</span><span class="p">,</span> <span class="n">inputs</span><span class="p">,</span> <span class="n">outputs</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">celldetect</span><span class="p">(</span><span class="n">obs</span><span class="p">,</span> <span class="n">inputs</span><span class="p">,</span> <span class="n">outputs</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Run celldetect.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
@@ -1554,7 +1566,7 @@
         <span class="s2">&quot;psf_size&quot;</span><span class="p">:</span> <span class="s2">&quot;sources/</span><span class="si">{obsid}</span><span class="s2">_psf_size_celldetect.fits&quot;</span><span class="p">,</span>
     <span class="p">},</span>
 <span class="p">)</span>
-<span class="k">def</span> <span class="nf">celldetect_psf_size</span><span class="p">(</span><span class="n">obs</span><span class="p">,</span> <span class="n">inputs</span><span class="p">,</span> <span class="n">outputs</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">celldetect_psf_size</span><span class="p">(</span><span class="n">obs</span><span class="p">,</span> <span class="n">inputs</span><span class="p">,</span> <span class="n">outputs</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Run celldetect.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
@@ -1588,7 +1600,7 @@
     <span class="p">},</span>
     <span class="n">download</span><span class="o">=</span><span class="p">([</span><span class="s2">&quot;evt2&quot;</span><span class="p">,</span> <span class="s2">&quot;fov&quot;</span><span class="p">]),</span>
 <span class="p">)</span>
-<span class="k">def</span> <span class="nf">filter_events</span><span class="p">(</span><span class="n">obs</span><span class="p">,</span> <span class="n">inputs</span><span class="p">,</span> <span class="n">outputs</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">filter_events</span><span class="p">(</span><span class="n">obs</span><span class="p">,</span> <span class="n">inputs</span><span class="p">,</span> <span class="n">outputs</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Filter x-ray events outside a radius around the optical axis.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
@@ -1643,7 +1655,7 @@
     <span class="p">},</span>
     <span class="n">download</span><span class="o">=</span><span class="p">([</span><span class="s2">&quot;evt2&quot;</span><span class="p">]),</span>
 <span class="p">)</span>
-<span class="k">def</span> <span class="nf">filter_sources</span><span class="p">(</span><span class="n">obs</span><span class="p">,</span> <span class="n">inputs</span><span class="p">,</span> <span class="n">outputs</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">filter_sources</span><span class="p">(</span><span class="n">obs</span><span class="p">,</span> <span class="n">inputs</span><span class="p">,</span> <span class="n">outputs</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Filter detected sources outside a radius around the optical axis.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
@@ -1674,7 +1686,7 @@
     <span class="p">)</span>
 
 
-<span class="k">def</span> <span class="nf">get_parser</span><span class="p">():</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_parser</span><span class="p">():</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Get the argument parser to process a set of observations.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
@@ -1706,17 +1718,17 @@
     <span class="k">return</span> <span class="n">parser</span>
 
 
-<span class="k">def</span> <span class="nf">_process</span><span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_process</span><span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
     <span class="n">observation</span> <span class="o">=</span> <span class="n">Observation</span><span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
     <span class="n">observation</span><span class="o">.</span><span class="n">process</span><span class="p">()</span>
 
 
-<span class="k">def</span> <span class="nf">main</span><span class="p">():</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">():</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Main routine to process a set of observations.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="kn">from</span> <span class="nn">functools</span> <span class="kn">import</span> <span class="n">partial</span>  <span class="c1"># noqa: PLC0415</span>
-    <span class="kn">from</span> <span class="nn">multiprocessing</span> <span class="kn">import</span> <span class="n">Pool</span>  <span class="c1"># noqa: PLC0415</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">functools</span><span class="w"> </span><span class="kn">import</span> <span class="n">partial</span>  <span class="c1"># noqa: PLC0415</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">multiprocessing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Pool</span>  <span class="c1"># noqa: PLC0415</span>
 
     <span class="n">args</span> <span class="o">=</span> <span class="n">get_parser</span><span class="p">()</span><span class="o">.</span><span class="n">parse_args</span><span class="p">()</span>
 
@@ -1774,7 +1786,7 @@
     <a href="#">Back to Top</a></p>
   <p>
     &copy; Copyright 2022, Jean Connelly, Tom Aldcroft, Javier Gonzalez.<br/>
-    Created using <a href="http://www.sphinx-doc.org/en/stable/">Sphinx</a> 8.1.3. &nbsp;
+    Created using <a href="http://www.sphinx-doc.org/en/stable/">Sphinx</a> 9.1.0. &nbsp;
   </p>
 </footer>
   </body>

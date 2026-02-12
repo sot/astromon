@@ -5,13 +5,13 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Astromon Components &#8212; Astromon 1.3.0 documentation</title>
-    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=fa44fd50" />
+    <title>Astromon Components &#8212; Astromon 1.3.1 documentation</title>
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=03e43079" />
     <link rel="stylesheet" type="text/css" href="_static/bootstrap-astropy.css?v=f4f7060c" />
     
-    <script src="_static/documentation_options.js?v=1f29e9d3"></script>
-    <script src="_static/doctools.js?v=9bcbadda"></script>
-    <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/documentation_options.js?v=bb516dca"></script>
+    <script src="_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script type="text/javascript" src="_static/sidebar.js"></script>
     <script type="text/javascript" src="_static/copybutton.js"></script>
     <link rel="index" title="Index" href="genindex.html" />
@@ -58,7 +58,7 @@
 	 |
       </li>
       <li>
-	<a href="index.html">Astromon 1.3.0 documentation</a>
+	<a href="index.html">Astromon 1.3.1 documentation</a>
 	 &#187;
       </li>
       
@@ -125,7 +125,7 @@ from analysis.</p></li>
 </ul>
 <p>Astromon data can be accessed through the <a class="reference internal" href="api.html#module-astromon.db" title="astromon.db"><code class="xref any py py-mod docutils literal notranslate"><span class="pre">astromon.db</span></code></a> module using convenience functions that
 return the tables as an <a class="reference external" href="https://docs.astropy.org/en/stable/table/index.html#astropy-table" title="(in Astropy v7.2)"><span class="xref std std-ref">Astropy Table</span></a></p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">astromon</span> <span class="kn">import</span> <span class="n">db</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">astromon</span><span class="w"> </span><span class="kn">import</span> <span class="n">db</span>
 <span class="n">matches</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get_cross_matches</span><span class="p">()</span>
 <span class="n">observations</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get_table</span><span class="p">(</span><span class="s1">&#39;astromon_obs&#39;</span><span class="p">)</span>
 <span class="n">xray_src</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get_table</span><span class="p">(</span><span class="s1">&#39;astromon_xray_src&#39;</span><span class="p">)</span>
@@ -146,14 +146,14 @@ defining the ASTROMON_FILE environmental variable.</p>
 <a class="reference internal" href="api.html#module-astromon.observation" title="astromon.observation"><code class="xref any py py-mod docutils literal notranslate"><span class="pre">astromon.observation</span></code></a> module. The main component is the Observation class, which encapsulates
 all calls to arc5gl, CIAO scripts, etc</p>
 <p>The following statement instanciates an observation:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">astromon.observation</span> <span class="kn">import</span> <span class="n">Observation</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">astromon.observation</span><span class="w"> </span><span class="kn">import</span> <span class="n">Observation</span>
 <span class="n">obs</span> <span class="o">=</span> <span class="n">Observation</span><span class="p">(</span><span class="mi">8008</span><span class="p">)</span>
 </pre></div>
 </div>
 <p>Upon creation, if the files corresponding to the observation are not available locally, it will use
 arc5gl to download them. The files are stored locally in a temporary directory unless a working
 directory is given to the constructor:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">astromon.observation</span> <span class="kn">import</span> <span class="n">Observation</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">astromon.observation</span><span class="w"> </span><span class="kn">import</span> <span class="n">Observation</span>
 <span class="n">obs</span> <span class="o">=</span> <span class="n">Observation</span><span class="p">(</span><span class="mi">8008</span><span class="p">,</span> <span class="n">workdir</span><span class="o">=</span><span class="s1">&#39;./astromon/work&#39;</span><span class="p">)</span>
 </pre></div>
 </div>
@@ -219,7 +219,7 @@ prescribed sequence of commands that should result in the creation of files with
     <a href="#">Back to Top</a></p>
   <p>
     &copy; Copyright 2022, Jean Connelly, Tom Aldcroft, Javier Gonzalez.<br/>
-    Created using <a href="http://www.sphinx-doc.org/en/stable/">Sphinx</a> 8.1.3. &nbsp;
+    Created using <a href="http://www.sphinx-doc.org/en/stable/">Sphinx</a> 9.1.0. &nbsp;
   </p>
 </footer>
   </body>

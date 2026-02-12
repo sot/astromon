@@ -4,13 +4,13 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>astromon.utils &#8212; Astromon 1.3.0 documentation</title>
-    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=fa44fd50" />
+    <title>astromon.utils &#8212; Astromon 1.3.1 documentation</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=03e43079" />
     <link rel="stylesheet" type="text/css" href="../../_static/bootstrap-astropy.css?v=f4f7060c" />
     
-    <script src="../../_static/documentation_options.js?v=1f29e9d3"></script>
-    <script src="../../_static/doctools.js?v=9bcbadda"></script>
-    <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/documentation_options.js?v=bb516dca"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script type="text/javascript" src="../../_static/sidebar.js"></script>
     <script type="text/javascript" src="../../_static/copybutton.js"></script>
     <link rel="index" title="Index" href="../../genindex.html" />
@@ -44,7 +44,7 @@
     <h3>Navigation</h3>
     <ul>
       <li>
-	<a href="../../index.html">Astromon 1.3.0 documentation</a>
+	<a href="../../index.html">Astromon 1.3.1 documentation</a>
 	 &#187;
       </li>
       <li><a href="../index.html" accesskey="U">Module code</a> &#187;</li>
@@ -60,23 +60,23 @@
           <div class="body" role="main">
             
   <h1>Source code for astromon.utils</h1><div class="highlight"><pre>
-<span></span><span class="kn">import</span> <span class="nn">functools</span>
-<span class="kn">import</span> <span class="nn">logging</span>
-<span class="kn">import</span> <span class="nn">os</span>
-<span class="kn">import</span> <span class="nn">re</span>
-<span class="kn">import</span> <span class="nn">subprocess</span>
-<span class="kn">import</span> <span class="nn">tempfile</span>
-<span class="kn">import</span> <span class="nn">warnings</span>
-<span class="kn">from</span> <span class="nn">contextlib</span> <span class="kn">import</span> <span class="n">AbstractContextManager</span>
-<span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
+<span></span><span class="kn">import</span><span class="w"> </span><span class="nn">functools</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">re</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">subprocess</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">tempfile</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">contextlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">AbstractContextManager</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
 
-<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
-<span class="kn">import</span> <span class="nn">Ska.Shell</span>
-<span class="kn">from</span> <span class="nn">astropy.io</span> <span class="kn">import</span> <span class="n">fits</span>
-<span class="kn">from</span> <span class="nn">astropy.table</span> <span class="kn">import</span> <span class="n">Table</span><span class="p">,</span> <span class="n">hstack</span><span class="p">,</span> <span class="n">join</span>
-<span class="kn">from</span> <span class="nn">astropy.wcs</span> <span class="kn">import</span> <span class="n">WCS</span><span class="p">,</span> <span class="n">FITSFixedWarning</span>
-<span class="kn">from</span> <span class="nn">cxotime</span> <span class="kn">import</span> <span class="n">CxoTime</span>
-<span class="kn">from</span> <span class="nn">Quaternion</span> <span class="kn">import</span> <span class="n">Quat</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">Ska.Shell</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">astropy.io</span><span class="w"> </span><span class="kn">import</span> <span class="n">fits</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">astropy.table</span><span class="w"> </span><span class="kn">import</span> <span class="n">Table</span><span class="p">,</span> <span class="n">hstack</span><span class="p">,</span> <span class="n">join</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">astropy.wcs</span><span class="w"> </span><span class="kn">import</span> <span class="n">WCS</span><span class="p">,</span> <span class="n">FITSFixedWarning</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">cxotime</span><span class="w"> </span><span class="kn">import</span> <span class="n">CxoTime</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">Quaternion</span><span class="w"> </span><span class="kn">import</span> <span class="n">Quat</span>
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
     <span class="s2">&quot;communicate&quot;</span><span class="p">,</span>
@@ -94,21 +94,21 @@
 <span class="n">CIAO_ENV</span> <span class="o">=</span> <span class="p">{}</span>
 
 
-<span class="k">class</span> <span class="nc">MissingTableException</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">MissingTableException</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Exception class in case a table is missing in the DB file.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
 
-<span class="k">class</span> <span class="nc">CiaoProcessFailure</span><span class="p">(</span><span class="ne">RuntimeError</span><span class="p">):</span>
-    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="n">lines</span><span class="o">=</span><span class="p">(),</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">CiaoProcessFailure</span><span class="p">(</span><span class="ne">RuntimeError</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="n">lines</span><span class="o">=</span><span class="p">(),</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">lines</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">lines</span><span class="p">)</span>
 
 
 <div class="viewcode-block" id="communicate">
 <a class="viewcode-back" href="../../api.html#astromon.utils.communicate">[docs]</a>
-<span class="k">def</span> <span class="nf">communicate</span><span class="p">(</span><span class="n">process</span><span class="p">,</span> <span class="n">logger</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="s2">&quot;WARNING&quot;</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">logging_tag</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">communicate</span><span class="p">(</span><span class="n">process</span><span class="p">,</span> <span class="n">logger</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="s2">&quot;WARNING&quot;</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">logging_tag</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Real-time reading of a subprocess stdout.</span>
 
@@ -152,7 +152,7 @@
 
 <div class="viewcode-block" id="Ciao">
 <a class="viewcode-back" href="../../api.html#astromon.utils.Ciao">[docs]</a>
-<span class="k">class</span> <span class="nc">Ciao</span><span class="p">:</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">Ciao</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Encapsulate calls to CIAO tools.</span>
 
@@ -171,7 +171,7 @@
 <span class="sd">        If not provided, the root logger is used.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
-    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">prefix</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">workdir</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">logger</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">prefix</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">workdir</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">logger</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
         <span class="k">if</span> <span class="n">prefix</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">prefix</span> <span class="o">=</span> <span class="s2">&quot;/soft/ciao&quot;</span>
         <span class="k">if</span> <span class="n">workdir</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
@@ -205,7 +205,7 @@
             <span class="p">)</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">env</span><span class="p">[</span><span class="s2">&quot;PFILES&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">pf</span>
 
-    <span class="k">def</span> <span class="fm">__call__</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__call__</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">name</span><span class="p">,</span>
         <span class="o">*</span><span class="n">args</span><span class="p">,</span>
@@ -232,7 +232,7 @@
 
 <div class="viewcode-block" id="Ciao.pget">
 <a class="viewcode-back" href="../../api.html#astromon.utils.Ciao.pget">[docs]</a>
-    <span class="k">def</span> <span class="nf">pget</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">command</span><span class="p">,</span> <span class="n">param</span><span class="o">=</span><span class="s2">&quot;value&quot;</span><span class="p">,</span> <span class="n">logging_tag</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">pget</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">command</span><span class="p">,</span> <span class="n">param</span><span class="o">=</span><span class="s2">&quot;value&quot;</span><span class="p">,</span> <span class="n">logging_tag</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Call CIAO&#39;s pget and return the standard output.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -252,7 +252,7 @@
 
 
 
-<span class="k">def</span> <span class="nf">set_ciao_context</span><span class="p">(</span><span class="n">directory</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">set_ciao_context</span><span class="p">(</span><span class="n">directory</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Set the environment variables used by CIAO (PFILES and ASCDS_WORK_PATH).</span>
 <span class="sd">    &quot;&quot;&quot;</span>
@@ -271,23 +271,23 @@
 
 <div class="viewcode-block" id="chdir">
 <a class="viewcode-back" href="../../api.html#astromon.utils.chdir">[docs]</a>
-<span class="k">class</span> <span class="nc">chdir</span><span class="p">(</span><span class="n">AbstractContextManager</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">chdir</span><span class="p">(</span><span class="n">AbstractContextManager</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Context manager to temporarily change to a directory.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
-    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">directory</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">directory</span><span class="p">):</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">cwd</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">getcwd</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">directory</span> <span class="o">=</span> <span class="n">directory</span>
         <span class="n">os</span><span class="o">.</span><span class="n">chdir</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">directory</span><span class="p">)</span>
 
-    <span class="k">def</span> <span class="fm">__exit__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">exc_type</span><span class="p">,</span> <span class="n">exc_value</span><span class="p">,</span> <span class="n">exc_traceback</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__exit__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">exc_type</span><span class="p">,</span> <span class="n">exc_value</span><span class="p">,</span> <span class="n">exc_traceback</span><span class="p">):</span>
         <span class="n">os</span><span class="o">.</span><span class="n">chdir</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">cwd</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">exc_type</span> <span class="ow">is</span> <span class="kc">None</span></div>
 
 
 
-<span class="k">class</span> <span class="nc">CIAOContext</span><span class="p">(</span><span class="n">AbstractContextManager</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">CIAOContext</span><span class="p">(</span><span class="n">AbstractContextManager</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Context manager to set CIAO context (PFILES and ASCDS_WORK_PATH)</span>
 
@@ -299,14 +299,14 @@
 <span class="sd">        If not provided, the root logger is used.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
-    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">directory</span><span class="p">,</span> <span class="n">logger</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">directory</span><span class="p">,</span> <span class="n">logger</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">directory</span> <span class="o">=</span> <span class="n">directory</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span> <span class="k">if</span> <span class="n">logger</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">logger</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;entering ciao context </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">directory</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">env</span> <span class="o">=</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="p">[</span><span class="s2">&quot;ASCDS_WORK_PATH&quot;</span><span class="p">,</span> <span class="s2">&quot;PFILES&quot;</span><span class="p">]}</span>
         <span class="n">set_ciao_context</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">directory</span><span class="p">)</span>
 
-    <span class="k">def</span> <span class="fm">__exit__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">exc_type</span><span class="p">,</span> <span class="n">exc_value</span><span class="p">,</span> <span class="n">exc_traceback</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__exit__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">exc_type</span><span class="p">,</span> <span class="n">exc_value</span><span class="p">,</span> <span class="n">exc_traceback</span><span class="p">):</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;leaving ciao context </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">directory</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">update</span><span class="p">(</span>
             <span class="p">{</span><span class="n">key</span><span class="p">:</span> <span class="n">val</span> <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">val</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">env</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">val</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">}</span>
@@ -314,7 +314,7 @@
         <span class="k">return</span> <span class="n">exc_type</span> <span class="ow">is</span> <span class="kc">None</span>
 
 
-<span class="k">def</span> <span class="nf">ciao_context_function</span><span class="p">(</span><span class="n">func</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">ciao_context_function</span><span class="p">(</span><span class="n">func</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Decorator to set the CIAO parameters directory within the context of a member function.</span>
 
@@ -326,7 +326,7 @@
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="nd">@functools</span><span class="o">.</span><span class="n">wraps</span><span class="p">(</span><span class="n">func</span><span class="p">)</span>
-    <span class="k">def</span> <span class="nf">ciao_context_wrapper</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">ciao_context_wrapper</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
         <span class="k">with</span> <span class="n">CIAOContext</span><span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">workdir</span> <span class="o">/</span> <span class="bp">self</span><span class="o">.</span><span class="n">obsid</span> <span class="o">/</span> <span class="s2">&quot;params&quot;</span><span class="p">,</span>
             <span class="n">logger</span><span class="o">=</span><span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s2">&quot;astromon.utils&quot;</span><span class="p">),</span>
@@ -350,19 +350,19 @@
 <span class="sd">&quot;&quot;&quot;</span>
 
 
-<span class="k">class</span> <span class="nc">LoggingCallDecorator</span><span class="p">:</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">LoggingCallDecorator</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Decorator to add logging messages at the start/end of the decorated function.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
-    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">logger</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">log_level</span><span class="o">=</span><span class="n">logging</span><span class="o">.</span><span class="n">DEBUG</span><span class="p">,</span> <span class="n">ignore_exceptions</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">logger</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">log_level</span><span class="o">=</span><span class="n">logging</span><span class="o">.</span><span class="n">DEBUG</span><span class="p">,</span> <span class="n">ignore_exceptions</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">logger</span> <span class="o">=</span> <span class="n">logger</span> <span class="k">if</span> <span class="n">logger</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">logging</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">log_level</span> <span class="o">=</span> <span class="n">log_level</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">ignore_exceptions</span> <span class="o">=</span> <span class="n">ignore_exceptions</span>
 
-    <span class="k">def</span> <span class="fm">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">func</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">func</span><span class="p">):</span>
         <span class="nd">@functools</span><span class="o">.</span><span class="n">wraps</span><span class="p">(</span><span class="n">func</span><span class="p">)</span>
-        <span class="k">def</span> <span class="nf">_logging_call_decorator</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="k">def</span><span class="w"> </span><span class="nf">_logging_call_decorator</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
             <span class="n">args_str</span> <span class="o">=</span> <span class="p">[]</span>
             <span class="n">instance</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
             <span class="k">if</span> <span class="n">args</span><span class="p">:</span>
@@ -400,7 +400,7 @@
 
 <div class="viewcode-block" id="calalign_from_files">
 <a class="viewcode-back" href="../../api.html#astromon.utils.calalign_from_files">[docs]</a>
-<span class="k">def</span> <span class="nf">calalign_from_files</span><span class="p">(</span><span class="n">calalign_dir</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">calalign_from_files</span><span class="p">(</span><span class="n">calalign_dir</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Get data from calalign files in `calalign_dir`.</span>
 
@@ -484,7 +484,7 @@
 
 
 
-<span class="k">def</span> <span class="nf">get_offsets</span><span class="p">(</span><span class="n">aca_misalign</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_offsets</span><span class="p">(</span><span class="n">aca_misalign</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Get the yag/zag offsets from the aca_misalign matrix.</span>
 
@@ -511,7 +511,7 @@
 
 <div class="viewcode-block" id="get_calalign_offsets">
 <a class="viewcode-back" href="../../api.html#astromon.utils.get_calalign_offsets">[docs]</a>
-<span class="k">def</span> <span class="nf">get_calalign_offsets</span><span class="p">(</span><span class="n">all_matches</span><span class="p">,</span> <span class="n">ref_calalign</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">calalign_dir</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_calalign_offsets</span><span class="p">(</span><span class="n">all_matches</span><span class="p">,</span> <span class="n">ref_calalign</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">calalign_dir</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Get a table with the yag/zag offsets subtracted by the aca_misalign matrix.</span>
 
@@ -628,7 +628,7 @@
 
 
 
-<span class="k">def</span> <span class="nf">get_wcs_from_fits_header</span><span class="p">(</span><span class="n">filename</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">hdu</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">header</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_wcs_from_fits_header</span><span class="p">(</span><span class="n">filename</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">hdu</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">header</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
     <span class="k">if</span> <span class="n">filename</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">header</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Either filename or header must be provided&quot;</span><span class="p">)</span>
     <span class="k">if</span> <span class="n">filename</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">header</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
@@ -679,7 +679,7 @@
 
 <div class="viewcode-block" id="get_near_neighbor_dist">
 <a class="viewcode-back" href="../../api.html#astromon.utils.get_near_neighbor_dist">[docs]</a>
-<span class="k">def</span> <span class="nf">get_near_neighbor_dist</span><span class="p">(</span><span class="n">sources</span><span class="p">,</span> <span class="n">all_sources</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">id_col</span><span class="o">=</span><span class="s2">&quot;COMPONENT&quot;</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_near_neighbor_dist</span><span class="p">(</span><span class="n">sources</span><span class="p">,</span> <span class="n">all_sources</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">id_col</span><span class="o">=</span><span class="s2">&quot;COMPONENT&quot;</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Calculate the distance from each source in `sources` to the nearest source in `all_sources`.</span>
 
@@ -735,7 +735,7 @@
     <a href="#">Back to Top</a></p>
   <p>
     &copy; Copyright 2022, Jean Connelly, Tom Aldcroft, Javier Gonzalez.<br/>
-    Created using <a href="http://www.sphinx-doc.org/en/stable/">Sphinx</a> 8.1.3. &nbsp;
+    Created using <a href="http://www.sphinx-doc.org/en/stable/">Sphinx</a> 9.1.0. &nbsp;
   </p>
 </footer>
   </body>

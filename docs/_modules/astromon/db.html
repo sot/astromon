@@ -4,13 +4,13 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>astromon.db &#8212; Astromon 1.3.0 documentation</title>
-    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=fa44fd50" />
+    <title>astromon.db &#8212; Astromon 1.3.1 documentation</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=03e43079" />
     <link rel="stylesheet" type="text/css" href="../../_static/bootstrap-astropy.css?v=f4f7060c" />
     
-    <script src="../../_static/documentation_options.js?v=1f29e9d3"></script>
-    <script src="../../_static/doctools.js?v=9bcbadda"></script>
-    <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/documentation_options.js?v=bb516dca"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script type="text/javascript" src="../../_static/sidebar.js"></script>
     <script type="text/javascript" src="../../_static/copybutton.js"></script>
     <link rel="index" title="Index" href="../../genindex.html" />
@@ -44,7 +44,7 @@
     <h3>Navigation</h3>
     <ul>
       <li>
-	<a href="../../index.html">Astromon 1.3.0 documentation</a>
+	<a href="../../index.html">Astromon 1.3.1 documentation</a>
 	 &#187;
       </li>
       <li><a href="../index.html" accesskey="U">Module code</a> &#187;</li>
@@ -60,25 +60,25 @@
           <div class="body" role="main">
             
   <h1>Source code for astromon.db</h1><div class="highlight"><pre>
-<span></span><span class="kn">import</span> <span class="nn">hashlib</span>
-<span class="kn">import</span> <span class="nn">logging</span>
-<span class="kn">import</span> <span class="nn">os</span>
-<span class="kn">import</span> <span class="nn">warnings</span>
-<span class="kn">from</span> <span class="nn">contextlib</span> <span class="kn">import</span> <span class="n">contextmanager</span>
-<span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
+<span></span><span class="kn">import</span><span class="w"> </span><span class="nn">hashlib</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">contextlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">contextmanager</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
 
-<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
-<span class="kn">import</span> <span class="nn">tables</span>
-<span class="kn">from</span> <span class="nn">astropy</span> <span class="kn">import</span> <span class="n">table</span>
-<span class="kn">from</span> <span class="nn">astropy</span> <span class="kn">import</span> <span class="n">units</span> <span class="k">as</span> <span class="n">u</span>
-<span class="kn">from</span> <span class="nn">astropy.coordinates</span> <span class="kn">import</span> <span class="n">SkyCoord</span>
-<span class="kn">from</span> <span class="nn">astropy.table.table</span> <span class="kn">import</span> <span class="n">Table</span>
-<span class="kn">from</span> <span class="nn">cxotime</span> <span class="kn">import</span> <span class="n">CxoTime</span>
-<span class="kn">from</span> <span class="nn">mica.archive.obspar</span> <span class="kn">import</span> <span class="n">get_obspar</span>
-<span class="kn">from</span> <span class="nn">ska_helpers.retry</span> <span class="kn">import</span> <span class="n">tables_open_file</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">tables</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">astropy</span><span class="w"> </span><span class="kn">import</span> <span class="n">table</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">astropy</span><span class="w"> </span><span class="kn">import</span> <span class="n">units</span> <span class="k">as</span> <span class="n">u</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">astropy.coordinates</span><span class="w"> </span><span class="kn">import</span> <span class="n">SkyCoord</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">astropy.table.table</span><span class="w"> </span><span class="kn">import</span> <span class="n">Table</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">cxotime</span><span class="w"> </span><span class="kn">import</span> <span class="n">CxoTime</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mica.archive.obspar</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_obspar</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">ska_helpers.retry</span><span class="w"> </span><span class="kn">import</span> <span class="n">tables_open_file</span>
 
-<span class="kn">from</span> <span class="nn">astromon</span> <span class="kn">import</span> <span class="n">observation</span>
-<span class="kn">from</span> <span class="nn">astromon.utils</span> <span class="kn">import</span> <span class="n">MissingTableException</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">astromon</span><span class="w"> </span><span class="kn">import</span> <span class="n">observation</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">astromon.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">MissingTableException</span>
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
     <span class="s2">&quot;get_table&quot;</span><span class="p">,</span>
@@ -199,7 +199,7 @@
 <span class="p">}</span>
 
 
-<span class="k">def</span> <span class="nf">create_table</span><span class="p">(</span><span class="n">table_name</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">create_table</span><span class="p">(</span><span class="n">table_name</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Create an empty table using standard dtypes.</span>
 
@@ -226,7 +226,7 @@
 
 <div class="viewcode-block" id="get_table">
 <a class="viewcode-back" href="../../api.html#astromon.db.get_table">[docs]</a>
-<span class="k">def</span> <span class="nf">get_table</span><span class="p">(</span><span class="n">table_name</span><span class="p">,</span> <span class="n">dbfile</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_table</span><span class="p">(</span><span class="n">table_name</span><span class="p">,</span> <span class="n">dbfile</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Get an entire table from the DB file.</span>
 
@@ -270,14 +270,14 @@
             <span class="n">names</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="nb">set</span><span class="p">([</span><span class="n">n</span><span class="o">.</span><span class="n">name</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">con</span><span class="o">.</span><span class="n">root</span><span class="p">]</span> <span class="o">+</span> <span class="nb">list</span><span class="p">(</span><span class="n">DTYPES</span><span class="o">.</span><span class="n">keys</span><span class="p">())))</span>
             <span class="k">raise</span> <span class="n">MissingTableException</span><span class="p">(</span>
                 <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">table_name</span><span class="si">}</span><span class="s2"> not in file. Available tables: </span><span class="si">{</span><span class="n">names</span><span class="si">}</span><span class="s2">&quot;</span>
-            <span class="p">)</span> <span class="kn">from</span> <span class="kc">None</span>
+            <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="kc">None</span>
 
     <span class="k">return</span> <span class="n">result</span></div>
 
 
 
 <span class="nd">@contextmanager</span>
-<span class="k">def</span> <span class="nf">connect</span><span class="p">(</span><span class="n">dbfile</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;r&quot;</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">connect</span><span class="p">(</span><span class="n">dbfile</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;r&quot;</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Context manager that returns a DB connection (or an HDF5 file).</span>
 
@@ -321,7 +321,7 @@
 
 <div class="viewcode-block" id="save">
 <a class="viewcode-back" href="../../api.html#astromon.db.save">[docs]</a>
-<span class="k">def</span> <span class="nf">save</span><span class="p">(</span><span class="n">table_name</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="n">dbfile</span><span class="p">,</span> <span class="n">ignore_obsid</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">save</span><span class="p">(</span><span class="n">table_name</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="n">dbfile</span><span class="p">,</span> <span class="n">ignore_obsid</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Insert data into a table, deleting previous entries for the same OBSID.</span>
 
@@ -384,7 +384,7 @@
                 <span class="c1"># remove rows for these obsids</span>
                 <span class="n">obsids</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">unique</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="s2">&quot;obsid&quot;</span><span class="p">])</span>
                 <span class="n">data_out</span> <span class="o">=</span> <span class="n">node</span><span class="p">[:]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">dtype</span><span class="p">)</span>
-                <span class="n">data_out</span> <span class="o">=</span> <span class="n">data_out</span><span class="p">[</span><span class="o">~</span><span class="n">np</span><span class="o">.</span><span class="n">in1d</span><span class="p">(</span><span class="n">data_out</span><span class="p">[</span><span class="s2">&quot;obsid&quot;</span><span class="p">],</span> <span class="n">obsids</span><span class="p">)]</span>
+                <span class="n">data_out</span> <span class="o">=</span> <span class="n">data_out</span><span class="p">[</span><span class="o">~</span><span class="n">np</span><span class="o">.</span><span class="n">isin</span><span class="p">(</span><span class="n">data_out</span><span class="p">[</span><span class="s2">&quot;obsid&quot;</span><span class="p">],</span> <span class="n">obsids</span><span class="p">)]</span>
                 <span class="c1"># append current data</span>
                 <span class="n">data</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">((</span><span class="n">data_out</span><span class="p">,</span> <span class="n">data</span><span class="p">))</span>
             <span class="n">h5</span><span class="o">.</span><span class="n">remove_node</span><span class="p">(</span><span class="n">node</span><span class="p">)</span>
@@ -397,7 +397,7 @@
 
 <div class="viewcode-block" id="remove_regions">
 <a class="viewcode-back" href="../../api.html#astromon.db.remove_regions">[docs]</a>
-<span class="k">def</span> <span class="nf">remove_regions</span><span class="p">(</span><span class="n">regions</span><span class="p">,</span> <span class="n">dbfile</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">remove_regions</span><span class="p">(</span><span class="n">regions</span><span class="p">,</span> <span class="n">dbfile</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Remove exclusion regions (by ID) from the astromon_regions table.</span>
 
@@ -413,7 +413,7 @@
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">with</span> <span class="n">connect</span><span class="p">(</span><span class="n">dbfile</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;r+&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">h5</span><span class="p">:</span>
         <span class="n">all_regions</span> <span class="o">=</span> <span class="n">get_table</span><span class="p">(</span><span class="s2">&quot;astromon_regions&quot;</span><span class="p">,</span> <span class="n">h5</span><span class="p">)</span>
-        <span class="n">sel</span> <span class="o">=</span> <span class="o">~</span><span class="n">np</span><span class="o">.</span><span class="n">in1d</span><span class="p">(</span><span class="n">all_regions</span><span class="p">[</span><span class="s2">&quot;region_id&quot;</span><span class="p">],</span> <span class="n">regions</span><span class="p">)</span>
+        <span class="n">sel</span> <span class="o">=</span> <span class="o">~</span><span class="n">np</span><span class="o">.</span><span class="n">isin</span><span class="p">(</span><span class="n">all_regions</span><span class="p">[</span><span class="s2">&quot;region_id&quot;</span><span class="p">],</span> <span class="n">regions</span><span class="p">)</span>
         <span class="n">all_regions</span> <span class="o">=</span> <span class="n">all_regions</span><span class="p">[</span><span class="n">sel</span><span class="p">]</span>
 
         <span class="c1"># We just removed some regions. In the process, maybe all rows for a given obsid were</span>
@@ -424,7 +424,7 @@
 
 <div class="viewcode-block" id="add_regions">
 <a class="viewcode-back" href="../../api.html#astromon.db.add_regions">[docs]</a>
-<span class="k">def</span> <span class="nf">add_regions</span><span class="p">(</span><span class="n">regions</span><span class="p">,</span> <span class="n">dbfile</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">add_regions</span><span class="p">(</span><span class="n">regions</span><span class="p">,</span> <span class="n">dbfile</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Add exclusion regions to the astromon_regions table.</span>
 
@@ -480,7 +480,7 @@
 
 <div class="viewcode-block" id="update_regions">
 <a class="viewcode-back" href="../../api.html#astromon.db.update_regions">[docs]</a>
-<span class="k">def</span> <span class="nf">update_regions</span><span class="p">(</span><span class="n">regions</span><span class="p">,</span> <span class="n">dbfile</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">update_regions</span><span class="p">(</span><span class="n">regions</span><span class="p">,</span> <span class="n">dbfile</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Update exclusion regions in the astromon_regions table.</span>
 
@@ -529,7 +529,7 @@
 
 <div class="viewcode-block" id="get_regions">
 <a class="viewcode-back" href="../../api.html#astromon.db.get_regions">[docs]</a>
-<span class="k">def</span> <span class="nf">get_regions</span><span class="p">(</span><span class="n">obsid</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">dbfile</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">radius</span><span class="o">=</span><span class="mi">5</span> <span class="o">*</span> <span class="n">u</span><span class="o">.</span><span class="n">arcmin</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_regions</span><span class="p">(</span><span class="n">obsid</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">dbfile</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">radius</span><span class="o">=</span><span class="mi">5</span> <span class="o">*</span> <span class="n">u</span><span class="o">.</span><span class="n">arcmin</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Get exclusion regions from the astromon_regions table.</span>
 
@@ -563,7 +563,7 @@
 
 <div class="viewcode-block" id="sync_regions">
 <a class="viewcode-back" href="../../api.html#astromon.db.sync_regions">[docs]</a>
-<span class="k">def</span> <span class="nf">sync_regions</span><span class="p">(</span><span class="n">from_file</span><span class="p">,</span> <span class="n">to_file</span><span class="p">,</span> <span class="n">remove</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">sync_regions</span><span class="p">(</span><span class="n">from_file</span><span class="p">,</span> <span class="n">to_file</span><span class="p">,</span> <span class="n">remove</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Sync exclusion regions from one astromon DB file to another.</span>
 
@@ -587,11 +587,11 @@
     <span class="k">for</span> <span class="n">i1</span><span class="p">,</span> <span class="n">i2</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">up_to_idx</span><span class="p">,</span> <span class="n">up_from_idx</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
         <span class="n">to_regions</span><span class="p">[</span><span class="n">i1</span><span class="p">]</span> <span class="o">=</span> <span class="n">from_regions</span><span class="p">[</span><span class="n">i2</span><span class="p">]</span>
     <span class="c1"># remove records that are in to_file but not in from_file</span>
-    <span class="n">missing</span> <span class="o">=</span> <span class="o">~</span><span class="n">np</span><span class="o">.</span><span class="n">in1d</span><span class="p">(</span><span class="n">to_regions</span><span class="p">[</span><span class="s2">&quot;region_id_str&quot;</span><span class="p">],</span> <span class="n">from_regions</span><span class="p">[</span><span class="s2">&quot;region_id_str&quot;</span><span class="p">])</span>
+    <span class="n">missing</span> <span class="o">=</span> <span class="o">~</span><span class="n">np</span><span class="o">.</span><span class="n">isin</span><span class="p">(</span><span class="n">to_regions</span><span class="p">[</span><span class="s2">&quot;region_id_str&quot;</span><span class="p">],</span> <span class="n">from_regions</span><span class="p">[</span><span class="s2">&quot;region_id_str&quot;</span><span class="p">])</span>
     <span class="k">if</span> <span class="n">remove</span> <span class="ow">and</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">missing</span><span class="p">):</span>
         <span class="n">to_regions</span> <span class="o">=</span> <span class="n">to_regions</span><span class="p">[</span><span class="o">~</span><span class="n">missing</span><span class="p">]</span>
     <span class="c1"># add records that are only in from_file</span>
-    <span class="n">new</span> <span class="o">=</span> <span class="o">~</span><span class="n">np</span><span class="o">.</span><span class="n">in1d</span><span class="p">(</span><span class="n">from_regions</span><span class="p">[</span><span class="s2">&quot;region_id_str&quot;</span><span class="p">],</span> <span class="n">to_regions</span><span class="p">[</span><span class="s2">&quot;region_id_str&quot;</span><span class="p">])</span>
+    <span class="n">new</span> <span class="o">=</span> <span class="o">~</span><span class="n">np</span><span class="o">.</span><span class="n">isin</span><span class="p">(</span><span class="n">from_regions</span><span class="p">[</span><span class="s2">&quot;region_id_str&quot;</span><span class="p">],</span> <span class="n">to_regions</span><span class="p">[</span><span class="s2">&quot;region_id_str&quot;</span><span class="p">])</span>
     <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">new</span><span class="p">):</span>
         <span class="c1"># make sure that region_id is not repeated</span>
         <span class="c1"># if there are repeated region_ids, assign new ones continuing from last_region_id in meta</span>
@@ -613,7 +613,7 @@
 
 <div class="viewcode-block" id="is_in_excluded_region">
 <a class="viewcode-back" href="../../api.html#astromon.db.is_in_excluded_region">[docs]</a>
-<span class="k">def</span> <span class="nf">is_in_excluded_region</span><span class="p">(</span><span class="n">position</span><span class="p">,</span> <span class="n">obsid</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">regions</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">dbfile</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">is_in_excluded_region</span><span class="p">(</span><span class="n">position</span><span class="p">,</span> <span class="n">obsid</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">regions</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">dbfile</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Returns a mask to remove x-ray sources that are close to excluded regions.</span>
 
@@ -652,7 +652,7 @@
 
 
 
-<span class="k">def</span> <span class="nf">set_formats</span><span class="p">(</span><span class="n">dat</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">set_formats</span><span class="p">(</span><span class="n">dat</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Sets format of columns with float dtype to show 2 decimals, except ra/dec/pileup (4 decimals).</span>
 
@@ -681,7 +681,7 @@
 
 <div class="viewcode-block" id="get_cross_matches">
 <a class="viewcode-back" href="../../api.html#astromon.db.get_cross_matches">[docs]</a>
-<span class="k">def</span> <span class="nf">get_cross_matches</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;astromon_21&quot;</span><span class="p">,</span> <span class="n">dbfile</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_cross_matches</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;astromon_21&quot;</span><span class="p">,</span> <span class="n">dbfile</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Get a standard cross-match of observations, x-ray sources and catalog counterparts in `dbfile`.</span>
 
@@ -733,7 +733,7 @@
 <span class="sd">    -------</span>
 <span class="sd">    :any:`astropy.table.Table`</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="kn">from</span> <span class="nn">astromon.cross_match</span> <span class="kn">import</span> <span class="n">filter_matches</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">astromon.cross_match</span><span class="w"> </span><span class="kn">import</span> <span class="n">filter_matches</span>
 
     <span class="n">matches</span> <span class="o">=</span> <span class="n">get_table</span><span class="p">(</span><span class="s2">&quot;astromon_xcorr&quot;</span><span class="p">,</span> <span class="n">dbfile</span><span class="p">)</span>
     <span class="n">matches</span> <span class="o">=</span> <span class="n">matches</span><span class="p">[</span><span class="n">matches</span><span class="p">[</span><span class="s2">&quot;select_name&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="n">name</span><span class="p">]</span>
@@ -793,7 +793,7 @@
     <a href="#">Back to Top</a></p>
   <p>
     &copy; Copyright 2022, Jean Connelly, Tom Aldcroft, Javier Gonzalez.<br/>
-    Created using <a href="http://www.sphinx-doc.org/en/stable/">Sphinx</a> 8.1.3. &nbsp;
+    Created using <a href="http://www.sphinx-doc.org/en/stable/">Sphinx</a> 9.1.0. &nbsp;
   </p>
 </footer>
   </body>
