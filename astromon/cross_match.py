@@ -139,8 +139,8 @@ VIZIER_CATALOGS = {
         "cat_identifier": "I/259/tyc2",
         "name_cols": ["TYC1", "TYC2", "TYC3"],
         "columns": {
-            "ra": "_RAJ2000_{time.frac_year:.3f}",
-            "dec": "_DEJ2000_{time.frac_year:.3f}",
+            "ra": "_RAJ2000/{time.frac_year:.3f}",
+            "dec": "_DEJ2000/{time.frac_year:.3f}",
             "mag": "VTmag",
         },
     },
@@ -195,8 +195,8 @@ VIZIER_CATALOGS = {
         "cat_identifier": "II/294",
         "name_cols": ["SDSS"],
         "columns": {
-            "ra": "_RAJ2000_{time.frac_year:.3f}",
-            "dec": "_DEJ2000_{time.frac_year:.3f}",
+            "ra": "_RAJ2000/{time.frac_year:.3f}",
+            "dec": "_DEJ2000/{time.frac_year:.3f}",
             "mag": "rmag",
         },
     },
