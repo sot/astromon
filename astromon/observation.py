@@ -194,7 +194,7 @@ class Observation:
             self.archive_regex = archive_regex
         self._source = source
         logger.info(f"{self} starting. Context: {self.workdir}")
-        self._rebin = False
+        self._rebin = True
         self.ciao_ = None
         # ciao is initialized only if needed, but we make this check at the very beginning
         # so the user gets a warning at the top if calling CIAO will likely fail
