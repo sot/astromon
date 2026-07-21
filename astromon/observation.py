@@ -1435,8 +1435,8 @@ def celldetect(obs, inputs, outputs):
     # possible parameter:
     snr = 3
 
-    # Note that the hrc pixel size of 0.13180 results in a 2733x2733
-    # minimum image that suggests just using the 4096 window.
+    # Note that the maxlogicalwindow needs to be bigger than whatever the
+    # binned filtered image is.
     obs.ciao(
         "celldetect",
         inputs["image_file"],
