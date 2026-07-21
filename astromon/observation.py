@@ -1500,8 +1500,7 @@ def filter_events(obs, inputs, outputs):
     # possible parameter:
     radius = 180  # radius in arcsec
 
-    # I'm using a fixed pixel size of 0.5 arcsec, but this might need fixing
-    pixel = 1 if obs.is_hrc else 0.5
+    pixel = 0.13180 if obs.is_hrc else 0.5
 
     evt = inputs["events"][0]
     evt2 = outputs["events"]
@@ -1556,9 +1555,7 @@ def filter_sources(obs, inputs, outputs):
     radius = 180  # radius in arcsec
     psfratio = 1
 
-    # I don't think the following should be a parameter
-    # I'm using a fixed pixel size of 0.5 arcsec, but this might need fixing
-    pixel = 1 if obs.is_hrc else 0.5
+    pixel = 0.13180 if obs.is_hrc else 0.5
 
     evt = inputs["events"]
 
