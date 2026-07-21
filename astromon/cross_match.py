@@ -187,7 +187,7 @@ VIZIER_CATALOGS = {
     "2MASS": {
         "catalog": "2MASS",
         "cat_identifier": "II/246/out",
-        "name_cols": ["_2MASS"],
+        "name_cols": ["2MASS"],
         "columns": {"ra": "_RAJ2000", "dec": "_DEJ2000", "mag": "Kmag"},
     },
     "SDSS": {
