@@ -1435,13 +1435,15 @@ def celldetect(obs, inputs, outputs):
     # possible parameter:
     snr = 3
 
+    # Note that the hrc pixel size of 0.13180 results in a 2733x2733
+    # minimum image that suggests just using the 4096 window.
     obs.ciao(
         "celldetect",
         inputs["image_file"],
         outputs["src"],
         psffile=inputs["psf_file"],  # either this or set fixedcell=
         thresh=snr,
-        maxlogicalwindow=2048,
+        maxlogicalwindow=4096,
         clobber="yes",
         logging_tag=str(obs),
     )
