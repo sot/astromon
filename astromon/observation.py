@@ -1443,7 +1443,7 @@ def celldetect(obs, inputs, outputs):
         outputs["src"],
         psffile=inputs["psf_file"],  # either this or set fixedcell=
         thresh=snr,
-        maxlogicalwindow=4096,
+        maxlogicalwindow=2048,
         clobber="yes",
         logging_tag=str(obs),
     )
