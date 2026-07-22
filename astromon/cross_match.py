@@ -174,7 +174,7 @@ VIZIER_CATALOGS = {
         "columns": {
             "ra": "_RAJ2000",
             "dec": "_DEJ2000",
-            "mag": "Vmag",
+            "mag": "Hpmag",
         },
     },
     # http://vizier.u-strasbg.fr/viz-bin/VizieR?-source=I/322
@@ -205,7 +205,7 @@ VIZIER_CATALOGS = {
         "catalog": "Gaia2",
         "cat_identifier": "I/345/gaia2",
         "name_cols": ["Source"],
-        "columns": {"ra": "_RA_ICRS", "dec": "_DE_ICRS", "mag": "Gmag"},
+        "columns": {"ra": "_RAJ2000", "dec": "_DEJ2000", "mag": "Gmag"},
     },
 }
 
