@@ -65,6 +65,15 @@ ASTROMON_XRAY_SRC_DTYPE = np.dtype(
         ("pileup", np.float32),
         ("acis_streak", np.int32),
         ("caldb_version", "S10"),
+        # Ratio of fitted Gaussian sigma to PSF ECF=90% radius.
+        # Values > 1 indicate emission broader than the PSF.
+        ("psfratio", np.float32),
+        # Fraction of source counts within 2" vs 10" of the fitted position.
+        # Near 1 for point sources; near 0 for extended emission.
+        ("concentration_ratio", np.float32),
+        # Source detection method that produced this row, e.g. "celldetect",
+        # "gaussian_detect", or "peak_gaussian_detect".
+        ("detect_method", "S24"),
     ]
 )
 
@@ -314,11 +323,16 @@ def save(table_name, data, dbfile, ignore_obsid=False):
         if table_name in h5.root:
             node = h5.get_node(f"/{table_name}")
             if not ignore_obsid and "obsid" in data.dtype.names:
-                # remove rows for these obsids
-                obsids = np.unique(data["obsid"])
                 data_out = node[:].astype(dtype)
-                data_out = data_out[~np.isin(data_out["obsid"], obsids)]
-                # append current data
+                if "detect_method" in data.dtype.names and "detect_method" in data_out.dtype.names:
+                    # Key on (obsid, detect_method) so different methods coexist.
+                    for obsid, method in np.unique(data[["obsid", "detect_method"]]):
+                        data_out = data_out[
+                            ~((data_out["obsid"] == obsid) & (data_out["detect_method"] == method))
+                        ]
+                else:
+                    obsids = np.unique(data["obsid"])
+                    data_out = data_out[~np.isin(data_out["obsid"], obsids)]
                 data = np.concatenate((data_out, data))
             h5.remove_node(node)
 

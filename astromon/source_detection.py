@@ -1,5 +1,6 @@
 import numpy as np
 import scipy
+from scipy.ndimage import gaussian_filter
 
 
 def gaussian_ecf_radius(ecf, radius=1.0):
@@ -320,3 +321,99 @@ def fit_gaussians(obs, sources, columns=("y_angle", "z_angle"), box_size=4):
             fit_gaussian_2d(events[sel], source, columns=columns, box_size=box_size)
         )
     return results
+
+
+def find_local_peak(
+    events_yag: np.ndarray,
+    events_zag: np.ndarray,
+    seed_yag: float,
+    seed_zag: float,
+    box_size: float = 4.0,
+    bin_as: float = 0.25,
+    smooth_as: float = 0.5,
+) -> tuple[float, float]:
+    """
+    Find the brightest pixel in a smoothed event-density image near a seed position.
+
+    This is used to re-seed a Gaussian fit away from a catalog or celldetect position
+    and toward the actual local emission peak, which matters for sources whose X-ray
+    centroid is offset from the catalog (e.g. due to jets or ICM structure).
+
+    Parameters
+    ----------
+    events_yag, events_zag
+        Y- and Z-angle of all events in arcsec (SI frame).
+    seed_yag, seed_zag
+        Initial seed position in arcsec (e.g. from celldetect).
+    box_size
+        Half-width of the search box in arcsec.
+    bin_as
+        Histogram bin size in arcsec.
+    smooth_as
+        Gaussian smoothing sigma in arcsec (should be ~PSF FWHM / 2.35).
+
+    Returns
+    -------
+    (peak_yag, peak_zag) in arcsec.  Falls back to seed if fewer than 5 events in box.
+    """
+    mask = (np.abs(events_yag - seed_yag) < box_size) & (
+        np.abs(events_zag - seed_zag) < box_size
+    )
+    yag = events_yag[mask]
+    zag = events_zag[mask]
+    if len(yag) < 5:
+        return seed_yag, seed_zag
+
+    n = int(2 * box_size / bin_as)
+    img, ye, ze = np.histogram2d(
+        yag,
+        zag,
+        bins=n,
+        range=[
+            [seed_yag - box_size, seed_yag + box_size],
+            [seed_zag - box_size, seed_zag + box_size],
+        ],
+    )
+    img_sm = gaussian_filter(img, sigma=smooth_as / bin_as)
+    pk = np.unravel_index(np.argmax(img_sm), img_sm.shape)
+    # bin centres (histogram2d returns n+1 edges)
+    peak_yag = ye[pk[0]] + bin_as / 2
+    peak_zag = ze[pk[1]] + bin_as / 2
+    return float(peak_yag), float(peak_zag)
+
+
+def concentration_ratio(
+    events_yag: np.ndarray,
+    events_zag: np.ndarray,
+    src_yag: float,
+    src_zag: float,
+    r_core_as: float = 2.0,
+    r_extract_as: float = 10.0,
+) -> float:
+    """
+    Compute counts(r < r_core) / counts(r < r_extract) as a point-source indicator.
+
+    For a point source this is ~1 (most counts within the PSF core).
+    For extended emission it approaches 0 as the surface brightness flattens.
+
+    Parameters
+    ----------
+    events_yag, events_zag
+        Y- and Z-angle of all events in arcsec (SI frame).
+    src_yag, src_zag
+        Source position in arcsec (SI frame).
+    r_core_as
+        Core aperture radius in arcsec (default 2").
+    r_extract_as
+        Outer aperture radius in arcsec (default 10").
+
+    Returns
+    -------
+    float in [0, 1], or nan if there are no events within r_extract_as.
+    """
+    dr2 = (events_yag - src_yag) ** 2 + (events_zag - src_zag) ** 2
+    n_core = int(np.sum(dr2 < r_core_as**2))
+    n_extract = int(np.sum(dr2 < r_extract_as**2))
+    if n_extract == 0:
+        return float("nan")
+    return n_core / n_extract

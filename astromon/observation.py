@@ -822,9 +822,11 @@ class Observation:
                 ("snr", ">f4"),
                 ("near_neighbor_dist", ">f8"),
                 ("psfratio", ">f4"),
+                ("concentration_ratio", ">f4"),
                 ("pileup", ">f4"),
                 ("acis_streak", "?"),
                 ("caldb_version", "<U6"),
+                ("detect_method", "<U24"),
             ]
         )
 
@@ -838,6 +840,8 @@ class Observation:
 
         if len(sources) == 0:
             return table.Table(dtype=dtype)
+
+        sources["detect_method"] = version
 
         return (
             table.Table(sources[dtype.names], dtype=dtype)
@@ -1267,6 +1271,7 @@ def gaussian_detect(obs, inputs, outputs):
             ("ks_sign_z_angle", ">i8"),
             ("ecf_radius", ">f8"),
             ("PSFRATIO", ">f8"),
+            ("concentration_ratio", ">f8"),
             ("CORR_RA_DEC", ">f8"),
             ("CORR_X_Y", ">f8"),
         ]
@@ -1291,6 +1296,9 @@ def gaussian_detect(obs, inputs, outputs):
         input_sources["RA"], input_sources["DEC"], att
     )
 
+    events_yag = np.asarray(events["y_angle"])
+    events_zag = np.asarray(events["z_angle"])
+
     results = []
     for source in input_sources:
         sel = (np.abs(events["y_angle"] - source["y_angle"]) < box_size) & (
@@ -1299,7 +1307,6 @@ def gaussian_detect(obs, inputs, outputs):
         res = source_detection.fit_gaussian_2d(
             events[sel],
             source,
-            # columns=("y_angle", "z_angle"),
             box_size=box_size,
         )
         results.append(res)
@@ -1312,6 +1319,14 @@ def gaussian_detect(obs, inputs, outputs):
     results["PSFRATIO"] = (
         np.sqrt(results["sigma"][:, 0] * results["sigma"][:, 1]) / results["ecf_radius"]
     )
+
+    results["concentration_ratio"] = [
+        source_detection.concentration_ratio(
+            events_yag, events_zag,
+            float(row["y_angle"]), float(row["z_angle"]),
+        )
+        for row in results
+    ]
 
     results.rename_column("n", "NET_COUNTS")
 
@@ -1352,6 +1367,232 @@ def gaussian_detect(obs, inputs, outputs):
     )
 
     # X/Y
+    yagzag_to_pixel_matrix = np.vstack(
+        [
+            wcs.world_to_pixel_values(
+                ra_nom + yagzag_to_radec_matrix.T[0, 0],
+                dec_nom + yagzag_to_radec_matrix.T[0, 1],
+            ),
+            wcs.world_to_pixel_values(
+                ra_nom + yagzag_to_radec_matrix.T[1, 0],
+                dec_nom + yagzag_to_radec_matrix.T[1, 1],
+            ),
+        ]
+    ).T
+
+    pixel_cov = yagzag_to_pixel_matrix @ yag_zag_cov @ yagzag_to_pixel_matrix.T
+
+    results["X_ERR"] = np.sqrt(pixel_cov[:, 0, 0])
+    results["Y_ERR"] = np.sqrt(pixel_cov[:, 1, 1])
+    results["CORR_X_Y"] = pixel_cov[:, 0, 1] / (results["X_ERR"] * results["Y_ERR"])
+
+    units = {
+        "RA": u.deg,
+        "DEC": u.deg,
+        "X": u.pixel,
+        "Y": u.pixel,
+        "y_angle": u.arcsec,
+        "z_angle": u.arcsec,
+        "RA_ERR": u.deg,
+        "DEC_ERR": u.deg,
+        "X_ERR": u.pixel,
+        "Y_ERR": u.pixel,
+    }
+    for col, unit in units.items():
+        results[col].unit = unit
+
+    cols = [
+        "COMPONENT",
+        "RA",
+        "DEC",
+        "X",
+        "Y",
+        "y_angle",
+        "z_angle",
+        "RA_ERR",
+        "DEC_ERR",
+        "X_ERR",
+        "Y_ERR",
+    ]
+    cols += [col for col in results.colnames if col not in cols]
+    results = results[cols]
+
+    results = results[results["fit_ok"]]
+
+    if not outputs["src"].parent.exists():
+        outputs["src"].parent.mkdir(exist_ok=True, parents=True)
+
+    results.write(outputs["src"], format="fits", overwrite=True)
+
+    shutil.copyfile(inputs["psf_size"], outputs["psf_size"])
+
+
+@task(
+    name="peak_gaussian_detect",
+    inputs={
+        "events": "primary/{obsid}_evt2_filtered.fits.gz",
+        "src": "sources/{obsid}_celldetect.src",
+    },
+    optional_inputs={
+        "psf_size": "sources/{obsid}_psf_size_celldetect.fits",
+    },
+    outputs={
+        "src": "sources/{obsid}_peak_gaussian_detect.src",
+        "psf_size": "sources/{obsid}_psf_size_peak_gaussian_detect.fits",
+    },
+    variables={
+        "band": lambda obs: "wide" if obs.is_hrc else "broad",
+    },
+    download=(["evt2"]),
+)
+def peak_gaussian_detect(obs, inputs, outputs):
+    """
+    Gaussian centroiding seeded from the local image peak rather than the celldetect position.
+
+    For each celldetect source, the local brightness maximum in a smoothed event-density
+    image is found within the fit box.  The Gaussian fit is then seeded from that peak
+    instead of from the celldetect position.  This avoids being pulled to an off-peak
+    catalog or ICM centroid when the true emission maximum is offset.
+
+    Output columns are identical to gaussian_detect, so get_sources() works unchanged.
+    """
+    box_size = 4
+
+    dtype = np.dtype(
+        [
+            ("COMPONENT", ">i4"),
+            ("RA", ">f8"),
+            ("DEC", ">f8"),
+            ("X", ">f8"),
+            ("Y", ">f8"),
+            ("y_angle", ">f8"),
+            ("z_angle", ">f8"),
+            ("RA_ERR", ">f8"),
+            ("DEC_ERR", ">f8"),
+            ("X_ERR", ">f8"),
+            ("Y_ERR", ">f8"),
+            ("params", ">f8", (6,)),
+            ("hess_inv", ">f8", (6, 6)),
+            ("ndof", ">i8"),
+            ("fit_ok", "?"),
+            ("p_signal", ">f8"),
+            ("sigma", ">f8", (2,)),
+            ("rot_angle", ">f8"),
+            ("sigma_y_angle", ">f8"),
+            ("sigma_z_angle", ">f8"),
+            ("corr_y_angle_z_angle", ">f8"),
+            ("source_area", ">f8"),
+            ("NET_COUNTS", ">i8"),
+            ("signal", ">f8"),
+            ("background", ">f8"),
+            ("snr", ">f8"),
+            ("ks_y_angle", ">f8"),
+            ("ks_z_angle", ">f8"),
+            ("ks_p_value_y_angle", ">f8"),
+            ("ks_p_value_z_angle", ">f8"),
+            ("ks_sign_y_angle", ">i8"),
+            ("ks_sign_z_angle", ">i8"),
+            ("ecf_radius", ">f8"),
+            ("PSFRATIO", ">f8"),
+            ("concentration_ratio", ">f8"),
+            ("CORR_RA_DEC", ">f8"),
+            ("CORR_X_Y", ">f8"),
+        ]
+    )
+
+    input_sources = table.Table.read(inputs["src"])
+    if len(input_sources) == 0:
+        results = table.Table(dtype=dtype)
+        results.write(outputs["src"], format="fits", overwrite=True)
+        return ReturnCode.OK
+
+    events = table.Table.read(inputs["events"], hdu=1)
+    wcs = utils.get_wcs_from_fits_header(inputs["events"], hdu=1)
+    events["RA"], events["DEC"] = wcs.pixel_to_world_values(events["x"], events["y"])
+
+    obs_info = obs.get_info()
+    att = Quat([obs_info["ra_nom"], obs_info["dec_nom"], obs_info["roll_nom"]])
+    events["y_angle"], events["z_angle"] = radec_to_yagzag(
+        events["RA"], events["DEC"], att
+    )
+    input_sources["y_angle"], input_sources["z_angle"] = radec_to_yagzag(
+        input_sources["RA"], input_sources["DEC"], att
+    )
+
+    events_yag = np.asarray(events["y_angle"])
+    events_zag = np.asarray(events["z_angle"])
+
+    results = []
+    for source in input_sources:
+        # Re-seed the fit from the local image peak instead of the celldetect position.
+        peak_yag, peak_zag = source_detection.find_local_peak(
+            events_yag, events_zag,
+            float(source["y_angle"]), float(source["z_angle"]),
+            box_size=box_size,
+        )
+        peak_source = dict(source)
+        peak_source["y_angle"] = peak_yag
+        peak_source["z_angle"] = peak_zag
+
+        sel = (np.abs(events["y_angle"] - source["y_angle"]) < box_size) & (
+            np.abs(events["z_angle"] - source["z_angle"]) < box_size
+        )
+        res = source_detection.fit_gaussian_2d(
+            events[sel],
+            peak_source,
+            box_size=box_size,
+        )
+        results.append(res)
+
+    results = table.Table(results)
+
+    ecf = table.Table.read(inputs["psf_size"])
+    pixel_size = 0.4920 if obs.is_acis else 0.13175
+    results["ecf_radius"] = ecf["R"] * pixel_size
+    results["PSFRATIO"] = (
+        np.sqrt(results["sigma"][:, 0] * results["sigma"][:, 1]) / results["ecf_radius"]
+    )
+
+    results["concentration_ratio"] = [
+        source_detection.concentration_ratio(
+            events_yag, events_zag,
+            float(row["y_angle"]), float(row["z_angle"]),
+        )
+        for row in results
+    ]
+
+    results.rename_column("n", "NET_COUNTS")
+
+    results["RA"], results["DEC"] = yagzag_to_radec(
+        results["y_angle"], results["z_angle"], att
+    )
+    results["X"], results["Y"] = wcs.world_to_pixel_values(
+        results["RA"], results["DEC"]
+    )
+
+    yag_zag_cov = np.asarray(results["hess_inv"][:, :2, :2])
+
+    d_arc = 1e-3
+    ra_nom, dec_nom = yagzag_to_radec(0, 0, att)
+
+    yagzag_to_radec_matrix = (
+        np.vstack(
+            [
+                np.array(yagzag_to_radec(d_arc, 0, att)) - np.array([ra_nom, dec_nom]),
+                np.array(yagzag_to_radec(0, d_arc, att)) - np.array([ra_nom, dec_nom]),
+            ]
+        ).T
+        / d_arc
+    )
+
+    ra_dec_cov = yagzag_to_radec_matrix @ yag_zag_cov @ yagzag_to_radec_matrix.T
+
+    results["RA_ERR"] = np.sqrt(ra_dec_cov[:, 0, 0])
+    results["DEC_ERR"] = np.sqrt(ra_dec_cov[:, 1, 1])
+    results["CORR_RA_DEC"] = ra_dec_cov[:, 0, 1] / (
+        results["RA_ERR"] * results["DEC_ERR"]
+    )
+
     yagzag_to_pixel_matrix = np.vstack(
         [
             wcs.world_to_pixel_values(
