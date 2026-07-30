@@ -46,6 +46,7 @@ ASTROMON_XCORR_DTYPE = np.dtype(
         ("dy", np.float32),
         ("dz", np.float32),
         ("dr", np.float32),
+        ("detect_method", "S24"),
     ]
 )
 
@@ -682,7 +683,7 @@ def get_cross_matches(name="astromon_21", dbfile=None, **kwargs):
     )
     matches = table.join(matches, astromon_obs, keys=["obsid"])
     matches = table.join(matches, astromon_cat_src, keys=["obsid", "c_id"])
-    matches = table.join(matches, astromon_xray_src, keys=["obsid", "x_id"])
+    matches = table.join(matches, astromon_xray_src, keys=["obsid", "x_id", "detect_method"])
 
     matches["time"] = CxoTime(matches["date_obs"])
     matches["c_loc"] = SkyCoord(matches["c_ra"] * u.deg, matches["c_dec"] * u.deg)

@@ -27,6 +27,7 @@ from ska_helpers.logging import basic_logger
 from astromon import db, utils
 from astromon.cross_match import compute_cross_matches, rough_match
 from astromon.observation import Observation, ReturnCode
+from astromon.task import run_tasks
 
 
 class Skipped(Exception):
@@ -106,7 +107,7 @@ def save(data, db_file):
                 db.save(name, data[name], con)
 
 
-def process(obsid, workdir, log_level, archive_dir):  # noqa: PLR0915, PLR0912
+def process(obsid, workdir, log_level, archive_dir, versions=("celldetect",)):  # noqa: PLR0915, PLR0912
     """
     This is where the actual work is done.
     """
@@ -126,27 +127,30 @@ def process(obsid, workdir, log_level, archive_dir):  # noqa: PLR0915, PLR0912
         if not (rv := observation.process()):
             raise exceptions.get(rv.return_code, Exception)(rv.msg)
 
+        # Archive celldetect intermediate files before running additional versions.
         if archive_dir:
             observation.archive()
 
         obspar = Table([observation.get_info()])
-        sources = observation.get_sources()
 
-        if len(sources) == 0:
+        # Rough-match catalog sources once from celldetect positions, which are always
+        # available after observation.process(). The positions are nearly identical across
+        # detection methods so this candidate set is valid for all of them.
+        celldetect_sources = observation.get_sources(version="celldetect")
+        if len(celldetect_sources) == 0:
             raise SkippedWithWarning("No x-ray sources found")
 
-        match_candidates = rough_match(
-            sources, CxoTime(observation.get_obspar()["date_obs"])
-        )
-
-        if len(match_candidates):
-            q = Quat(
-                equatorial=(
-                    obspar["ra_pnt"][0],
-                    obspar["dec_pnt"][0],
-                    obspar["roll_pnt"][0],
-                )
+        q = Quat(
+            equatorial=(
+                obspar["ra_pnt"][0],
+                obspar["dec_pnt"][0],
+                obspar["roll_pnt"][0],
             )
+        )
+        match_candidates = rough_match(
+            celldetect_sources, CxoTime(observation.get_obspar()["date_obs"])
+        )
+        if len(match_candidates):
             match_candidates["obsid"] = obsid
             match_candidates["id"] = np.arange(len(match_candidates))
             match_candidates["y_angle"], match_candidates["z_angle"] = radec_to_yagzag(
@@ -158,18 +162,52 @@ def process(obsid, workdir, log_level, archive_dir):  # noqa: PLR0915, PLR0912
             match_candidates["y_angle"] = Column(dtype=np.float32)
             match_candidates["z_angle"] = Column(dtype=np.float32)
 
-        logger.debug(f"OBSID={obsid} About to cross-match")
-        matches = compute_cross_matches(
-            "astromon_21",
-            astromon_obs=obspar,
-            astromon_xray_src=sources,
-            astromon_cat_src=match_candidates,
-            logging_tag=f"OBSID={obsid}",
-        )
-        if matches:
-            matches = matches[
-                ["select_name", "obsid", "c_id", "x_id", "dy", "dz", "dr"]
-            ]
+        xcorr_cols = ["select_name", "obsid", "c_id", "x_id", "dy", "dz", "dr", "detect_method"]
+        all_sources = []
+        all_xcorr = []
+
+        for version in versions:
+            if version != "celldetect":
+                rv = run_tasks(
+                    observation,
+                    requested_files=[f"sources/{obsid}_{version}.src"],
+                )
+                failed = [
+                    v for v in rv.values()
+                    if v.return_code.value >= ReturnCode.ERROR.value
+                ]
+                if failed:
+                    logger.warning(
+                        f"OBSID={obsid} {version} failed: {failed[0].msg}"
+                    )
+                    continue
+
+            sources = observation.get_sources(version=version)
+            if len(sources) == 0:
+                logger.warning(f"OBSID={obsid} no sources for {version}")
+                continue
+            all_sources.append(sources)
+
+            logger.debug(f"OBSID={obsid} About to cross-match ({version})")
+            matches = compute_cross_matches(
+                "astromon_21",
+                astromon_obs=obspar,
+                astromon_xray_src=sources,
+                astromon_cat_src=match_candidates,
+                logging_tag=f"OBSID={obsid}",
+            )
+            if len(matches):
+                all_xcorr.append(matches[xcorr_cols])
+
+        if not all_sources:
+            raise SkippedWithWarning("No x-ray sources found for any detection version")
+
+        sources = vstack(all_sources)
+        matches = vstack(all_xcorr) if all_xcorr else Table(names=xcorr_cols)
+
+        # Archive any new detection-version output files produced above.
+        if archive_dir and len(versions) > 1:
+            observation.archive()
 
         result = {
             "ok": True,
@@ -284,6 +322,16 @@ def get_parser():
         choices=["debug", "info", "warning", "error", "fatal"],
         default="debug",
     )
+    parser.add_argument(
+        "--versions",
+        nargs="+",
+        default=["celldetect"],
+        help=(
+            "Detection versions to run and store. Default: celldetect. "
+            "Adding gaussian_detect or peak_gaussian_detect runs those methods "
+            "and saves additional rows keyed by detect_method."
+        ),
+    )
     return parser
 
 
@@ -364,8 +412,9 @@ def main():  # noqa: PLR0912, PLR0915
         return
 
     logger.info(f"will process the following obsids: {', '.join(obsids)}")
+    versions = tuple(args.versions)
     task_args = [
-        (int(obsid), args.workdir, args.log_level.upper(), args.archive_dir)
+        (int(obsid), args.workdir, args.log_level.upper(), args.archive_dir, versions)
         for obsid in obsids
     ]
 
