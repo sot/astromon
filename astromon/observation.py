@@ -843,6 +843,14 @@ class Observation:
 
         sources["detect_method"] = version
 
+        # Fill columns present in dtype but not produced by this detection version
+        # (e.g. concentration_ratio and psfratio are only computed by gaussian_detect
+        # and peak_gaussian_detect, not celldetect).
+        for col in dtype.names:
+            if col not in sources.colnames:
+                fill = np.nan if dtype[col].kind == "f" else 0
+                sources[col] = np.full(len(sources), fill, dtype=dtype[col])
+
         return (
             table.Table(sources[dtype.names], dtype=dtype)
             if astromon_format
