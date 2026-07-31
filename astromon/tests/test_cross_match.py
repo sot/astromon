@@ -1,8 +1,10 @@
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import pytest
 import requests
+from astropy import coordinates as coords
 from astropy import units as u
 from astropy.table import Table
 from cxotime import CxoTime
@@ -231,3 +233,154 @@ def test_rough_match_known_source(catalog):
     assert result["name"][0] == expected["name"]
     assert result["x_id"][0] == 1
     assert result["separation"][0] < expected["radius"].to_value(u.arcsec)
+
+
+# ---- GaiaAGN tests ----
+
+def _fake_tap_result(source_id, ra, dec, mag=18.5):
+    """Minimal astropy Table mimicking a Gaia TAP response."""
+    return Table(
+        {
+            "source_id": np.array([source_id], dtype=np.int64),
+            "ra": np.array([ra]),
+            "dec": np.array([dec]),
+            "phot_g_mean_mag": np.array([mag], dtype=np.float32),
+        }
+    )
+
+
+def test_get_gaia_agn_empty_pos():
+    """Empty position array returns an empty table with the correct schema."""
+    empty_pos = coords.SkyCoord([], [], unit="deg")
+    result = cross_match.get_gaia_agn(empty_pos)
+    assert len(result) == 0
+    assert set(cross_match.CROSS_MATCH_DTYPE.names).issubset(set(result.colnames))
+
+
+def test_get_gaia_agn_mocked_tap():
+    """get_gaia_agn structures output correctly from a mocked TAP response."""
+    pos = coords.SkyCoord([187.2779], [2.0524], unit="deg")
+    fake = _fake_tap_result(source_id=3726862715688776192, ra=187.2779, dec=2.0524, mag=12.9)
+
+    with patch.object(cross_match, "_execute_gaia_tap_query", return_value=fake):
+        result = cross_match.get_gaia_agn(pos, radius=3 * u.arcsec)
+
+    assert len(result) == 1
+    assert result["catalog"][0] == "GaiaAGN"
+    assert result["name"][0] == "GaiaAGN-3726862715688776192"
+    assert np.isclose(result["ra"][0], 187.2779)
+    assert np.isclose(result["dec"][0], 2.0524)
+    assert np.isclose(result["mag"][0], 12.9, atol=0.01)
+
+
+def test_get_gaia_agn_deduplicates_across_batches():
+    """The same Gaia source returned by two batches appears only once in the output."""
+    pos = coords.SkyCoord([187.2779, 187.2780], [2.0524, 2.0525], unit="deg")
+    # Both batch calls return the same source_id
+    fake = _fake_tap_result(source_id=3726862715688776192, ra=187.2779, dec=2.0524)
+
+    with patch.object(cross_match, "_execute_gaia_tap_query", return_value=fake):
+        result = cross_match.get_gaia_agn(pos, radius=3 * u.arcsec)
+
+    assert len(result) == 1
+
+
+def test_get_gaia_agn_tap_failure_returns_empty():
+    """A TAP query failure returns an empty table without raising (graceful degradation)."""
+    pos = coords.SkyCoord([187.2779], [2.0524], unit="deg")
+
+    with patch.object(
+        cross_match, "_execute_gaia_tap_query", side_effect=RuntimeError("TAP unavailable")
+    ):
+        result = cross_match.get_gaia_agn(pos, radius=3 * u.arcsec)
+
+    assert len(result) == 0
+    assert set(cross_match.CROSS_MATCH_DTYPE.names).issubset(set(result.colnames))
+
+
+def test_compute_cross_matches_gaia_agn():
+    """compute_cross_matches('gaia_agn') finds a GaiaAGN match from a synthetic cat_src."""
+    obs = Table(
+        {
+            "obsid": [99999],
+            "detector": ["ACIS-S"],
+            "target": ["test"],
+            "grating": ["NONE"],
+            "sim_z": [-190.143],
+            "date_obs": ["2020-01-01T00:00:00"],
+            "tstart": [0.0],
+            "ascdsver": ["10.0"],
+            "ra": [187.2779],
+            "dec": [2.0524],
+            "roll": [0.0],
+            "category_id": [50],  # Active Galaxies and Quasars
+            "version": ["10.0"],
+        }
+    )
+
+    xray_src = Table(
+        {
+            "obsid": [99999],
+            "id": [1],
+            "ra": [187.2779],
+            "dec": [2.0524],
+            "net_counts": [500.0],
+            "y_angle": [0.0],
+            "z_angle": [0.0],
+            "r_angle": [10.0],
+            "snr": [10.0],
+            "near_neighbor_dist": [60.0],
+            "pileup": [0.0],
+            "acis_streak": [False],
+            "caldb_version": ["4.10.0"],
+            "detect_method": ["celldetect"],
+        }
+    )
+
+    # GaiaAGN catalog source ~1 arcsec away from xray source 1.
+    # x_id=1 links this candidate to xray_src id=1, as simple_cross_match joins on (obsid, x_id).
+    cat_src = Table(
+        {
+            "obsid": [99999],
+            "id": [0],
+            "x_id": [1],
+            "catalog": ["GaiaAGN"],
+            "name": ["GaiaAGN-3726862715688776192"],
+            "ra": [187.2782],
+            "dec": [2.0524],
+            "mag": [12.9],
+            "y_angle": [0.0],
+            "z_angle": [0.0],
+            "separation": [1.0],
+        }
+    )
+
+    matches = cross_match.compute_cross_matches(
+        "gaia_agn",
+        astromon_obs=obs,
+        astromon_xray_src=xray_src,
+        astromon_cat_src=cat_src,
+    )
+
+    assert len(matches) == 1
+    assert matches["select_name"][0] == "gaia_agn"
+    assert matches["obsid"][0] == 99999
+    assert matches["x_id"][0] == 1
+
+
+# 3C 273: a defining ICRF quasar that is also a Gaia DR3 AGN
+_3C273_RA = 187.2779155448750
+_3C273_DEC = 2.0523884103056
+
+
+@pytest.mark.skipif(not HAS_INTERNET, reason="Requires network access")
+def test_get_gaia_agn_live_3c273():
+    """get_gaia_agn finds 3C 273 in the Gaia DR3 AGN catalog (live TAP query)."""
+    pos = coords.SkyCoord([_3C273_RA], [_3C273_DEC], unit="deg")
+    result = cross_match.get_gaia_agn(pos, radius=3 * u.arcsec)
+
+    assert len(result) >= 1
+    assert result["catalog"][0] == "GaiaAGN"
+    assert result["name"][0].startswith("GaiaAGN-")
+    assert np.isclose(result["ra"][0], _3C273_RA, atol=1e-3)
+    assert np.isclose(result["dec"][0], _3C273_DEC, atol=1e-3)

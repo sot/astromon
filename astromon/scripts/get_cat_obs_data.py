@@ -16,6 +16,7 @@ from pathlib import Path
 
 import numpy as np
 import stk
+from astropy import coordinates as coords
 from astropy.table import Column, Table, vstack
 from chandra_aca.transform import radec_to_yagzag
 from cxotime import CxoTime
@@ -25,7 +26,7 @@ from Ska.arc5gl import Arc5gl
 from ska_helpers.logging import basic_logger
 
 from astromon import db, utils
-from astromon.cross_match import compute_cross_matches, rough_match
+from astromon.cross_match import compute_cross_matches, get_gaia_agn, rough_match
 from astromon.observation import Observation, ReturnCode
 from astromon.task import run_tasks
 
@@ -162,6 +163,31 @@ def process(obsid, workdir, log_level, archive_dir, versions=("celldetect",)):  
             match_candidates["y_angle"] = Column(dtype=np.float32)
             match_candidates["z_angle"] = Column(dtype=np.float32)
 
+        # GaiaAGN catalog candidates -- TAP query once on celldetect positions.
+        xray_pos = coords.SkyCoord(
+            celldetect_sources["ra"], celldetect_sources["dec"], unit="deg"
+        )
+        gaia_agn_candidates = get_gaia_agn(
+            xray_pos, radius=3 * u.arcsec, logging_tag=f"OBSID={obsid}"
+        )
+        if len(gaia_agn_candidates):
+            id_offset = len(match_candidates)
+            gaia_agn_candidates["obsid"] = obsid
+            gaia_agn_candidates["id"] = np.arange(len(gaia_agn_candidates)) + id_offset
+            gaia_agn_candidates["y_angle"], gaia_agn_candidates["z_angle"] = radec_to_yagzag(
+                gaia_agn_candidates["ra"], gaia_agn_candidates["dec"], q
+            )
+            # Assign each AGN candidate to the nearest xray source so simple_cross_match
+            # can join on (obsid, x_id).
+            agn_skycoord = coords.SkyCoord(
+                gaia_agn_candidates["ra"], gaia_agn_candidates["dec"], unit="deg"
+            )
+            xray_match_idx, _, _ = agn_skycoord.match_to_catalog_sky(xray_pos)
+            gaia_agn_candidates["x_id"] = celldetect_sources["id"][xray_match_idx]
+            logger.info(f"OBSID={obsid} GaiaAGN: {len(gaia_agn_candidates)} candidate(s)")
+        else:
+            logger.debug(f"OBSID={obsid} GaiaAGN: no candidates")
+
         xcorr_cols = ["select_name", "obsid", "c_id", "x_id", "dy", "dz", "dr", "detect_method"]
         all_sources = []
         all_xcorr = []
@@ -199,6 +225,17 @@ def process(obsid, workdir, log_level, archive_dir, versions=("celldetect",)):  
             if len(matches):
                 all_xcorr.append(matches[xcorr_cols])
 
+            if len(gaia_agn_candidates):
+                gaia_matches = compute_cross_matches(
+                    "gaia_agn",
+                    astromon_obs=obspar,
+                    astromon_xray_src=sources,
+                    astromon_cat_src=gaia_agn_candidates,
+                    logging_tag=f"OBSID={obsid}",
+                )
+                if len(gaia_matches):
+                    all_xcorr.append(gaia_matches[xcorr_cols])
+
         if not all_sources:
             raise SkippedWithWarning("No x-ray sources found for any detection version")
 
@@ -215,7 +252,7 @@ def process(obsid, workdir, log_level, archive_dir, versions=("celldetect",)):  
             "obsid": obsid,
             "astromon_obs": obspar,
             "astromon_xray_src": sources,
-            "astromon_cat_src": match_candidates,
+            "astromon_cat_src": vstack([match_candidates, gaia_agn_candidates]) if len(gaia_agn_candidates) else match_candidates,
             "astromon_xcorr": matches,
         }
 

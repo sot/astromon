@@ -2,6 +2,7 @@
 
 import logging
 import re
+import threading
 from pathlib import Path
 
 import numpy as np
@@ -9,6 +10,7 @@ import requests
 from astropy import coordinates as coords
 from astropy import io, table
 from astropy import units as u
+from astroquery.gaia import Gaia
 from astroquery.vizier import Vizier
 from cxotime import CxoTime
 from Ska.DBI import DBI
@@ -18,6 +20,34 @@ import astromon
 from astromon import db, observation, utils
 
 logger = logging.getLogger("astromon")
+
+
+class _CallTimeoutError(Exception):
+    """Raised by `_run_with_timeout` when the call doesn't finish in time."""
+
+
+def _run_with_timeout(func, args=(), kwargs=None, timeout=120):
+    """Run func in a daemon thread; raise _CallTimeoutError if it exceeds timeout seconds."""
+    if kwargs is None:
+        kwargs = {}
+    outcome = {}
+
+    def _target():
+        try:
+            outcome["value"] = func(*args, **kwargs)
+        except BaseException as e:
+            outcome["error"] = e
+
+    thread = threading.Thread(target=_target, daemon=True)
+    thread.start()
+    thread.join(timeout=timeout)
+    if thread.is_alive():
+        raise _CallTimeoutError(
+            f"{getattr(func, '__name__', func)} did not complete within {timeout}s"
+        )
+    if "error" in outcome:
+        raise outcome["error"]
+    return outcome["value"]
 
 
 SIM_Z = {"ACIS-I": -233.587, "ACIS-S": -190.143, "HRC-I": 126.983, "HRC-S": 250.466}
@@ -71,7 +101,7 @@ CROSS_MATCH_DTYPE = np.dtype(
         # ('obsid', 'int'),
         # ('id', 'int'),
         ("catalog", "<U24"),
-        ("name", "<U16"),
+        ("name", "<U32"),
         ("ra", float),
         ("dec", float),
         ("mag", float),
@@ -222,6 +252,97 @@ VIZIER_CATALOGS = {
         "columns": {"ra": "_RAJ2000", "dec": "_DEJ2000", "mag": "Gmag"},
     },
 }
+
+
+@retry(
+    exceptions=(
+        requests.exceptions.HTTPError,
+        requests.exceptions.Timeout,
+        requests.exceptions.ConnectionError,
+        _CallTimeoutError,
+    ),
+    tries=3,
+    delay=10,
+    backoff=2,
+    max_delay=120,
+    logger=logger,
+)
+def _execute_gaia_tap_query(query):
+    """Execute a single Gaia TAP query with retry and hard timeout."""
+    def _query():
+        job = Gaia.launch_job(query, verbose=False, upload_resource=None)
+        return job.get_results()
+
+    return _run_with_timeout(_query, timeout=120)
+
+
+def get_gaia_agn(pos, radius=3 * u.arcsec, logging_tag=""):
+    """Query Gaia DR3 AGN sources around given sky positions via TAP.
+
+    Parameters
+    ----------
+    pos : astropy.coordinates.SkyCoord
+        Positions to search around (array or scalar).
+    radius : astropy.units.Quantity
+        Search radius. Default 3 arcsec.
+    logging_tag : str
+        Prefix for log messages.
+
+    Returns
+    -------
+    astropy.table.Table
+        Catalog sources with columns matching CROSS_MATCH_DTYPE.
+    """
+    if len(pos) == 0:
+        logger.debug(f"{logging_tag} GaiaAGN has no results")
+        return table.Table(dtype=CROSS_MATCH_DTYPE)
+
+    radius_deg = radius.to(u.deg).value if hasattr(radius, "to") else radius / 3600.0
+    batch_size = 50
+    all_results = []
+
+    for batch_start in range(0, len(pos), batch_size):
+        batch = pos[batch_start : batch_start + batch_size]
+        where_clauses = [
+            f"CONTAINS(POINT('ICRS', g.ra, g.dec), CIRCLE('ICRS', {p.ra.deg}, {p.dec.deg}, {radius_deg}))=1"
+            for p in batch
+        ]
+        query = f"""
+        SELECT g.source_id, g.ra, g.dec, g.phot_g_mean_mag
+        FROM gaiadr3.gaia_source g
+        INNER JOIN gaiadr3.agn_cross_id a ON g.source_id = a.source_id
+        WHERE {" OR ".join(where_clauses)}
+        """
+        try:
+            result = _execute_gaia_tap_query(query)
+            if result is not None and len(result) > 0:
+                all_results.append(result)
+            logger.debug(f"{logging_tag} GaiaAGN batch got {len(result) if result else 0} sources")
+        except Exception as e:
+            logger.warning(f"{logging_tag} GaiaAGN batch failed after all retries: {e}")
+            continue
+
+    if not all_results:
+        logger.debug(f"{logging_tag} GaiaAGN has no results")
+        return table.Table(dtype=CROSS_MATCH_DTYPE)
+
+    combined = table.vstack(all_results)
+    _, unique_idx = np.unique(combined["source_id"], return_index=True)
+    combined = combined[sorted(unique_idx)]
+    combined["catalog"] = "GaiaAGN"
+    combined["name"] = [f"GaiaAGN-{sid}" for sid in combined["source_id"]]
+    combined["mag"] = (
+        combined["phot_g_mean_mag"].astype(np.float32)
+        if "phot_g_mean_mag" in combined.colnames
+        else table.MaskedColumn(dtype=np.float32, length=len(combined), mask=np.ones(len(combined)))
+    )
+
+    output = table.Table(data=np.zeros(len(combined), dtype=CROSS_MATCH_DTYPE))
+    for col in CROSS_MATCH_DTYPE.names:
+        if col in combined.colnames:
+            output[col] = combined[col]
+    logger.debug(f"{logging_tag} GaiaAGN has {len(output)} results")
+    return output
 
 
 def _get(
@@ -807,6 +928,16 @@ CROSS_MATCHES_ARGS = {
         "name": "astromon_22",
         "method": "simple",
         "catalogs": ["ICRS", "Tycho2"],
+        "snr": 3,
+        "r_angle": 120.0,
+        "r_angle_grating": 24.0,
+        "near_neighbor_dist": 6.0,
+        "dr": 3.0,
+    },
+    "gaia_agn": {
+        "name": "gaia_agn",
+        "method": "simple",
+        "catalogs": ["GaiaAGN"],
         "snr": 3,
         "r_angle": 120.0,
         "r_angle_grating": 24.0,

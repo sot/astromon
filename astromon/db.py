@@ -85,7 +85,7 @@ ASTROMON_CAT_SRC_DTYPE = np.dtype(
         ("id", np.int32),
         ("x_id", np.int32),
         ("catalog", "S16"),
-        ("name", "S24"),
+        ("name", "S32"),
         ("ra", np.float64),
         ("dec", np.float64),
         ("separation", np.float32),
