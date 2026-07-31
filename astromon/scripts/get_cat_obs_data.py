@@ -226,11 +226,21 @@ def process(obsid, workdir, log_level, archive_dir, versions=("celldetect",)):  
                 all_xcorr.append(matches[xcorr_cols])
 
             if len(gaia_agn_candidates):
+                # x_id in gaia_agn_candidates was assigned from celldetect source IDs.
+                # Re-match to this version's xray source IDs so the join in
+                # simple_cross_match works for non-celldetect versions.
+                version_pos = coords.SkyCoord(sources["ra"], sources["dec"], unit="deg")
+                agn_sc = coords.SkyCoord(
+                    gaia_agn_candidates["ra"], gaia_agn_candidates["dec"], unit="deg"
+                )
+                xray_idx, _, _ = agn_sc.match_to_catalog_sky(version_pos)
+                candidates_for_version = gaia_agn_candidates.copy()
+                candidates_for_version["x_id"] = sources["id"][xray_idx]
                 gaia_matches = compute_cross_matches(
                     "gaia_agn",
                     astromon_obs=obspar,
                     astromon_xray_src=sources,
-                    astromon_cat_src=gaia_agn_candidates,
+                    astromon_cat_src=candidates_for_version,
                     logging_tag=f"OBSID={obsid}",
                 )
                 if len(gaia_matches):

@@ -1304,6 +1304,15 @@ def gaussian_detect(obs, inputs, outputs):
         input_sources["RA"], input_sources["DEC"], att
     )
 
+    on_streak = obs._on_acis_streak(input_sources)
+    if on_streak.any():
+        logger.info(f"{obs} skipping {on_streak.sum()} of {len(input_sources)} sources on ACIS streak")
+    input_sources = input_sources[~on_streak]
+    if len(input_sources) == 0:
+        results = table.Table(dtype=dtype)
+        results.write(outputs["src"], format="fits", overwrite=True)
+        return ReturnCode.OK
+
     events_yag = np.asarray(events["y_angle"])
     events_zag = np.asarray(events["z_angle"])
 
@@ -1526,6 +1535,15 @@ def peak_gaussian_detect(obs, inputs, outputs):
     input_sources["y_angle"], input_sources["z_angle"] = radec_to_yagzag(
         input_sources["RA"], input_sources["DEC"], att
     )
+
+    on_streak = obs._on_acis_streak(input_sources)
+    if on_streak.any():
+        logger.info(f"{obs} skipping {on_streak.sum()} of {len(input_sources)} sources on ACIS streak")
+    input_sources = input_sources[~on_streak]
+    if len(input_sources) == 0:
+        results = table.Table(dtype=dtype)
+        results.write(outputs["src"], format="fits", overwrite=True)
+        return ReturnCode.OK
 
     events_yag = np.asarray(events["y_angle"])
     events_zag = np.asarray(events["z_angle"])

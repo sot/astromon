@@ -782,6 +782,7 @@ def simple_cross_match(
       arcsec (non-grating observations).
     - Angular separation between X-ray and catalog counterpart less than `dr` arcsec.
     - X-ray sources that are at most `near_neighbor_dist` arcsec from the closest x-ray source.
+    - X-ray sources not flagged as lying on an ACIS readout streak (``acis_streak=False``).
     - Counterparts from catalogs included in `catalog`.
 
     The selected pairs are sorted according to catalog and angular separation.
@@ -846,6 +847,7 @@ def simple_cross_match(
     astromon_xray_src = astromon_xray_src[
         (astromon_xray_src["snr"] > snr)
         & (astromon_xray_src["near_neighbor_dist"] > near_neighbor_dist)
+        & (~astromon_xray_src["acis_streak"].astype(bool))
     ]
     astromon_cat_src = astromon_cat_src[np.isin(astromon_cat_src["catalog"], catalogs)]
 

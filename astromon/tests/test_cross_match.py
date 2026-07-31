@@ -71,7 +71,7 @@ def test_custom_args(monkeypatch):
         near_neighbor_dist=6.0,
         dr=3.0,
     )
-    assert len(matches) == 5
+    assert len(matches) == 4
 
 
 # Real, known cross-matches to check against live Vizier queries, one per catalog in
@@ -368,19 +368,21 @@ def test_compute_cross_matches_gaia_agn():
     assert matches["x_id"][0] == 1
 
 
-# 3C 273: a defining ICRF quasar that is also a Gaia DR3 AGN
-_3C273_RA = 187.2779155448750
-_3C273_DEC = 2.0523884103056
+# Gaia DR3 source confirmed present in gaiadr3.agn_cross_id (verified via TAP query).
+# source_id=1535808699355081728, phot_g_mean_mag=13.38
+_AGNCROSS_RA = 182.6357
+_AGNCROSS_DEC = 39.4059
+_AGNCROSS_SOURCE_ID = 1535808699355081728
 
 
 @pytest.mark.skipif(not HAS_INTERNET, reason="Requires network access")
-def test_get_gaia_agn_live_3c273():
-    """get_gaia_agn finds 3C 273 in the Gaia DR3 AGN catalog (live TAP query)."""
-    pos = coords.SkyCoord([_3C273_RA], [_3C273_DEC], unit="deg")
+def test_get_gaia_agn_live():
+    """get_gaia_agn finds a known Gaia DR3 AGN cross-id source via live TAP query."""
+    pos = coords.SkyCoord([_AGNCROSS_RA], [_AGNCROSS_DEC], unit="deg")
     result = cross_match.get_gaia_agn(pos, radius=3 * u.arcsec)
 
     assert len(result) >= 1
     assert result["catalog"][0] == "GaiaAGN"
-    assert result["name"][0].startswith("GaiaAGN-")
-    assert np.isclose(result["ra"][0], _3C273_RA, atol=1e-3)
-    assert np.isclose(result["dec"][0], _3C273_DEC, atol=1e-3)
+    assert result["name"][0] == f"GaiaAGN-{_AGNCROSS_SOURCE_ID}"
+    assert np.isclose(result["ra"][0], _AGNCROSS_RA, atol=1e-3)
+    assert np.isclose(result["dec"][0], _AGNCROSS_DEC, atol=1e-3)
