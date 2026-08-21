@@ -1240,12 +1240,12 @@ class Observation:
         sources["detect_method"] = version
 
         # Fill columns present in dtype but not produced by this detection version
-        # (e.g. concentration_ratio and psfratio are only computed by gaussian_detect
-        # and peak_gaussian_detect, not celldetect).
-        for col in dtype.names:
-            if col not in sources.colnames:
-                fill = np.nan if dtype[col].kind == "f" else 0
-                sources[col] = np.full(len(sources), fill, dtype=dtype[col])
+        # (e.g. concentration_ratio is only computed by gaussian_detect and
+        # peak_gaussian_detect, not celldetect). Imported here because db imports
+        # this module at load time.
+        from astromon import db  # noqa: PLC0415
+
+        db.conform_to_dtype(sources, "astromon_xray_src")
 
         return (
             table.Table(sources[dtype.names], dtype=dtype)
