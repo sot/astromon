@@ -184,14 +184,84 @@ def create_table(table_name):
     return table.Table(names=DTYPES[table_name].names, dtype=DTYPES[table_name])
 
 
+def create_empty_tables(dbfile=None, table_names=None):
+    """Create any of the known tables that are missing from `dbfile`, with zero rows.
+
+    Idempotent: tables that already exist are left untouched, data and all. Use this
+    to initialize a new database so that incremental writers can pass
+    ``expect_existing=True`` to :func:`save` and have a missing table treated as
+    corruption rather than as a first write.
+
+    Parameters
+    ----------
+    dbfile: :any:`pathlib.Path`
+        File where tables are stored.
+        The default is `$ASTROMON_FILE` or `$SKA/data/astromon/astromon.h5`
+    table_names: list of str, optional
+        Tables to create. Defaults to all of :data:`DTYPES`.
+
+    Returns
+    -------
+    list of str
+        Names of the tables that were actually created.
+    """
+    if table_names is None:
+        table_names = list(DTYPES)
+    created = []
+    with connect(dbfile, mode="r+") as h5:
+        for table_name in table_names:
+            if table_name in h5.root:
+                continue
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                h5.create_table("/", table_name, np.zeros(0, dtype=DTYPES[table_name]))
+            created.append(table_name)
+    return created
+
+
+def missing_column_fill(dtype: np.dtype, name: str):
+    """Value for a column required by *dtype* but absent from the data.
+
+    Float columns get NaN, because 0.0 is a meaningful measurement for the ones
+    that can be missing (psfratio, concentration_ratio) and zero-filling makes an
+    unmeasured source indistinguishable from a genuinely compact one -- silently
+    admitting it into threshold cuts. Everything else gets numpy's zero value:
+    there is no integer NaN, and 0/"" is the right conservative default for the
+    flag and label columns.
+
+    This is the single fill policy for the package; get_sources and the pipeline
+    save path both go through it so a column cannot mean different things
+    depending on which door it came in.
+    """
+    return np.nan if dtype[name].kind == "f" else np.zeros(1, dtype=dtype[name])[0]
+
+
+def conform_to_dtype(data: table.Table, table_name: str) -> table.Table:
+    """Add any columns `table_name`'s schema requires but `data` lacks.
+
+    Fills them per :func:`missing_column_fill`. Returns `data` (modified in place).
+    """
+    dtype = DTYPES[table_name]
+    for name in dtype.names:
+        if name not in data.colnames:
+            fill = missing_column_fill(dtype, name)
+            data[name] = np.full(len(data), fill, dtype=dtype[name])
+    return data
+
+
 def _cast_to_dtype(arr: np.ndarray, dtype: np.dtype) -> np.ndarray:
-    """Cast a structured numpy array to *dtype*, filling any missing fields with zeros."""
+    """Cast a structured numpy array to *dtype*.
+
+    Fields missing from `arr` are filled per :func:`missing_column_fill`.
+    """
     if arr.dtype == dtype:
         return arr
     result = np.zeros(len(arr), dtype=dtype)
     for name in dtype.names:
         if name in arr.dtype.names:
             result[name] = arr[name]
+        else:
+            result[name] = missing_column_fill(dtype, name)
     return result
 
 
@@ -287,8 +357,30 @@ def connect(dbfile=None, mode="r"):
                 logger.debug(f"{dbfile} closed (2)")
 
 
+def _validated_replace_keys(
+    table_name, replace_keys, data_names, ignore_obsid, select_name_key
+):
+    """Validate save()'s replace_keys against its legacy flags and the data columns."""
+    if ignore_obsid:
+        raise ValueError("replace_keys cannot be combined with ignore_obsid=True")
+    if select_name_key:
+        raise ValueError("replace_keys cannot be combined with select_name_key=True")
+    missing_keys = [k for k in replace_keys if k not in data_names]
+    if missing_keys:
+        raise ValueError(
+            f"replace_keys columns not in {table_name}: {', '.join(missing_keys)}"
+        )
+    return tuple(replace_keys)
+
+
 def save(  # noqa: PLR0912
-    table_name, data, dbfile, ignore_obsid=False, select_name_key=False
+    table_name,
+    data,
+    dbfile,
+    ignore_obsid=False,
+    select_name_key=False,
+    replace_keys=None,
+    expect_existing=False,
 ):
     """
     Insert data into a table, deleting previous entries for the same OBSID.
@@ -325,7 +417,23 @@ def save(  # noqa: PLR0912
         When True and the table has both ``detect_method`` and ``select_name`` columns,
         key on ``(obsid, detect_method, select_name)`` instead of ``(obsid, detect_method)``.
         This lets independent catalog backfills update one select_name without clobbering rows
-        from other select_names for the same obsid.
+        from other select_names for the same obsid. Equivalent to
+        ``replace_keys=("obsid", "detect_method", "select_name")``.
+    replace_keys: tuple of str, optional
+        Explicit key columns for the delete-before-append: existing rows whose key-column
+        values match any row of `data` are replaced, everything else is kept. For example
+        ``replace_keys=("catalog",)`` on ``astromon_cat_src`` rebuilds one catalog without
+        touching the others, and ``replace_keys=("obsid", "catalog")`` replaces only the
+        (obsid, catalog) pairs present in `data`. Cannot be combined with `ignore_obsid`
+        or `select_name_key`.
+    expect_existing: bool
+        When True, raise :any:`MissingTableException` instead of creating `table_name`
+        if it is not already in the file. Incremental writers should set this: `save`
+        replaces a table by removing the node and re-creating it, which is not atomic,
+        so a process killed in that window leaves the table missing. Without this flag
+        the next `save` recreates it holding only its own rows, silently discarding
+        every other obsid. Initialize a new database with :func:`create_empty_tables`
+        so that a missing table always means corruption rather than a first write.
     """
     with connect(dbfile, mode="r+") as h5:
         if not h5.isopen:
@@ -351,9 +459,36 @@ def save(  # noqa: PLR0912
         else:
             data = data.as_array()
 
+        if replace_keys is not None:
+            replace_keys = _validated_replace_keys(
+                table_name,
+                replace_keys,
+                data.dtype.names,
+                ignore_obsid,
+                select_name_key,
+            )
+
+        if expect_existing and table_name not in h5.root:
+            raise MissingTableException(
+                f"{table_name} is missing from {h5.filename} but expect_existing=True. "
+                "The table may have been destroyed by a process killed during a save; "
+                "check for data loss before re-running. Use create_empty_tables() to "
+                "initialize a new database."
+            )
+
         if table_name in h5.root:
             node = h5.get_node(f"/{table_name}")
-            if not ignore_obsid and "obsid" in data.dtype.names:
+            if replace_keys is not None:
+                stored = node[:]
+                data_out = (
+                    _cast_to_dtype(stored, dtype) if table_name in DTYPES else stored
+                )
+                key_cols = list(replace_keys)
+                data_out = data_out[
+                    ~np.isin(data_out[key_cols], np.unique(data[key_cols]))
+                ]
+                data = np.concatenate((data_out, data))
+            elif not ignore_obsid and "obsid" in data.dtype.names:
                 data_out = _cast_to_dtype(node[:], dtype)
                 has_detect = (
                     "detect_method" in data.dtype.names
@@ -363,31 +498,21 @@ def save(  # noqa: PLR0912
                     "select_name" in data.dtype.names
                     and "select_name" in data_out.dtype.names
                 )
-                if has_detect and select_name_key and has_select:
-                    # Key on (obsid, detect_method, select_name) so independent catalog
-                    # backfills don't clobber each other's rows.
-                    for obsid, method, sname in np.unique(
-                        data[["obsid", "detect_method", "select_name"]]
-                    ):
-                        data_out = data_out[
-                            ~(
-                                (data_out["obsid"] == obsid)
-                                & (data_out["detect_method"] == method)
-                                & (data_out["select_name"] == sname)
-                            )
-                        ]
-                elif has_detect:
-                    # Key on (obsid, detect_method) so different methods coexist.
-                    for obsid, method in np.unique(data[["obsid", "detect_method"]]):
-                        data_out = data_out[
-                            ~(
-                                (data_out["obsid"] == obsid)
-                                & (data_out["detect_method"] == method)
-                            )
-                        ]
-                else:
-                    obsids = np.unique(data["obsid"])
-                    data_out = data_out[~np.isin(data_out["obsid"], obsids)]
+                # Replace rows matching the incoming data on the key columns:
+                # (obsid) by default, (obsid, detect_method) when the table has
+                # detect_method so different methods coexist, and additionally
+                # select_name with select_name_key=True so independent catalog
+                # backfills don't clobber each other's rows.
+                key_cols = ["obsid"]
+                if has_detect:
+                    key_cols.append("detect_method")
+                    if select_name_key and has_select:
+                        key_cols.append("select_name")
+                # One vectorized membership test on the structured key subset
+                # instead of one full-table scan per unique key.
+                data_out = data_out[
+                    ~np.isin(data_out[key_cols], np.unique(data[key_cols]))
+                ]
                 data = np.concatenate((data_out, data))
             h5.remove_node(node)
 
@@ -445,7 +570,17 @@ def add_regions(regions, dbfile=None):
         else:
             meta = Table(np.zeros(1, dtype=DTYPES["astromon_meta"]))
 
-        rid = meta["last_region_id"][0] + 1
+        # Take the floor from whichever of the counter and the data is further
+        # along. An absent or zero-row astromon_meta means "the counter is
+        # unknown", not "no region_id has ever been allocated" -- reading it as
+        # the latter restarts numbering at 1 and collides with existing rows,
+        # and because remove_regions() deletes by region_id a single duplicate
+        # makes one removal take out two regions. Trusting only the table would
+        # be wrong in the other direction: sync_regions can leave the counter
+        # above max(region_id) once rows are removed, and those retired ids must
+        # not be handed out again.
+        max_existing = int(np.max(all_regions["region_id"])) if len(all_regions) else 0
+        rid = max(int(meta["last_region_id"][0]), max_existing) + 1
         regions = Table(regions)
         names = [n for n in all_regions.dtype.names if n in regions.dtype.names]
         b = np.zeros(len(regions), dtype=all_regions.dtype)
@@ -550,6 +685,37 @@ def get_regions(obsid=None, dbfile=None, radius=5 * u.arcmin):
     return regions
 
 
+def _ensure_unique_region_ids(regions, last_region_id):
+    """Give every row a distinct ``region_id``.
+
+    Rows keep their id on a first-come basis, so the destination's existing rows
+    (which come first in the merge) stay stable and only later duplicates move.
+    New ids continue above both `last_region_id` and the largest id in the table,
+    so a retired id is never reissued.
+
+    Returns
+    -------
+    tuple
+        ``(regions, last_region_id)`` with the counter advanced to the new
+        maximum id.
+    """
+    if len(regions) == 0:
+        return regions, int(last_region_id)
+
+    ids = np.asarray(regions["region_id"], dtype=int)
+    next_id = max(int(last_region_id), int(ids.max())) + 1
+    seen = set()
+    for i, region_id in enumerate(ids):
+        if int(region_id) in seen:
+            regions["region_id"][i] = next_id
+            seen.add(next_id)
+            next_id += 1
+        else:
+            seen.add(int(region_id))
+    new_last = max(int(last_region_id), int(np.max(regions["region_id"])))
+    return regions, new_last
+
+
 def sync_regions(from_file, to_file, remove=False):
     """
     Sync exclusion regions from one astromon DB file to another.
@@ -580,16 +746,19 @@ def sync_regions(from_file, to_file, remove=False):
     # add records that are only in from_file
     new = ~np.isin(from_regions["region_id_str"], to_regions["region_id_str"])
     if np.any(new):
-        # make sure that region_id is not repeated
-        # if there are repeated region_ids, assign new ones continuing from last_region_id in meta
-        new_regions = from_regions[new]
-        repeated_ids = np.isin(new_regions["region_id"], to_regions["region_id"])
-        if np.any(repeated_ids):
-            n_repeats = np.sum(repeated_ids)
-            start_id = meta["last_region_id"][0] + 1
-            new_regions["region_id"][repeated_ids] = np.arange(n_repeats) + start_id
-        to_regions = table.vstack([to_regions, new_regions])
-        meta["last_region_id"][0] = to_regions["region_id"].max()
+        to_regions = table.vstack([to_regions, from_regions[new]])
+
+    # region_id_str is what identifies a region across files, but region_id is
+    # what remove_regions() deletes by, so the merged table has to come out with
+    # unique ids. Renumber against the whole merged set: reassigning only the
+    # rows that clash with the destination, from a counter that ignores the other
+    # incoming ids, lands on ids those incoming rows already hold and turns one
+    # duplicate into several. A duplicate already present in either input is
+    # repaired here too.
+    to_regions, last_region_id = _ensure_unique_region_ids(
+        to_regions, meta["last_region_id"][0]
+    )
+    meta["last_region_id"][0] = last_region_id
 
     to_regions.sort("region_id")
 
