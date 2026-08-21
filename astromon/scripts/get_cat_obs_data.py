@@ -16,6 +16,7 @@ from pathlib import Path
 
 import numpy as np
 import stk
+from astropy import coordinates as coords
 from astropy.table import Column, Table, vstack
 from chandra_aca.transform import radec_to_yagzag
 from cxotime import CxoTime
@@ -25,8 +26,18 @@ from Ska.arc5gl import Arc5gl
 from ska_helpers.logging import basic_logger
 
 from astromon import db, utils
-from astromon.cross_match import compute_cross_matches, rough_match
+from astromon.cross_match import (
+    compute_cross_matches,
+    get_desi_v161_candidates,
+    get_gaia_agn,
+    get_gaia_qso_candidates,
+    get_gaia_var_stars,
+    get_milliquas_gaia,
+    get_quaia_candidates,
+    rough_match,
+)
 from astromon.observation import Observation, ReturnCode
+from astromon.task import run_tasks
 
 
 class Skipped(Exception):
@@ -78,6 +89,17 @@ def save(data, db_file):
     for key, val in errors.items():
         logger.warning(f"ERROR: {len(val)} {key} ({', '.join(val)})")
 
+    failed_obsids = [str(d["obsid"]) for d in data if not d["ok"]]
+    failures_file = Path(str(db_file)).with_suffix(".failures")
+    if failed_obsids:
+        failures_file.write_text("\n".join(failed_obsids) + "\n")
+        logger.warning(
+            f"{len(failed_obsids)} failed obsids written to {failures_file} "
+            f"-- retry with: astromon-cross-match --obsid {failures_file}"
+        )
+    elif failures_file.exists():
+        failures_file.unlink()
+
     data = [d for d in data if "astromon_obs" in d and len(d["astromon_obs"]) > 0]
     if len(data) == 0:
         logger.info("Nothing to save")
@@ -106,57 +128,300 @@ def save(data, db_file):
                 db.save(name, data[name], con)
 
 
-def process(obsid, workdir, log_level, archive_dir):  # noqa: PLR0915, PLR0912
+# Detection versions that are run for a side effect rather than saved as their own
+# detect_method. peak_gaussian_detect writes the .src file that get_sources reads to
+# compute peak_offset, but its fitted positions are not persisted: they never won on
+# match count, and what they carry is the offset itself. The .src stays on disk, so
+# the positions remain recoverable.
+DIAGNOSTIC_VERSIONS = ("peak_gaussian_detect",)
+
+
+def _split_versions(versions):
+    """Split requested versions into ``(saved, diagnostic)``, preserving order.
+
+    Diagnostic versions must run before any ``get_sources`` call, because that is
+    what reads their output to compute ``peak_offset`` -- and its result is cached
+    by ``@stored_result``, so a version run afterwards would leave the column NaN
+    with no second chance.
     """
-    This is where the actual work is done.
+    saved = [v for v in versions if v not in DIAGNOSTIC_VERSIONS]
+    diagnostic = [v for v in versions if v in DIAGNOSTIC_VERSIONS]
+    return saved, diagnostic
+
+
+def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
+    obsid,
+    workdir,
+    archive_dir=None,
+    versions=("celldetect",),
+    source: str = "arc5gl",
+    ciao_prefix: str | None = None,
+    cleanup: bool = False,
+):
     """
-    logger = basic_logger(
-        "astromon", level=log_level, format="%(asctime)s %(funcName)-25s: %(message)s"
-    )
+    Core processing logic for a single obsid. Raises on failure.
+
+    Returns a dict with keys: obsid, astromon_obs, astromon_xray_src,
+    astromon_cat_src, astromon_xcorr.  Raises Skipped or SkippedWithWarning
+    for expected non-fatal cases, and Exception for real failures.
+
+    This is the single source of truth for per-obsid processing. Both the
+    astromon-cross-match CLI (via process()) and process_one_obsid.py call
+    this function; neither duplicates the logic.
+
+    Parameters
+    ----------
+    obsid : int
+        Chandra observation ID.
+    workdir : str or Path
+        Top-level working directory.
+    archive_dir : str or Path, optional
+        Pre-populated archive directory; files are symlinked from here
+        rather than downloaded.
+    versions : tuple of str
+        Detection versions to run (e.g. ``("celldetect", "gaussian_detect")``).
+    source : str
+        Data download method: ``"arc5gl"`` (default, CXC-internal) or
+        ``"archive"`` (public Chandra archive via ``download_chandra_obsid``).
+    ciao_prefix : str or None
+        Path to the CIAO installation (e.g. ``"/soft/ciao"``).  ``None``
+        falls back to the ``Ciao`` class default (``/soft/ciao``).
+    cleanup : bool
+        If True, delete downloaded files that are not needed after source
+        detection (e.g. level-1 events, VV report, preview JPEGs).  See
+        ``Observation.cleanup_downloads`` for the full list.  Default False.
+    """
+    logger = logging.getLogger("astromon")
 
     exceptions = {
         ReturnCode.SKIP: Skipped,
         ReturnCode.WARNING: SkippedWithWarning,
         ReturnCode.ERROR: Exception,
     }
-    try:
-        logger.info(f"OBSID={obsid} *** Processing OBSID {obsid} ***")
-        observation = Observation(obsid, workdir, archive_dir=archive_dir)
 
-        if not (rv := observation.process()):
-            raise exceptions.get(rv.return_code, Exception)(rv.msg)
+    logger.info(f"OBSID={obsid} *** Processing OBSID {obsid} ***")
+    observation = Observation(
+        obsid,
+        workdir,
+        archive_dir=archive_dir,
+        source=source,
+        ciao_prefix=ciao_prefix,
+    )
 
-        if archive_dir:
-            observation.archive()
+    if archive_dir:
+        observation.create_archive_symlinks()
 
-        obspar = Table([observation.get_info()])
-        sources = observation.get_sources()
+    if not (rv := observation.process()):
+        raise exceptions.get(rv.return_code, Exception)(rv.msg)
 
-        if len(sources) == 0:
-            raise SkippedWithWarning("No x-ray sources found")
+    # Archive celldetect intermediate files before running additional versions.
+    if archive_dir:
+        observation.archive()
 
-        match_candidates = rough_match(sources, CxoTime(obspar["date_obs"][0]))
+    saved_versions, diagnostic_versions = _split_versions(versions)
 
-        if len(match_candidates):
-            q = Quat(
-                equatorial=(
-                    obspar["ra_pnt"][0],
-                    obspar["dec_pnt"][0],
-                    obspar["roll_pnt"][0],
+    # Before any get_sources call: it reads the diagnostic versions' .src output to
+    # compute peak_offset, and caches its result.
+    for version in diagnostic_versions:
+        try:
+            rv = run_tasks(
+                observation, requested_files=[f"sources/{obsid}_{version}.src"]
+            )
+        except Exception as exc:
+            logger.warning(f"OBSID={obsid} {version} raised exception, skipping: {exc}")
+            continue
+        failed = [
+            v for v in rv.values() if v.return_code.value >= ReturnCode.ERROR.value
+        ]
+        if failed:
+            logger.warning(f"OBSID={obsid} {version} failed: {failed[0].msg}")
+
+    obspar = Table([observation.get_info()])
+
+    # Rough-match catalog sources once from celldetect positions, which are always
+    # available after observation.process(). The positions are nearly identical across
+    # detection methods so this candidate set is valid for all of them.
+    celldetect_sources = observation.get_sources(version="celldetect")
+    if len(celldetect_sources) == 0:
+        raise SkippedWithWarning("No x-ray sources found")
+
+    q = Quat(
+        equatorial=(
+            obspar["ra_pnt"][0],
+            obspar["dec_pnt"][0],
+            obspar["roll_pnt"][0],
+        )
+    )
+    obs_time = CxoTime(obspar["date_obs"][0])
+    # Include RFC and ICRF3 (both local-cache, no network) so astromon_23 can match
+    # against radio sources and icrf3 can label ICRF3-specific matches separately.
+    # Tycho2/USNO-B1.0/2MASS/SDSS are VizieR queries.
+    match_candidates = rough_match(
+        celldetect_sources,
+        obs_time,
+        catalogs=("RFC", "ICRF3", "Tycho2", "USNO-B1.0", "2MASS", "SDSS"),
+    )
+    if len(match_candidates):
+        match_candidates["obsid"] = obsid
+        match_candidates["id"] = np.arange(len(match_candidates))
+        match_candidates["y_angle"], match_candidates["z_angle"] = radec_to_yagzag(
+            match_candidates["ra"], match_candidates["dec"], q
+        )
+    else:
+        match_candidates["obsid"] = Column(dtype=int)
+        match_candidates["id"] = Column(dtype=int)
+        match_candidates["y_angle"] = Column(dtype=np.float32)
+        match_candidates["z_angle"] = Column(dtype=np.float32)
+
+    # Build a time-stamped SkyCoord for all Gaia catalog queries.
+    # obstime is required by get_gaia_var_stars for proper motion correction.
+    xray_pos = coords.SkyCoord(
+        celldetect_sources["ra"],
+        celldetect_sources["dec"],
+        unit="deg",
+        obstime=obs_time,
+    )
+
+    def _add_obsid_and_x_id(candidates, id_offset):
+        """Stamp obsid, assign sequential IDs, compute y/z angles, assign x_id."""
+        candidates["obsid"] = obsid
+        candidates["id"] = np.arange(len(candidates)) + id_offset
+        candidates["y_angle"], candidates["z_angle"] = radec_to_yagzag(
+            candidates["ra"], candidates["dec"], q
+        )
+        cat_sc = coords.SkyCoord(candidates["ra"], candidates["dec"], unit="deg")
+        xray_match_idx, _, _ = cat_sc.match_to_catalog_sky(xray_pos)
+        candidates["x_id"] = celldetect_sources["id"][xray_match_idx]
+
+    def _remap_x_id(candidates, version_sources):
+        """Return a copy of candidates with x_id re-matched to version_sources."""
+        version_pos = coords.SkyCoord(
+            version_sources["ra"], version_sources["dec"], unit="deg"
+        )
+        cat_sc = coords.SkyCoord(candidates["ra"], candidates["dec"], unit="deg")
+        xray_idx, _, _ = cat_sc.match_to_catalog_sky(version_pos)
+        remapped = candidates.copy()
+        remapped["x_id"] = version_sources["id"][xray_idx]
+        return remapped
+
+    gaia_agn_candidates = get_gaia_agn(
+        xray_pos, radius=3 * u.arcsec, logging_tag=f"OBSID={obsid}"
+    )
+    if len(gaia_agn_candidates):
+        _add_obsid_and_x_id(gaia_agn_candidates, id_offset=len(match_candidates))
+        logger.info(f"OBSID={obsid} GaiaAGN: {len(gaia_agn_candidates)} candidate(s)")
+    else:
+        logger.debug(f"OBSID={obsid} GaiaAGN: no candidates")
+
+    # Gaia DR3 qso_candidates -- extends agn_cross_id to ~6.6M sources (G up to ~21.5).
+    gaia_qso_candidates = get_gaia_qso_candidates(
+        xray_pos, radius=3 * u.arcsec, logging_tag=f"OBSID={obsid}"
+    )
+    if len(gaia_qso_candidates):
+        id_offset = len(match_candidates) + len(gaia_agn_candidates)
+        _add_obsid_and_x_id(gaia_qso_candidates, id_offset=id_offset)
+        logger.info(f"OBSID={obsid} GaiaQSO: {len(gaia_qso_candidates)} candidate(s)")
+    else:
+        logger.debug(f"OBSID={obsid} GaiaQSO: no candidates")
+
+    # Milliquas v8 + Gaia DR3 candidates -- VizieR cone search + Gaia position upgrade.
+    milliquas_candidates = get_milliquas_gaia(
+        xray_pos, radius=3 * u.arcsec, logging_tag=f"OBSID={obsid}"
+    )
+    if len(milliquas_candidates):
+        id_offset = (
+            len(match_candidates) + len(gaia_agn_candidates) + len(gaia_qso_candidates)
+        )
+        _add_obsid_and_x_id(milliquas_candidates, id_offset=id_offset)
+        logger.info(
+            f"OBSID={obsid} MilliquasGaia: {len(milliquas_candidates)} candidate(s)"
+        )
+    else:
+        logger.debug(f"OBSID={obsid} MilliquasGaia: no candidates")
+
+    # Quaia (Gaia DR3 + unWISE) candidates -- local cache, bounding-cone filter.
+    quaia_candidates = get_quaia_candidates(
+        xray_pos, radius=3 * u.arcsec, logging_tag=f"OBSID={obsid}"
+    )
+    if len(quaia_candidates):
+        id_offset = (
+            len(match_candidates)
+            + len(gaia_agn_candidates)
+            + len(gaia_qso_candidates)
+            + len(milliquas_candidates)
+        )
+        _add_obsid_and_x_id(quaia_candidates, id_offset=id_offset)
+        logger.info(f"OBSID={obsid} Quaia: {len(quaia_candidates)} candidate(s)")
+    else:
+        logger.debug(f"OBSID={obsid} Quaia: no candidates")
+
+    # DESI EDR (V/161) candidates -- VizieR cone search, QSO+GALAXY, ZWARN==0.
+    desi_candidates = get_desi_v161_candidates(
+        xray_pos, radius=3 * u.arcsec, logging_tag=f"OBSID={obsid}"
+    )
+    if len(desi_candidates):
+        id_offset = (
+            len(match_candidates)
+            + len(gaia_agn_candidates)
+            + len(gaia_qso_candidates)
+            + len(milliquas_candidates)
+            + len(quaia_candidates)
+        )
+        _add_obsid_and_x_id(desi_candidates, id_offset=id_offset)
+        logger.info(f"OBSID={obsid} DESIV161: {len(desi_candidates)} candidate(s)")
+    else:
+        logger.debug(f"OBSID={obsid} DESIV161: no candidates")
+
+    # GaiaVarStar catalog candidates -- proper motion corrected to obs epoch.
+    var_star_candidates = get_gaia_var_stars(
+        xray_pos, radius=3 * u.arcsec, logging_tag=f"OBSID={obsid}"
+    )
+    if len(var_star_candidates):
+        id_offset = (
+            len(match_candidates)
+            + len(gaia_agn_candidates)
+            + len(gaia_qso_candidates)
+            + len(milliquas_candidates)
+            + len(quaia_candidates)
+            + len(desi_candidates)
+        )
+        _add_obsid_and_x_id(var_star_candidates, id_offset=id_offset)
+        logger.info(
+            f"OBSID={obsid} GaiaVarStar: {len(var_star_candidates)} candidate(s)"
+        )
+    else:
+        logger.debug(f"OBSID={obsid} GaiaVarStar: no candidates")
+
+    xcorr_cols = list(db.ASTROMON_XCORR_DTYPE.names)
+    all_sources = []
+    all_xcorr = []
+
+    for version in saved_versions:
+        if version != "celldetect":
+            try:
+                rv = run_tasks(
+                    observation,
+                    requested_files=[f"sources/{obsid}_{version}.src"],
                 )
-            )
-            match_candidates["obsid"] = obsid
-            match_candidates["id"] = np.arange(len(match_candidates))
-            match_candidates["y_angle"], match_candidates["z_angle"] = radec_to_yagzag(
-                match_candidates["ra"], match_candidates["dec"], q
-            )
-        else:
-            match_candidates["obsid"] = Column(dtype=int)
-            match_candidates["id"] = Column(dtype=int)
-            match_candidates["y_angle"] = Column(dtype=np.float32)
-            match_candidates["z_angle"] = Column(dtype=np.float32)
+            except Exception as exc:
+                logger.warning(
+                    f"OBSID={obsid} {version} raised exception, skipping version: {exc}"
+                )
+                continue
+            failed = [
+                v for v in rv.values() if v.return_code.value >= ReturnCode.ERROR.value
+            ]
+            if failed:
+                logger.warning(f"OBSID={obsid} {version} failed: {failed[0].msg}")
+                continue
 
-        logger.debug(f"OBSID={obsid} About to cross-match")
+        sources = observation.get_sources(version=version)
+        if len(sources) == 0:
+            logger.warning(f"OBSID={obsid} no sources for {version}")
+            continue
+        all_sources.append(sources)
+
+        logger.debug(f"OBSID={obsid} About to cross-match ({version})")
         matches = compute_cross_matches(
             "astromon_21",
             astromon_obs=obspar,
@@ -164,55 +429,270 @@ def process(obsid, workdir, log_level, archive_dir):  # noqa: PLR0915, PLR0912
             astromon_cat_src=match_candidates,
             logging_tag=f"OBSID={obsid}",
         )
-        if matches:
-            matches = matches[
-                ["select_name", "obsid", "c_id", "x_id", "dy", "dz", "dr"]
-            ]
+        if len(matches):
+            all_xcorr.append(matches[xcorr_cols])
 
-        result = {
-            "ok": True,
-            "msg": "",
-            "obsid": obsid,
-            "astromon_obs": obspar,
-            "astromon_xray_src": sources,
-            "astromon_cat_src": match_candidates,
-            "astromon_xcorr": matches,
-        }
+        icrf3_matches = compute_cross_matches(
+            "icrf3",
+            astromon_obs=obspar,
+            astromon_xray_src=sources,
+            astromon_cat_src=match_candidates,
+            logging_tag=f"OBSID={obsid}",
+        )
+        if len(icrf3_matches):
+            all_xcorr.append(icrf3_matches[xcorr_cols])
 
-        (observation.workdir / "results").mkdir(exist_ok=True)
-        # this is because of unicode characters in observer names and other fields
-        result["astromon_obs"].convert_unicode_to_bytestring()
-        for name in [
-            "astromon_obs",
-            "astromon_xray_src",
-            "astromon_cat_src",
-            "astromon_xcorr",
-        ]:
-            fn = observation.workdir / "results" / f"{name}.fits"
-            fn.unlink(missing_ok=True)
-            if len(result[name]) > 0:
-                result[name].write(fn)
+        rfc_matches = compute_cross_matches(
+            "rfc",
+            astromon_obs=obspar,
+            astromon_xray_src=sources,
+            astromon_cat_src=match_candidates,
+            logging_tag=f"OBSID={obsid}",
+        )
+        if len(rfc_matches):
+            all_xcorr.append(rfc_matches[xcorr_cols])
 
-        if archive_dir:
-            observation.archive(
-                "astromon_obs.fits",
-                "astromon_xray_src.fits",
-                "astromon_cat_src.fits",
-                "astromon_xcorr.fits",
+        tycho2_matches = compute_cross_matches(
+            "tycho2",
+            astromon_obs=obspar,
+            astromon_xray_src=sources,
+            astromon_cat_src=match_candidates,
+            logging_tag=f"OBSID={obsid}",
+        )
+        if len(tycho2_matches):
+            all_xcorr.append(tycho2_matches[xcorr_cols])
+
+        if len(gaia_agn_candidates):
+            # x_id in gaia_agn_candidates was assigned from celldetect source IDs.
+            # Re-match to this version's xray source IDs so the join in
+            # simple_cross_match works for non-celldetect versions.
+            candidates_for_version = _remap_x_id(gaia_agn_candidates, sources)
+            gaia_matches = compute_cross_matches(
+                "gaia_agn",
+                astromon_obs=obspar,
+                astromon_xray_src=sources,
+                astromon_cat_src=candidates_for_version,
+                logging_tag=f"OBSID={obsid}",
             )
-        return result
+            if len(gaia_matches):
+                all_xcorr.append(gaia_matches[xcorr_cols])
 
+        if len(gaia_qso_candidates):
+            candidates_for_version = _remap_x_id(gaia_qso_candidates, sources)
+            gaia_qso_matches = compute_cross_matches(
+                "gaia_qso",
+                astromon_obs=obspar,
+                astromon_xray_src=sources,
+                astromon_cat_src=candidates_for_version,
+                logging_tag=f"OBSID={obsid}",
+            )
+            if len(gaia_qso_matches):
+                all_xcorr.append(gaia_qso_matches[xcorr_cols])
+
+        if len(milliquas_candidates):
+            candidates_for_version = _remap_x_id(milliquas_candidates, sources)
+            mq_matches = compute_cross_matches(
+                "milliquas_gaia",
+                astromon_obs=obspar,
+                astromon_xray_src=sources,
+                astromon_cat_src=candidates_for_version,
+                logging_tag=f"OBSID={obsid}",
+            )
+            if len(mq_matches):
+                all_xcorr.append(mq_matches[xcorr_cols])
+
+        if len(quaia_candidates):
+            candidates_for_version = _remap_x_id(quaia_candidates, sources)
+            quaia_matches = compute_cross_matches(
+                "quaia",
+                astromon_obs=obspar,
+                astromon_xray_src=sources,
+                astromon_cat_src=candidates_for_version,
+                logging_tag=f"OBSID={obsid}",
+            )
+            if len(quaia_matches):
+                all_xcorr.append(quaia_matches[xcorr_cols])
+
+        if len(desi_candidates):
+            candidates_for_version = _remap_x_id(desi_candidates, sources)
+            desi_matches = compute_cross_matches(
+                "desi_v161",
+                astromon_obs=obspar,
+                astromon_xray_src=sources,
+                astromon_cat_src=candidates_for_version,
+                logging_tag=f"OBSID={obsid}",
+            )
+            if len(desi_matches):
+                all_xcorr.append(desi_matches[xcorr_cols])
+
+        if len(var_star_candidates):
+            candidates_for_version = _remap_x_id(var_star_candidates, sources)
+            vs_matches = compute_cross_matches(
+                "gaia_var_star",
+                astromon_obs=obspar,
+                astromon_xray_src=sources,
+                astromon_cat_src=candidates_for_version,
+                logging_tag=f"OBSID={obsid}",
+            )
+            if len(vs_matches):
+                all_xcorr.append(vs_matches[xcorr_cols])
+
+        # Combined hierarchical matches using all available catalogs.
+        # astromon_23: RFC > GaiaAGN > GaiaQSO > Quaia > MilliquasGaia > DESIV161
+        #              > GaiaVarStar > Tycho2.
+        # astromon_24: same + ICRF3 prepended, celldetect only.
+        # astromon_25: same + ICRF3 prepended, gaussian_detect only.
+        all_candidates = [
+            t
+            for t in [
+                match_candidates,
+                gaia_agn_candidates,
+                gaia_qso_candidates,
+                quaia_candidates,
+                milliquas_candidates,
+                desi_candidates,
+                var_star_candidates,
+            ]
+            if len(t)
+        ]
+        if all_candidates:
+            combined_for_version = _remap_x_id(
+                vstack(all_candidates, metadata_conflicts="silent"), sources
+            )
+            for select_name in (
+                "astromon_23",
+                "astromon_24",
+                "astromon_25",
+                "astromon_26",
+                "astromon_27",
+            ):
+                combined_matches = compute_cross_matches(
+                    select_name,
+                    astromon_obs=obspar,
+                    astromon_xray_src=sources,
+                    astromon_cat_src=combined_for_version,
+                    logging_tag=f"OBSID={obsid}",
+                )
+                if len(combined_matches):
+                    all_xcorr.append(combined_matches[xcorr_cols])
+
+    if not all_sources:
+        raise SkippedWithWarning("No x-ray sources found for any detection version")
+
+    sources = vstack(all_sources)
+    matches = vstack(all_xcorr) if all_xcorr else Table(names=xcorr_cols)
+
+    # Archive any new detection-version output files produced above.
+    if archive_dir and len(versions) > 1:
+        observation.archive()
+
+    _cat_src_parts = [
+        t
+        for t in [
+            match_candidates,
+            gaia_agn_candidates,
+            gaia_qso_candidates,
+            quaia_candidates,
+            milliquas_candidates,
+            desi_candidates,
+            var_star_candidates,
+        ]
+        if len(t)
+    ]
+    # match_candidates is always defined with the right schema (even when empty),
+    # so it serves as the zero-row fallback when no catalogs have candidates.
+    _all_cat_src = (
+        vstack(_cat_src_parts, metadata_conflicts="silent")
+        if _cat_src_parts
+        else match_candidates
+    )
+
+    result = {
+        "obsid": obsid,
+        "astromon_obs": obspar,
+        "astromon_xray_src": sources,
+        "astromon_cat_src": _all_cat_src,
+        "astromon_xcorr": matches,
+    }
+
+    (observation.workdir / "results").mkdir(exist_ok=True)
+    # unicode characters in observer names and other fields require this
+    result["astromon_obs"].convert_unicode_to_bytestring()
+    for name in [
+        "astromon_obs",
+        "astromon_xray_src",
+        "astromon_cat_src",
+        "astromon_xcorr",
+    ]:
+        fn = observation.workdir / "results" / f"{name}.fits"
+        fn.unlink(missing_ok=True)
+        if len(result[name]) > 0:
+            result[name].write(fn)
+
+    if archive_dir:
+        observation.archive(
+            "astromon_obs.fits",
+            "astromon_xray_src.fits",
+            "astromon_cat_src.fits",
+            "astromon_xcorr.fits",
+        )
+
+    if cleanup:
+        observation.cleanup_downloads()
+
+    return result
+
+
+def process(  # noqa: PLR0917
+    obsid,
+    workdir,
+    log_level,
+    archive_dir,
+    versions=("celldetect",),
+    source: str = "arc5gl",
+    ciao_prefix: str | None = None,
+):
+    """
+    Catch exceptions from process_obsid() and return a status dict for the Pool.
+
+    Suitable for use with the multiprocessing Pool in the astromon-cross-match CLI.
+    """
+    logger = basic_logger(
+        "astromon", level=log_level, format="%(asctime)s %(funcName)-25s: %(message)s"
+    )
+    try:
+        result = process_obsid(
+            obsid,
+            workdir,
+            archive_dir=archive_dir,
+            versions=versions,
+            source=source,
+            ciao_prefix=ciao_prefix,
+        )
+        return {"ok": True, "msg": "", **result}
     except Skipped as e:
-        ok = True
-        msg = f"skipped: {e}"
         logger.info(f"OBSID={obsid} skipped")
+        return {
+            "ok": True,
+            "msg": f"skipped: {e}",
+            "obsid": obsid,
+            "astromon_obs": [],
+            "astromon_xray_src": [],
+            "astromon_cat_src": [],
+            "astromon_xcorr": [],
+        }
     except SkippedWithWarning as e:
-        ok = True
-        msg = f"skipped: {e}"
         logger.warning(f"OBSID={obsid} WARNING - skipped: {e}")
+        return {
+            "ok": True,
+            "msg": f"skipped: {e}",
+            "obsid": obsid,
+            "astromon_obs": [],
+            "astromon_xray_src": [],
+            "astromon_cat_src": [],
+            "astromon_xcorr": [],
+        }
     except Exception as e:
-        ok = False
-        msg = f"error: {e}"
         logger.error(f"OBSID={obsid} failed: {e}")
         exc_type, exc_value, exc_traceback = sys.exc_info()
         trace = traceback.extract_tb(exc_traceback)
@@ -221,16 +701,15 @@ def process(obsid, workdir, log_level, archive_dir):  # noqa: PLR0915, PLR0912
                 f"OBSID={obsid}            in {step.filename}:{step.lineno}/{step.name}:"
             )
             logger.error(f"OBSID={obsid}            {step.line}")
-
-    return {
-        "ok": ok,
-        "msg": msg,
-        "obsid": obsid,
-        "astromon_obs": [],
-        "astromon_xray_src": [],
-        "astromon_cat_src": [],
-        "astromon_xcorr": [],
-    }
+        return {
+            "ok": False,
+            "msg": f"error: {e}",
+            "obsid": obsid,
+            "astromon_obs": [],
+            "astromon_xray_src": [],
+            "astromon_cat_src": [],
+            "astromon_xcorr": [],
+        }
 
 
 def get_parser():
@@ -281,6 +760,36 @@ def get_parser():
         help="Logging severity level",
         choices=["debug", "info", "warning", "error", "fatal"],
         default="debug",
+    )
+    parser.add_argument(
+        "--versions",
+        nargs="+",
+        default=["celldetect"],
+        help=(
+            "Detection versions to run and store. Default: celldetect. "
+            "Adding gaussian_detect or peak_gaussian_detect runs those methods "
+            "and saves additional rows keyed by detect_method."
+        ),
+    )
+    parser.add_argument(
+        "--source",
+        choices=["arc5gl", "archive"],
+        default="arc5gl",
+        help=(
+            "Data download method. 'arc5gl' (default) uses the CXC-internal "
+            "arc5gl tool. 'archive' uses CIAO's download_chandra_obsid to pull "
+            "from the public Chandra Data Archive — suitable for running outside "
+            "the CXC network."
+        ),
+    )
+    parser.add_argument(
+        "--ciao-prefix",
+        default=None,
+        dest="ciao_prefix",
+        help=(
+            "Path to the CIAO installation (e.g. /soft/ciao). "
+            "Required when CIAO is not at the default /soft/ciao location."
+        ),
     )
     return parser
 
@@ -362,8 +871,17 @@ def main():  # noqa: PLR0912, PLR0915
         return
 
     logger.info(f"will process the following obsids: {', '.join(obsids)}")
+    versions = tuple(args.versions)
     task_args = [
-        (int(obsid), args.workdir, args.log_level.upper(), args.archive_dir)
+        (
+            int(obsid),
+            args.workdir,
+            args.log_level.upper(),
+            args.archive_dir,
+            versions,
+            args.source,
+            args.ciao_prefix,
+        )
         for obsid in obsids
     ]
 

@@ -15,28 +15,45 @@ provided, the default set described in :ref:`cross_matching_algorithms` is retur
     from astromon import get_cross_matches
     matches = get_cross_matches()  # Get default astromon_21 cross-matches
 
-Available pre-computed queries include ``"astromon_21"`` and ``"astromon_22"``::
+The full set of available queries is given by :any:`cross_match.CROSS_MATCHES
+<astromon.cross_match.CROSS_MATCHES>`, and the arguments behind each one by
+:any:`cross_match.CROSS_MATCHES_ARGS <astromon.cross_match.CROSS_MATCHES_ARGS>`. The two
+long-standing sets differ only in how much off-axis angle is allowed for grating observations::
 
-    'astromon_21': {
+    'astromon_21': {          # the default
         'name': 'astromon_21',
         'method': 'simple',
-        'catalogs': ['ICRS', 'Tycho2'],
+        'catalogs': ['RFC', 'Tycho2'],
         'snr': 3,
         'r_angle': 120.,
         'r_angle_grating': 120.,
-        'near_neighbor_dist': 0.,
+        'near_neighbor_dist': 6.,
         'dr': 3.,
     },
     'astromon_22': {
         'name': 'astromon_22',
         'method': 'simple',
-        'catalogs': ['ICRS', 'Tycho2'],
+        'catalogs': ['RFC', 'Tycho2'],
         'snr': 3,
         'r_angle': 120.,
         'r_angle_grating': 24.,
         'near_neighbor_dist': 6.,
         'dr': 3.,
     }
+
+The remaining sets fall into three groups:
+
+- **Single-catalog sets**, each restricted to one of the :ref:`catalogs <catalog-list>` so that its
+  contribution can be assessed on its own: ``"rfc"``, ``"icrf3"``, ``"tycho2"``, ``"gaia_agn"``,
+  ``"gaia_qso"``, ``"gaia_var_star"``, ``"milliquas_gaia"``, ``"desi_v161"`` and ``"quaia"``.
+- **Combined sets** drawing on all the radio and extragalactic catalogs at once: ``"astromon_23"``.
+- **Per-detect-method sets**, which additionally restrict the x-ray sources to a single source
+  detection method via a ``detect_method_filter`` key, so that each set carries one clean
+  ``detect_method``: ``"astromon_24"`` (``celldetect``) and ``"astromon_25"``
+  (``gaussian_detect``).
+
+Catalogs are listed in priority order within a set: where an x-ray source has counterparts in more
+than one catalog, the first matching catalog in the list wins.
 
 Here is a more elaborate example to do some analysis, filtering on some columns,
 and excluding x-ray sources in known problematic regions::
