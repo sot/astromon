@@ -284,3 +284,128 @@ def test_peak_offset_in_xray_src_schema():
     assert db.ASTROMON_XRAY_SRC_DTYPE["peak_offset"].kind == "f", (
         "must be a float so the missing-value fill is NaN rather than a real-looking 0"
     )
+
+
+def _offset_peak_events(seed_yag=0.0, seed_zag=0.0, peak_offset=3.0, n_peak=400):
+    """Events with a tight cluster offset from the seed, plus a sparse background.
+
+    The cluster sits `peak_offset` arcsec in +y_angle from the seed, i.e. near the
+    edge of a box_size=4 window centred on the seed but at the centre of one
+    centred on the peak.
+    """
+    rng = np.random.default_rng(20260821)
+    peak_y = rng.normal(seed_yag + peak_offset, 0.3, n_peak)
+    peak_z = rng.normal(seed_zag, 0.3, n_peak)
+    bkg_y = rng.uniform(seed_yag - 8, seed_yag + 8, 200)
+    bkg_z = rng.uniform(seed_zag - 8, seed_zag + 8, 200)
+    return table.Table(
+        {
+            "y_angle": np.concatenate([peak_y, bkg_y]),
+            "z_angle": np.concatenate([peak_z, bkg_z]),
+        }
+    )
+
+
+def test_seed_and_select_events_without_peak_uses_source_position():
+    """gaussian_detect (seed_from_peak=False) keeps the celldetect seed and its box."""
+    events = _offset_peak_events()
+    source = {"y_angle": 0.0, "z_angle": 0.0}
+
+    fit_source, sel = observation._seed_and_select_events(
+        np.asarray(events["y_angle"]),
+        np.asarray(events["z_angle"]),
+        source,
+        box_size=4,
+        seed_from_peak=False,
+    )
+
+    assert fit_source is source
+    assert np.all(np.abs(events["y_angle"][sel] - 0.0) < 4)
+    assert np.all(np.abs(events["z_angle"][sel] - 0.0) < 4)
+
+
+def test_seed_and_select_events_centres_box_on_peak():
+    """peak_gaussian_detect centres the event box on the peak it seeds from.
+
+    Selecting events around the celldetect position while seeding the fit from an
+    offset peak leaves the fit window asymmetric about its own seed: events on the
+    far side of the peak are missing, which biases the centroid back toward the
+    celldetect position the re-seed was meant to escape.
+    """
+    events = _offset_peak_events(peak_offset=3.0)
+    source = {"y_angle": 0.0, "z_angle": 0.0}
+    box_size = 4
+
+    fit_source, sel = observation._seed_and_select_events(
+        np.asarray(events["y_angle"]),
+        np.asarray(events["z_angle"]),
+        source,
+        box_size=box_size,
+        seed_from_peak=True,
+    )
+
+    # The seed moved to the peak.
+    assert fit_source["y_angle"] == pytest.approx(3.0, abs=0.5)
+    assert fit_source["z_angle"] == pytest.approx(0.0, abs=0.5)
+
+    # The event window is centred on that same seed, symmetric about it.
+    selected_y = np.asarray(events["y_angle"])[sel]
+    selected_z = np.asarray(events["z_angle"])[sel]
+    assert np.all(np.abs(selected_y - fit_source["y_angle"]) < box_size)
+    assert np.all(np.abs(selected_z - fit_source["z_angle"]) < box_size)
+
+    # And it reaches past the peak on the far side, which a box anchored to the
+    # celldetect position could not do.
+    assert selected_y.max() > 4.0
+
+
+def test_seed_and_select_events_preserves_other_source_columns():
+    """Re-seeding copies the source rather than mutating it, keeping other columns."""
+    events = _offset_peak_events()
+    source = {"y_angle": 0.0, "z_angle": 0.0, "COMPONENT": 7, "RA": 83.8}
+
+    fit_source, _ = observation._seed_and_select_events(
+        np.asarray(events["y_angle"]),
+        np.asarray(events["z_angle"]),
+        source,
+        box_size=4,
+        seed_from_peak=True,
+    )
+
+    assert fit_source["COMPONENT"] == 7
+    assert fit_source["RA"] == 83.8
+    assert source["y_angle"] == 0.0, "input source must not be mutated"
+
+
+# --- task download declarations ---------------------------------------------
+
+
+def test_gaussian_tasks_do_not_declare_a_raw_evt2_download():
+    """The Gaussian fits consume derived products, so they must not demand a download.
+
+    Their inputs are the filtered event file and the celldetect source list, both
+    produced upstream. Declaring download=["evt2"] made every run call
+    obs.download() for the raw event file they never open -- which fails outright
+    on a working directory that cleanup_downloads has pruned, and needs arc5gl or
+    CIAO to satisfy a dependency that does not exist. filter_events is the task
+    that actually reads the raw file, and it declares the download itself.
+    """
+    from astromon.task import TASKS
+
+    for name in ("gaussian_detect", "peak_gaussian_detect"):
+        task = TASKS.tasks[name]
+        declared = set(task._inputs.values())
+        assert not any("_evt2.fits" in v and "filtered" not in v for v in declared), (
+            f"{name} unexpectedly reads the raw evt2"
+        )
+        assert not task._download, (
+            f"{name} declares download={task._download} but reads only derived"
+            " products; filter_events declares the raw evt2 download"
+        )
+
+
+def test_filter_events_still_declares_the_raw_evt2_download():
+    """The task that does read the raw file must keep asking for it."""
+    from astromon.task import TASKS
+
+    assert "evt2" in TASKS.tasks["filter_events"]._download

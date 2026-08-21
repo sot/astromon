@@ -1545,6 +1545,7 @@ class Observation:
         "pileup_max": "images/{obsid}_pileup_max.img",
         "acis_streaks_bkg": "images/{obsid}_acis_streaks_bkg.fits",
         "acis_streaks": "images/{obsid}_acis_streaks.fits",
+        "grating_arm_mask": "images/{obsid}_grating_arm_mask.fits",
     },
     download=(["evt2", "fov", "asol", "msk", "bpix", "dtf"]),
     variables={
@@ -1660,6 +1661,113 @@ def make_images(obs, inputs, outputs):
         except Exception:
             logger.warning(f"{obsid}   acis_streak_map failed")
 
+    obsid_info = obs.get_info()
+    if obsid_info["grating"] != "NONE":
+        try:
+            _make_grating_arm_mask(obs, inputs, outputs, logging_tag)
+        except Exception:
+            logger.warning(f"{obsid}   grating arm mask failed")
+
+
+def _find_zeroth_order(evt_file: Path) -> tuple[float, float]:
+    """Find the zero-order position by centroiding the brightest event cluster.
+
+    Bins the event file coarsely to locate the dominant peak, then computes
+    an event-weighted centroid within a window around that peak.  For grating
+    observations the zero-order is the dominant source in the filtered event
+    file; dispersed-arm events contribute negligible bias.
+
+    This avoids tg_findzo (ACIS-only) and chandra_repro, and is more accurate
+    than using the nominal pointing coordinates (RA_TARG/DEC_TARG) from the
+    obspar, which can differ from the true zero-order by a few arcseconds.
+
+    Parameters
+    ----------
+    evt_file
+        Path to the filtered level-2 event file.
+
+    Returns
+    -------
+    x, y
+        Sky pixel coordinates of the zero-order.
+    """
+    with fits.open(evt_file) as hdus:
+        data = hdus[1].data
+
+    x = data["X"].astype(float)
+    y = data["Y"].astype(float)
+
+    # Coarse bin to locate the peak region.
+    bin_size = 32
+    x_min = int(x.min())
+    y_min = int(y.min())
+    nx = (int(x.max()) - x_min) // bin_size + 1
+    ny = (int(y.max()) - y_min) // bin_size + 1
+    xi = ((x - x_min) / bin_size).astype(int)
+    yi = ((y - y_min) / bin_size).astype(int)
+    coarse = np.zeros((ny, nx), dtype=np.intp)
+    np.add.at(coarse, (yi, xi), 1)
+
+    peak_yi, peak_xi = np.unravel_index(coarse.argmax(), coarse.shape)
+    cx = x_min + (peak_xi + 0.5) * bin_size
+    cy = y_min + (peak_yi + 0.5) * bin_size
+
+    # Fine centroid: all events within 4 coarse bins of the peak.
+    window = bin_size * 4
+    in_window = (np.abs(x - cx) <= window) & (np.abs(y - cy) <= window)
+    n_in = int(in_window.sum())
+    if n_in < 5:
+        raise ValueError(
+            f"Too few events ({n_in}) within {window} px of peak "
+            f"for zero-order centroid"
+        )
+
+    return float(x[in_window].mean()), float(y[in_window].mean())
+
+
+def _make_grating_arm_mask(obs, inputs, outputs, logging_tag):
+    """Create the grating arm mask via tg_create_mask.
+
+    The zero-order position is found by centroiding the brightest event
+    cluster in the filtered event file (see _find_zeroth_order), which
+    gives the actual measured zero-order rather than the nominal pointing.
+    """
+    evt_file = inputs["events"][0]
+    obspar = obs.get_obspar()
+    ciao = obs.ciao
+
+    zo_x, zo_y = _find_zeroth_order(evt_file)
+    logger.debug(f"{obs.obsid}   zero-order from events: x={zo_x:.2f}, y={zo_y:.2f}")
+
+    # Write a minimal position table that tg_create_mask accepts as input_pos_tab.
+    # RA/DEC are included as metadata; tg_create_mask uses X/Y for positioning.
+    zo_pos_table = table.Table(
+        {
+            "X": np.array([zo_x]),
+            "Y": np.array([zo_y]),
+            "RA": np.array([obspar["ra_targ"]]),
+            "DEC": np.array([obspar["dec_targ"]]),
+        }
+    )
+    zo_pos_file = (
+        outputs["grating_arm_mask"].parent / f"{obs.obsid}_grating_zo_pos.fits"
+    )
+    zo_pos_table.write(zo_pos_file, overwrite=True)
+    # tg_create_mask looks for the SRCLIST extension by name
+    with fits.open(zo_pos_file, mode="update") as hdul:
+        hdul[1].name = "SRCLIST"
+        hdul.flush()
+
+    ciao(
+        "tg_create_mask",
+        infile=str(evt_file),
+        outfile=str(outputs["grating_arm_mask"]),
+        input_pos_tab=f"{zo_pos_file}[SRCLIST]",
+        grating_obs="header_value",
+        clobber="yes",
+        logging_tag=logging_tag,
+    )
+
 
 @task(
     name="wavdetect",
@@ -1713,15 +1821,19 @@ def wavdetect(obs, inputs, outputs):
             if len(scales) < 3:
                 raise
 
-    obs.ciao(
-        "psfsize_srcs",
-        inputs["events"],
-        outputs["src"],
-        outputs["psf_size"],
-        f"energy={band}",
-        f"ecf={ecf}",
-        "clobber=yes",
-    )
+    sources = table.Table.read(outputs["src"])
+    # CIAO psfsize_srcs chokes on an empty source list (gives misleading error:
+    # "position value must be a filename or have a +, -, or comma separator")
+    if len(sources) > 0:
+        obs.ciao(
+            "psfsize_srcs",
+            inputs["events"],
+            outputs["src"],
+            outputs["psf_size"],
+            f"energy={band}",
+            f"ecf={ecf}",
+            "clobber=yes",
+        )
 
     return ReturnCode.OK
 
@@ -1742,9 +1854,70 @@ def wavdetect(obs, inputs, outputs):
     variables={
         "band": lambda obs: "wide" if obs.is_hrc else "broad",
     },
-    download=(["evt2"]),
+    # No download: the inputs above are derived products. filter_events is the
+    # task that reads the raw event file, and declares that download itself.
 )
 def gaussian_detect(obs, inputs, outputs):
+    return _fit_gaussian_sources(obs, inputs, outputs, seed_from_peak=False)
+
+
+def _seed_and_select_events(events_yag, events_zag, source, box_size, seed_from_peak):
+    """Return ``(fit_source, event_mask)`` for one source.
+
+    With `seed_from_peak`, the fit is re-seeded from the local emission peak instead
+    of the celldetect position -- this avoids being pulled to an off-peak catalog or
+    ICM centroid when the true emission maximum is offset -- and the event box is
+    centred on that same peak so the fit window stays symmetric about its own seed.
+    Anchoring the box to the celldetect position instead truncates the events
+    asymmetrically, dropping the far side of the peak and biasing the fitted centroid
+    back toward the position the re-seed was meant to escape.
+
+    Parameters
+    ----------
+    events_yag, events_zag : np.ndarray
+        Y- and Z-angle of all events in arcsec.
+    source : dict or :any:`astropy.table.Row`
+        Source to fit, with 'y_angle' and 'z_angle' in arcsec.
+    box_size : float
+        Half-width of the fit box in arcsec.
+    seed_from_peak : bool
+        Whether to re-seed from the local peak.
+
+    Returns
+    -------
+    tuple
+        ``(fit_source, event_mask)``. `fit_source` is `source` itself when
+        `seed_from_peak` is False, otherwise a copy with the peak position.
+    """
+    fit_source = source
+    center_yag = float(source["y_angle"])
+    center_zag = float(source["z_angle"])
+
+    if seed_from_peak:
+        center_yag, center_zag = source_detection.find_local_peak(
+            events_yag,
+            events_zag,
+            center_yag,
+            center_zag,
+            box_size=box_size,
+        )
+        fit_source = dict(source)
+        fit_source["y_angle"] = center_yag
+        fit_source["z_angle"] = center_zag
+
+    event_mask = (np.abs(events_yag - center_yag) < box_size) & (
+        np.abs(events_zag - center_zag) < box_size
+    )
+    return fit_source, event_mask
+
+
+def _fit_gaussian_sources(obs, inputs, outputs, seed_from_peak):
+    """Shared implementation of gaussian_detect and peak_gaussian_detect.
+
+    The two tasks are identical except for the fit seed: gaussian_detect seeds
+    from the celldetect position, peak_gaussian_detect re-seeds from the local
+    image peak (``seed_from_peak=True``).
+    """
     box_size = 4
 
     dtype = np.dtype(
@@ -1783,6 +1956,7 @@ def gaussian_detect(obs, inputs, outputs):
             ("ks_sign_z_angle", ">i8"),
             ("ecf_radius", ">f8"),
             ("PSFRATIO", ">f8"),
+            ("concentration_ratio", ">f8"),
             ("CORR_RA_DEC", ">f8"),
             ("CORR_X_Y", ">f8"),
         ]
@@ -1807,15 +1981,17 @@ def gaussian_detect(obs, inputs, outputs):
         input_sources["RA"], input_sources["DEC"], att
     )
 
+    events_yag = np.asarray(events["y_angle"])
+    events_zag = np.asarray(events["z_angle"])
+
     results = []
     for source in input_sources:
-        sel = (np.abs(events["y_angle"] - source["y_angle"]) < box_size) & (
-            np.abs(events["z_angle"] - source["z_angle"]) < box_size
+        fit_source, sel = _seed_and_select_events(
+            events_yag, events_zag, source, box_size, seed_from_peak
         )
         res = source_detection.fit_gaussian_2d(
             events[sel],
-            source,
-            # columns=("y_angle", "z_angle"),
+            fit_source,
             box_size=box_size,
         )
         results.append(res)
@@ -1828,6 +2004,16 @@ def gaussian_detect(obs, inputs, outputs):
     results["PSFRATIO"] = (
         np.sqrt(results["sigma"][:, 0] * results["sigma"][:, 1]) / results["ecf_radius"]
     )
+
+    results["concentration_ratio"] = [
+        source_detection.concentration_ratio(
+            events_yag,
+            events_zag,
+            float(row["y_angle"]),
+            float(row["z_angle"]),
+        )
+        for row in results
+    ]
 
     results.rename_column("n", "NET_COUNTS")
 
@@ -1926,6 +2112,39 @@ def gaussian_detect(obs, inputs, outputs):
     results.write(outputs["src"], format="fits", overwrite=True)
 
     shutil.copyfile(inputs["psf_size"], outputs["psf_size"])
+
+
+@task(
+    name="peak_gaussian_detect",
+    inputs={
+        "events": "primary/{obsid}_evt2_filtered.fits.gz",
+        "src": "sources/{obsid}_celldetect.src",
+    },
+    optional_inputs={
+        "psf_size": "sources/{obsid}_psf_size_celldetect.fits",
+    },
+    outputs={
+        "src": "sources/{obsid}_peak_gaussian_detect.src",
+        "psf_size": "sources/{obsid}_psf_size_peak_gaussian_detect.fits",
+    },
+    variables={
+        "band": lambda obs: "wide" if obs.is_hrc else "broad",
+    },
+    # No download: the inputs above are derived products. filter_events is the
+    # task that reads the raw event file, and declares that download itself.
+)
+def peak_gaussian_detect(obs, inputs, outputs):
+    """
+    Gaussian centroiding seeded from the local image peak rather than the celldetect position.
+
+    For each celldetect source, the local brightness maximum in a smoothed event-density
+    image is found within the fit box.  The Gaussian fit is then seeded from that peak
+    instead of from the celldetect position.  This avoids being pulled to an off-peak
+    catalog or ICM centroid when the true emission maximum is offset.
+
+    Output columns are identical to gaussian_detect, so get_sources() works unchanged.
+    """
+    return _fit_gaussian_sources(obs, inputs, outputs, seed_from_peak=True)
 
 
 @task(
