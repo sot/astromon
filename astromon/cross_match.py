@@ -12,6 +12,7 @@ from astropy import units as u
 from astroquery.vizier import Vizier
 from cxotime import CxoTime
 from Ska.DBI import DBI
+from ska_helpers.retry import retry
 
 import astromon
 from astromon import db, observation, utils
@@ -21,7 +22,17 @@ logger = logging.getLogger("astromon")
 
 SIM_Z = {"ACIS-I": -233.587, "ACIS-S": -190.143, "HRC-I": 126.983, "HRC-S": 250.466}
 
+# Vizier queries occasionally fail with a transient connection reset unrelated to the query
+# itself.
+retry_on_connection_error = retry(
+    exceptions=(requests.exceptions.ConnectionError, requests.exceptions.Timeout),
+    tries=3,
+    delay=1,
+    backoff=2,
+)
 
+
+@retry_on_connection_error
 def _get_vizier(source, ra, dec, time, radius):
     """
     This fetches the vizier url, but it doesn't parse the result.
@@ -68,6 +79,11 @@ CROSS_MATCH_DTYPE = np.dtype(
 )
 
 
+@retry_on_connection_error
+def _query_vizier_region(vizier, pos, radius, cat_identifier):
+    return vizier.query_region(pos, radius=radius, catalog=cat_identifier, cache=False)
+
+
 def get_vizier(
     pos,
     catalog,
@@ -86,9 +102,7 @@ def get_vizier(
                 f"_DE(J2000,{pos.obstime.frac_year:8.3f})",
             ],
         )
-        vizier_result = vizier.query_region(
-            pos, radius=radius, catalog=cat_identifier, cache=False
-        )
+        vizier_result = _query_vizier_region(vizier, pos, radius, cat_identifier)
         vizier_result = list(vizier_result)
     else:
         vizier_result = [
@@ -139,8 +153,8 @@ VIZIER_CATALOGS = {
         "cat_identifier": "I/259/tyc2",
         "name_cols": ["TYC1", "TYC2", "TYC3"],
         "columns": {
-            "ra": "_RAJ2000_{time.frac_year:.3f}",
-            "dec": "_DEJ2000_{time.frac_year:.3f}",
+            "ra": "_RAJ2000/{time.frac_year:.3f}",
+            "dec": "_DEJ2000/{time.frac_year:.3f}",
             "mag": "VTmag",
         },
     },
@@ -174,7 +188,7 @@ VIZIER_CATALOGS = {
         "columns": {
             "ra": "_RAJ2000",
             "dec": "_DEJ2000",
-            "mag": "Vmag",
+            "mag": "Hpmag",
         },
     },
     # http://vizier.u-strasbg.fr/viz-bin/VizieR?-source=I/322
@@ -187,7 +201,7 @@ VIZIER_CATALOGS = {
     "2MASS": {
         "catalog": "2MASS",
         "cat_identifier": "II/246/out",
-        "name_cols": ["_2MASS"],
+        "name_cols": ["2MASS"],
         "columns": {"ra": "_RAJ2000", "dec": "_DEJ2000", "mag": "Kmag"},
     },
     "SDSS": {
@@ -195,8 +209,8 @@ VIZIER_CATALOGS = {
         "cat_identifier": "II/294",
         "name_cols": ["SDSS"],
         "columns": {
-            "ra": "_RAJ2000_{time.frac_year:.3f}",
-            "dec": "_DEJ2000_{time.frac_year:.3f}",
+            "ra": "_RAJ2000/{time.frac_year:.3f}",
+            "dec": "_DEJ2000/{time.frac_year:.3f}",
             "mag": "rmag",
         },
     },
@@ -205,7 +219,7 @@ VIZIER_CATALOGS = {
         "catalog": "Gaia2",
         "cat_identifier": "I/345/gaia2",
         "name_cols": ["Source"],
-        "columns": {"ra": "_RA_ICRS", "dec": "_DE_ICRS", "mag": "Gmag"},
+        "columns": {"ra": "_RAJ2000", "dec": "_DEJ2000", "mag": "Gmag"},
     },
 }
 
