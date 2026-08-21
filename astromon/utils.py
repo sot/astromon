@@ -119,11 +119,37 @@ class Ciao:
             self.logger = logger
         prefix = Path(prefix)
         if not prefix.exists():
-            raise Exception(f"CIAO prefix {prefix} does not exist")
+            raise FileNotFoundError(
+                f"CIAO prefix {prefix} does not exist. Install CIAO there, or pass a "
+                "different ciao_prefix (--ciao-prefix on the command line)."
+            )
 
         self.env = CIAO_ENV.get(
             prefix, Ska.Shell.getenv(f"source {prefix}/bin/ciao.sh")
         ).copy()
+
+        if "ASCDS_INSTALL" not in self.env:
+            # conda-packaged CIAO: ciao.sh is a no-op so getenv returns an
+            # empty delta.  Replicate what the conda activation scripts set
+            # (etc/conda/activate.d/*.sh) so CIAO tools can find CALDB etc.
+            self.env = dict(os.environ)
+            self.env["ASCDS_INSTALL"] = str(prefix)
+            self.env["ASCDS_CONTRIB"] = str(prefix)
+            self.env["ASCDS_CALIB"] = str(prefix / "data")
+            caldb = str(prefix / "CALDB")
+            self.env["CALDB"] = caldb
+            self.env["CALDBCONFIG"] = caldb + "/software/tools/caldb.config"
+            self.env["CALDBALIAS"] = caldb + "/software/tools/alias_config.fits"
+            self.env["PATH"] = (
+                str(prefix / "bin") + ":" + self.env.get("PATH", "/usr/bin:/bin")
+            )
+
+        # Cache a copy, not the live instance dict: the workdir block below writes
+        # ASCDS_WORK_PATH and PFILES into self.env, and those are specific to this
+        # observation. Caching the live dict let them leak into every later Ciao for
+        # the same prefix -- including one constructed with no workdir, which would
+        # then inherit a param directory that has since been removed.
+        CIAO_ENV[prefix] = dict(self.env)
 
         if workdir is not None:
             workdir = Path(workdir)
@@ -131,12 +157,14 @@ class Ciao:
             self.env["ASCDS_WORK_PATH"] = str(workdir)
             if ":" in str(workdir.absolute()):
                 raise RuntimeError("CIAO workdir cannot contain colon")
-            pf = "{};{}:{}".format(
-                str(workdir.absolute()),
-                self.env["ASCDS_INSTALL"] + "/param",
-                self.env["ASCDS_INSTALL"] + "/contrib/param",
+            ascds = self.env["ASCDS_INSTALL"]
+            pf_dirs = [ascds + "/param"]
+            contrib_param = ascds + "/contrib/param"
+            if Path(contrib_param).exists():
+                pf_dirs.append(contrib_param)
+            self.env["PFILES"] = "{};{}".format(
+                str(workdir.absolute()), ":".join(pf_dirs)
             )
-            self.env["PFILES"] = pf
 
     def __call__(
         self,
@@ -479,10 +507,12 @@ def get_calalign_offsets(all_matches, ref_calalign=None, calalign_dir=None):
         & (match_w_cal["time"] < match_w_cal["stop"])
     ]
     match_w_cal["cdbv"] = [
-        [int(f) for f in s.split(".")] for s in match_w_cal["caldb_version"]
+        [int(f) for f in s.split(".") if f.isdigit()]
+        for s in match_w_cal["caldb_version"]
     ]
     match_w_cal["cav"] = [
-        [int(f) for f in s.split(".")] for s in match_w_cal["calalign_version"]
+        [int(f) for f in s.split(".") if f.isdigit()]
+        for s in match_w_cal["calalign_version"]
     ]
 
     # I actually would prefer to not sort the whole table
@@ -500,14 +530,16 @@ def get_calalign_offsets(all_matches, ref_calalign=None, calalign_dir=None):
         ref_calalign = [int(f) for f in ref_calalign.split(".")]
 
     # the actual calalign used must be a CalDB version no later than one used to process the OBSID
-    # NOTE: cdbv's dtype is "object" because versions have different lengthd
-    # but cav's dtype is array, so need to convert to list
-    actual = match_w_cal[[r["cdbv"] >= r["cav"].tolist() for r in match_w_cal]]
+    # Use tuple() for both sides so the comparison is lexicographic (returns a scalar bool),
+    # not element-wise (which would return a numpy bool array and break the list comprehension).
+    actual = match_w_cal[[tuple(r["cdbv"]) >= tuple(r["cav"]) for r in match_w_cal]]
     actual = actual.group_by(["obsid", "x_id"])
     actual = actual[actual.groups.indices[:-1]]
 
     # the reference calalign must be a CalDB version no later than the given CalDB reference
-    reference = match_w_cal[[ref_calalign >= r["cav"].tolist() for r in match_w_cal]]
+    reference = match_w_cal[
+        [tuple(ref_calalign) >= tuple(r["cav"]) for r in match_w_cal]
+    ]
     reference = reference.group_by(["obsid", "x_id"])
     reference = reference[reference.groups.indices[:-1]]
 
