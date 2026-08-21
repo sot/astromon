@@ -61,3 +61,30 @@ def test_get_calalign_offsets_row_order():
     ):
         with pytest.raises(RuntimeError, match="all_matches.obsid != result.obsid"):
             utils.get_calalign_offsets(all_matches)
+
+
+def test_get_calalign_offsets_raises_on_malformed_version_string():
+    """A non-numeric version segment must raise rather than being silently dropped.
+
+    get_calalign_offsets used to build the caldb_version/calalign_version
+    comparison tuples with ``if f.isdigit()``, which drops any non-numeric
+    dot-separated segment instead of raising. A truncated tuple then compares
+    incorrectly (lexicographically shorter-vs-longer) against a full-length
+    one, silently picking the wrong CalDB row as "actual" or "reference"
+    instead of failing loudly on the unexpected input.
+    """
+    all_matches = Table(
+        {
+            "obsid": [1],
+            "x_id": [1],
+            "detector": ["ACIS-S"],
+            "time": CxoTime(["2015:001:00:00:00"]),
+            "caldb_version": ["4.N0.0"],
+        }
+    )
+
+    with patch.object(
+        utils, "calalign_from_files", return_value=_fake_calalign_table()
+    ):
+        with pytest.raises(ValueError):
+            utils.get_calalign_offsets(all_matches)
