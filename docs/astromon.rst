@@ -9,9 +9,18 @@ Cross-Matching Algorithms
 The process of finding counterparts for detected x-ray sources proceeds in two major steps:
 
 - Rough match: Find all counterparts within a radius around the x-ray sources. These *rough* matches
-  constitute a superset of all *reasonable* cross-matches. This is done by
-  :any:`rough_match <astromon.cross_match.rough_match>`, which encapsulates all queries to the
-  Tycho2, ICRS, USNO-B1.0, 2MASS, SDSS catalogs and selects matches within 3 arcsec.
+  constitute a superset of all *reasonable* cross-matches, and are collected within 3 arcsec of each
+  x-ray source. They come from two paths, both of which write to ``astromon_cat_src``:
+
+  - :any:`rough_match <astromon.cross_match.rough_match>` encapsulates the VizieR-backed catalogs
+    plus the locally cached radio catalogs. The pipeline calls it with RFC, ICRF3, Tycho2,
+    USNO-B1.0, 2MASS and SDSS.
+  - The AGN, quasar and variable-star catalogs are queried directly by the
+    ``astromon.scripts.get_cat_obs_data`` pipeline script, since each needs its own service
+    (Gaia TAP) or post-processing (epoch propagation, type and quality cuts) rather than a plain
+    VizieR cone search.
+
+  See :ref:`catalog-list` for both groups.
 - Cross-match. Pair each x-ray source with at most one counterpart from the rough matches. This is
   done by the :any:`compute_cross_matches  <astromon.cross_match.compute_cross_matches>` function,
   which in turn delegates to specific implementation functions.
@@ -26,23 +35,80 @@ algorithm implemented in :any:`simple_cross_match
 Available catalogs
 ^^^^^^^^^^^^^^^^^^
 
-These are the catalogs available for rough matches:
+Catalog names below are the values stored in the ``catalog`` column of ``astromon_cat_src``, and
+are the names accepted in the ``catalogs`` argument of the :ref:`pre-computed queries
+<pre-computed-queries>`.
 
-- `Tycho2 <https://vizier.u-strasbg.fr/viz-bin/VizieR-3?-source=I/259/tyc2>`_. Reference catalog of
-  2.5 million stars observed by the Tycho instrument abord the ESA Hipparcos satellite.
-  Astrometric accuracy ~25 mas with stars down to ~11.5 mag. More information available in the
-  `Guide to the Tycho2 catalog (PDF) <http://www.astro.ku.dk/~cf/CD/docs/guide.pdf>`_.
-- `ICRF2 <https://vizier.u-strasbg.fr/viz-bin/VizieR?-source=I/323>`_.
-  Sources from The Second Realization of the International Celestial Reference Frame by Very
-  Long Baseline Interferometry `Ma et al. 2009, IERS Technical Note No. 35 (pdf)
-  <http://cdsarc.u-strasbg.fr/ftp/cats/I/323/tn35.pdf>`_
-- `USNO-B1.0 <https://vizier.u-strasbg.fr/viz-bin/VizieR?-source=I/284>`_.
+Rough-match catalogs
+""""""""""""""""""""
+
+Available through :any:`rough_match <astromon.cross_match.rough_match>`. Those marked *(pipeline)*
+are the ones the standard pipeline actually queries; the rest are available but not currently used
+by any cross-match set.
+
+- **RFC** *(pipeline)*. The `Radio Fundamental Catalogue
+  <https://astrogeo.smce.nasa.gov/sol/rfc/>`_: ~22,800 compact radio sources with VLBI positions,
+  typically accurate to well under a milliarcsecond. Downloaded from astrogeo.org as fixed-width
+  ASCII and cached at ``$SKA/data/astromon/rfc_catalog.txt``, refreshed every 30 days.
+  `Petrov & Kovalev 2025, ApJS 276, 38 <https://doi.org/10.3847/1538-4365/ad8c36>`_.
+- **ICRF3** *(pipeline)*. `Third realization of the International Celestial Reference Frame
+  <https://vizier.u-strasbg.fr/viz-bin/VizieR?-source=J/A+A/644/A159>`_ (S/X band), 4536 VLBI
+  sources defining the celestial reference frame. Fetched from VizieR
+  (``J/A+A/644/A159/table10``) and cached at ``$SKA/data/astromon/icrf3_catalog.ecsv``, refreshed
+  yearly. `Charlot et al. 2020, A&A 644, A159 <https://doi.org/10.1051/0004-6361/202038368>`_.
+  This supersedes ICRF2, which is no longer used.
+- `Tycho2 <https://vizier.u-strasbg.fr/viz-bin/VizieR-3?-source=I/259/tyc2>`_ *(pipeline)*.
+  Reference catalog of 2.5 million stars observed by the Tycho instrument abord the ESA Hipparcos
+  satellite. Astrometric accuracy ~25 mas with stars down to ~11.5 mag. More information available
+  in the `Guide to the Tycho2 catalog (PDF) <http://www.astro.ku.dk/~cf/CD/docs/guide.pdf>`_.
+- `USNO-B1.0 <https://vizier.u-strasbg.fr/viz-bin/VizieR?-source=I/284>`_ *(pipeline)*.
   Monet, D.G. et al. (2003), "The USNO-B Catalog", The Astronomical Journal, vol. 125, no. 2,
   pp. 984-993.
-- `2MASS <https://vizier.u-strasbg.fr/viz-bin/VizieR?-source=II/246>`_.
+- `2MASS <https://vizier.u-strasbg.fr/viz-bin/VizieR?-source=II/246>`_ *(pipeline)*.
   Two micron all-sky survey: 162,213,354 million point sources from 19,600 square degrees of sky.
-- `SDSS <https://vizier.u-strasbg.fr/viz-bin/VizieR?-source=II/294>`_. The SDSS Photometric Catalog,
-  Release 7
+- `SDSS <https://vizier.u-strasbg.fr/viz-bin/VizieR?-source=II/294>`_ *(pipeline)*.
+  The SDSS Photometric Catalog, Release 7.
+- `HIP <http://vizier.u-strasbg.fr/viz-bin/VizieR?-source=I/239>`_ and
+  `HIP2 <http://vizier.u-strasbg.fr/viz-bin/VizieR?-source=I/311>`_. The original and re-reduced
+  Hipparcos catalogs.
+- `UCAC4 <http://vizier.u-strasbg.fr/viz-bin/VizieR?-source=I/322>`_. The fourth USNO CCD Astrograph
+  Catalog.
+- `Gaia2 <https://vizier.u-strasbg.fr/viz-bin/VizieR-3?-source=I/345/gaia2>`_. Gaia DR2 sources.
+
+AGN, quasar and variable-star catalogs
+""""""""""""""""""""""""""""""""""""""
+
+Queried directly by the pipeline. These are the catalogs added to improve the supply of
+astrometrically reliable extragalactic counterparts, which anchor the absolute astrometry solution
+far better than stars do.
+
+- **GaiaAGN**. Gaia DR3 sources with a confirmed AGN cross-identification
+  (``gaiadr3.agn_cross_id``, ~2.2 M sources), queried via Gaia TAP.
+- **GaiaQSO**. Gaia DR3 quasar candidates (``gaiadr3.qso_candidates``, ~6.6 M sources), queried via
+  Gaia TAP. Extends GaiaAGN with ~4.4 M sources classified from Gaia astrometry, photometry and
+  colour, adding depth at G > 20 where the confirmed samples run out.
+- **Quaia**. The `Gaia-unWISE quasar catalog <https://zenodo.org/records/10403370>`_, G < 20.0
+  sample (755,850 sources), built from Gaia DR3 quasar candidates and unWISE infrared photometry.
+  Cached at ``$SKA/data/astromon/quaia_catalog.fits``; static until Gaia DR4, so never
+  auto-refreshed. `Storey-Fisher et al. 2024, ApJ 964, 69 <https://doi.org/10.3847/1538-4357/ad1328>`_.
+- **MilliquasGaia**. `Milliquas v8 <https://vizier.u-strasbg.fr/viz-bin/VizieR?-source=VII/294>`_
+  restricted to spectroscopically confirmed types (Q, A, B, N) and further required to have a Gaia
+  DR3 counterpart within 1.5 arcsec, which supplies the Gaia position. Photometric candidates and
+  the radio/X-ray association candidates are excluded.
+- **DESIV161**. `DESI Early Data Release
+  <https://vizier.u-strasbg.fr/viz-bin/VizieR?-source=V/161>`_ spectroscopic catalog, keeping
+  ``OType`` of QSO or GALAXY with ``ZWARN == 0``. Positions come from Legacy Survey DR9 imaging and
+  are accurate to about 0.1 arcsec. Coverage is limited to the ~4100 sq deg EDR footprint.
+- **GaiaVarStar**. Gaia DR3 rotation-modulation variable stars, queried via Gaia TAP and restricted
+  to RUWE < 1.4 so that unreliable astrometric solutions do not corrupt the proper-motion
+  correction. Positions are propagated from the Gaia DR3 epoch (J2016.0) to the observation epoch.
+
+.. Note::
+
+   Only GaiaVarStar and the Tycho2/SDSS rough matches apply a proper-motion or epoch correction.
+   The radio and extragalactic catalogs (RFC, ICRF3, GaiaAGN, GaiaQSO, Quaia, MilliquasGaia,
+   DESIV161) describe sources with no measurable proper motion, so their catalog positions are
+   used as-is.
 
 Database
 --------
