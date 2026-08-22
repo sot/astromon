@@ -367,3 +367,23 @@ def test_desi_splits_positions_into_bounded_sub_batches():
 def test_batched_positions_per_query_is_well_under_what_the_services_refused():
     """900 positions per query timed out on both services; 500 was the old default."""
     assert cross_match.BATCHED_POSITIONS_PER_QUERY <= 100
+
+
+def test_gaia_var_stars_accepts_a_scalar_position():
+    """The docstring has always claimed scalar support; the batching loop broke it.
+
+    `len()` on a scalar SkyCoord raises TypeError, so the old loop over
+    `range(0, len(pos), batch_size)` could not run. Splitting the query out fixed
+    it incidentally by looping over the position array instead -- this pins that,
+    since nothing else would notice it regressing.
+    """
+    scalar = coords.SkyCoord(150.0, 2.0, unit="deg", obstime=CxoTime("2020:001"))
+    assert scalar.isscalar
+
+    with patch.object(cross_match, "_execute_gaia_tap_query", lambda query: GAIA_ROWS):
+        result = cross_match.get_gaia_var_stars(scalar, radius=RADIUS)
+
+    # Both stub rows come back: the radius cut lives in the ADQL, which the stub
+    # replaces, and get_gaia_var_stars does not re-filter what the query returned.
+    # What is under test is that a scalar reaches the query at all.
+    assert sorted(result["name"]) == ["GaiaVarStar-1001", "GaiaVarStar-2002"]
