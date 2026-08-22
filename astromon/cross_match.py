@@ -345,6 +345,33 @@ def _rfc_release_marker(cache_path: Path) -> Path:
     return cache_path.with_name(cache_path.name + ".release")
 
 
+def _rfc_attempt_marker(cache_path: Path) -> Path:
+    """Sidecar recording when astrogeo.org was last asked about a new release."""
+    return cache_path.with_name(cache_path.name + ".last-check")
+
+
+def _rfc_check_is_due(
+    cache_path: Path,
+    release_marker: Path,
+    attempt_marker: Path,
+    max_age_days: int | None,
+) -> bool:
+    """Whether to ask astrogeo.org which RFC release is current.
+
+    With no cache the answer is always yes -- there is nothing to fall back on.
+    Otherwise a check is due when the cache is stale or its release is unknown,
+    but only if the last *attempt* was itself longer ago than the interval. That
+    last condition is what keeps a failing endpoint to one request per interval:
+    neither the cache mtime nor the release marker changes when an attempt fails,
+    so without it a loop over obsids re-attempts once per obsid.
+    """
+    if not cache_path.exists():
+        return True
+    if not (_cache_is_stale(cache_path, max_age_days) or not release_marker.exists()):
+        return False
+    return _cache_is_stale(attempt_marker, max_age_days)
+
+
 @retry_on_connection_error
 def _discover_latest_rfc_release() -> str:
     """Return the RFC release that astrogeo.org currently announces.
@@ -416,7 +443,9 @@ def get_rfc(
     If the release check or download fails and a cached copy already exists, this
     logs a warning and falls back to the (possibly stale) cached copy rather than
     raising, so a transient network problem does not take down the whole
-    cross-match run.
+    cross-match run.  A failed attempt counts against the check interval just as a
+    successful one does -- otherwise a caller looping over obsids re-attempts a
+    broken endpoint once per obsid.
 
     Parameters
     ----------
@@ -430,8 +459,11 @@ def get_rfc(
         cache_path = _RFC_CACHE_PATH
     cache_path = Path(cache_path)
     release_marker = _rfc_release_marker(cache_path)
+    attempt_marker = _rfc_attempt_marker(cache_path)
 
-    if _cache_is_stale(cache_path, max_age_days) or not release_marker.exists():
+    if _rfc_check_is_due(cache_path, release_marker, attempt_marker, max_age_days):
+        attempt_marker.parent.mkdir(parents=True, exist_ok=True)
+        attempt_marker.touch()
         try:
             latest_release = _discover_latest_rfc_release()
         except Exception as e:
@@ -454,9 +486,11 @@ def get_rfc(
             url = f"{_RFC_INDEX_URL}{latest_release}/{latest_release}_cat.txt"
             logger.info(f"Downloading RFC {latest_release} from {url} → {cache_path}")
             cache_path.parent.mkdir(parents=True, exist_ok=True)
+            partial = cache_path.with_name(cache_path.name + ".part")
             try:
-                urllib.request.urlretrieve(url, cache_path)
+                urllib.request.urlretrieve(url, partial)
             except Exception as e:
+                partial.unlink(missing_ok=True)
                 if cache_path.exists():
                     logger.warning(
                         f"RFC download failed ({e}); using stale cached copy at {cache_path}"
@@ -465,6 +499,7 @@ def get_rfc(
                         cache_path, lambda p: _parse_rfc(p.read_text())
                     )
                 raise
+            partial.replace(cache_path)
             release_marker.write_text(latest_release)
             logger.info(
                 f"  Saved {cache_path.stat().st_size / 1e6:.1f} MB ({latest_release})"
