@@ -5,6 +5,7 @@ import re
 import threading
 import time as _time
 import urllib.request
+from io import BytesIO  # stdlib; `io` below is astropy.io
 from pathlib import Path
 
 import numpy as np
@@ -86,9 +87,102 @@ CROSS_MATCH_DTYPE = np.dtype(
 )
 
 
+class VizierServerError(Exception):
+    """VizieR reported a problem with the query instead of returning results."""
+
+
+def _vizier_query_info(content: bytes) -> tuple[str | None, str]:
+    """The VOTable's QUERY_STATUS value and the message that came with it.
+
+    Returns ``(None, "")`` for a payload that carries no such INFO element,
+    including anything that is not a VOTable at all.
+    """
+    if content[:5] != b"<?xml":
+        return None, ""
+    try:
+        vo_tree = io.votable.parse(BytesIO(content), verify="warn")
+    except Exception as exc:  # a malformed VOTable tells us nothing about status
+        logger.debug(f"could not read QUERY_STATUS from the response: {exc}")
+        return None, ""
+    infos = list(vo_tree.get_infos_by_name("QUERY_STATUS"))
+    if not infos:
+        return None, ""
+    # VizieR can emit more than one QUERY_STATUS INFO for a single response --
+    # e.g. an "OK" followed by an "OVERFLOW" once the row limit truncates the
+    # result. Reading only the first one risks reading the "OK" and never
+    # seeing the OVERFLOW that says the result is incomplete. ERROR and
+    # OVERFLOW both take precedence over OK if present.
+    by_value = {info.value: info for info in infos}
+    for status in ("ERROR", "OVERFLOW"):
+        if status in by_value:
+            info = by_value[status]
+            return info.value, (info.content or "")
+    info = infos[0]
+    return info.value, (info.content or "")
+
+
+def _vizier_query_status(content: bytes) -> str | None:
+    """The VOTable's QUERY_STATUS value, or None if the payload has none."""
+    return _vizier_query_info(content)[0]
+
+
 @retry_on_connection_error
 def _query_vizier_region(vizier, pos, radius, cat_identifier):
-    return vizier.query_region(pos, radius=radius, catalog=cat_identifier, cache=False)
+    """Cone-search VizieR, raising rather than reporting an empty sky on failure.
+
+    VizieR signals a server-side problem -- overload, most often -- with HTTP 200
+    and a VOTable whose INFO element named QUERY_STATUS has the value "ERROR".
+    astroquery 0.4.11 keeps only tables that have rows and never reads that INFO,
+    so the failure arrives as an empty TableList: indistinguishable from a field
+    with no counterparts. For a cross-match that is the worst available confusion,
+    because the result is written down as "no counterpart here" and the run
+    reports success.
+
+    This is a local backport of astropy/astroquery#3632, merged 2026-07-24 for
+    astroquery 0.4.12 -- unreleased, and not in the newest published 0.4.12.dev
+    snapshot either. **Delete this and go back to** ``vizier.query_region`` once
+    the environment has astroquery >= 0.4.12. The upstream fix also drops the bad
+    response from astroquery's cache; that half does not apply here because these
+    queries already pass ``cache=False``.
+
+    Going through the async entry point is what makes the check possible:
+    ``query_region`` is exactly this pair of steps with the error check missing,
+    and it hands back a parsed TableList with the diagnostic already discarded.
+    """
+    response = vizier.query_region_async(
+        pos, radius=radius, catalog=cat_identifier, cache=False
+    )
+    response.raise_for_status()
+
+    status, message = _vizier_query_info(response.content)
+    if status == "ERROR":
+        raise VizierServerError(
+            f"VizieR reported an error for catalog {cat_identifier}"
+            f" rather than returning results: {message.strip() or 'no detail given'}"
+        )
+    if status == "OVERFLOW":
+        # The result was truncated at the query's row limit -- astroquery's
+        # Vizier() defaults to row_limit=50, so a field with more real matches
+        # than that silently looked like a complete result of exactly 50.
+        # Callers should pass row_limit=-1; this is the backstop for whatever
+        # doesn't.
+        raise VizierServerError(
+            f"VizieR truncated the result for catalog {cat_identifier} at its"
+            f" row limit rather than returning every match:"
+            f" {message.strip() or 'no detail given'}"
+        )
+
+    result = vizier._parse_result(response)
+    if result is None:
+        # astroquery's _parse_result has no else branch, so content that is not a
+        # VOTable, TSV or FITS payload -- an HTML error page, say -- falls through
+        # as None. Still true on astroquery main, so the fix above does not cover it.
+        raise VizierServerError(
+            f"VizieR returned a response for catalog {cat_identifier} that"
+            f" could not be parsed as a VOTable, TSV or FITS payload:"
+            f" {response.content[:200]!r}"
+        )
+    return result
 
 
 def get_vizier(
@@ -108,6 +202,7 @@ def get_vizier(
                 f"_RA(J2000,{pos.obstime.frac_year:8.3f})",
                 f"_DE(J2000,{pos.obstime.frac_year:8.3f})",
             ],
+            row_limit=-1,
         )
         vizier_result = _query_vizier_region(vizier, pos, radius, cat_identifier)
         vizier_result = list(vizier_result)
@@ -680,6 +775,7 @@ def _get_icrf2(
 ) -> table.Table:
     """Return ICRF2 sources near *pos* within *radius*, formatted like VizieR results."""
     return _local_catalog_near(get_icrf2(), "ICRF2", pos, radius, logging_tag)
+
 
 _MILLIQUAS_URL = "https://cdsarc.cds.unistra.fr/ftp/VII/294/catalog.dat.gz"
 _MILLIQUAS_CACHE_PATH = _ASTROMON_DATA_DIR / "milliquas_catalog.fits"
