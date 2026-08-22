@@ -556,21 +556,28 @@ def test_get_gaia_var_stars_applies_proper_motion():
     assert np.isclose(result["dec"][0], 0.0, atol=1e-9)
 
 
-def test_get_gaia_var_stars_tap_failure_returns_empty():
-    """A TAP failure returns an empty table without raising."""
+def test_get_gaia_var_stars_tap_failure_raises():
+    """A TAP failure raises rather than reporting a field with no variable stars.
+
+    This used to degrade gracefully to an empty table. It is deliberately no longer
+    graceful: an unmeasured field and an empty one are different facts, and writing
+    the second when the first is true is how astromon_cat_src lost catalogs. Pooling
+    positions across observations raised the stakes -- one timeout would report an
+    absence for every obsid in the batch.
+    """
     pos = coords.SkyCoord(
         [237.252], [61.710], unit="deg", obstime=CxoTime("2020-01-01")
     )
 
-    with patch.object(
-        cross_match,
-        "_execute_gaia_tap_query",
-        side_effect=RuntimeError("TAP unavailable"),
+    with (
+        patch.object(
+            cross_match,
+            "_execute_gaia_tap_query",
+            side_effect=RuntimeError("TAP unavailable"),
+        ),
+        pytest.raises(cross_match.CatalogQueryFailed, match="GaiaVarStar"),
     ):
-        result = cross_match.get_gaia_var_stars(pos, radius=3 * u.arcsec)
-
-    assert len(result) == 0
-    assert set(cross_match.CROSS_MATCH_DTYPE.names).issubset(set(result.colnames))
+        cross_match.get_gaia_var_stars(pos, radius=3 * u.arcsec)
 
 
 def test_compute_cross_matches_gaia_var_star():
@@ -1126,19 +1133,23 @@ def test_get_desi_v161_candidates_filters_before_deduping_by_targetid():
     assert result["name"][0] == f"DESIV161-{_COSMOS_DESI_TARGET_ID}"
 
 
-def test_get_desi_v161_candidates_vizier_failure_returns_empty():
-    """A VizieR failure returns an empty table without raising (graceful degradation)."""
+def test_get_desi_v161_candidates_vizier_failure_raises():
+    """Same for DESI: a failed query is not evidence of an empty field.
+
+    A real VizieR read timeout on a pooled query is what exposed this -- it was
+    reported as "no DESI candidates" for a hundred obsids at once.
+    """
     pos = coords.SkyCoord([_COSMOS_DESI_RA], [_COSMOS_DESI_DEC], unit="deg")
 
-    with patch.object(
-        cross_match,
-        "_query_vizier_region",
-        side_effect=RuntimeError("VizieR unavailable"),
+    with (
+        patch.object(
+            cross_match,
+            "_query_vizier_region",
+            side_effect=RuntimeError("VizieR unavailable"),
+        ),
+        pytest.raises(cross_match.CatalogQueryFailed, match="DESIV161"),
     ):
-        result = cross_match.get_desi_v161_candidates(pos, radius=3 * u.arcsec)
-
-    assert len(result) == 0
-    assert set(cross_match.CROSS_MATCH_DTYPE.names).issubset(set(result.colnames))
+        cross_match.get_desi_v161_candidates(pos, radius=3 * u.arcsec)
 
 
 @pytest.mark.skipif(not HAS_INTERNET, reason="Requires network access")
