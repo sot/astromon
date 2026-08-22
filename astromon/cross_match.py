@@ -282,6 +282,71 @@ def _read_catalog_cached(cache_path: Path, reader) -> table.Table:
     return entry[1]
 
 
+def rows_near_positions(
+    catalog: table.Table, pos: coords.SkyCoord, radius: u.Quantity
+) -> np.ndarray:
+    """Indices of `catalog` rows within `radius` of at least one position in `pos`.
+
+    Used both to cone-search a locally cached whole catalog and to split a single
+    batched query's results back out per observation, which are the same operation:
+    "which rows of this table are near these positions".
+
+    A cheap flat-sky bounding cone runs first so the multi-million-row catalogs
+    never have to become a `SkyCoord` in full, then the survivors get an exact
+    per-source separation cut.
+
+    Parameters
+    ----------
+    catalog
+        Table with 'ra' and 'dec' columns in degrees.
+    pos
+        Positions to search around (scalar or array SkyCoord).
+    radius
+        Sources farther than this from every position in `pos` are excluded.
+    """
+    if len(catalog) == 0 or (not pos.isscalar and len(pos) == 0):
+        return np.zeros(0, dtype=int)
+
+    # Build a bare SkyCoord from the coordinates: this handles a scalar `pos`
+    # uniformly and drops frame attributes (e.g. obstime) that would otherwise have
+    # to match when comparing against the catalog positions.
+    pos_sc = coords.SkyCoord(
+        ra=np.atleast_1d(pos.ra.deg), dec=np.atleast_1d(pos.dec.deg), unit="deg"
+    )
+
+    catalog_ra = np.asarray(catalog["ra"], dtype=float)
+    catalog_dec = np.asarray(catalog["dec"], dtype=float)
+
+    # Bounding cone: a cheap flat-sky pre-filter. Any input position works as the
+    # cone reference, so use the first one -- a coordinate-wise mean would land at
+    # RA=180 for a field straddling the RA=0/360 meridian and exclude the whole
+    # field. The cone radius adapts to how far the positions actually spread (a
+    # hardcoded pad fails for crowded/cluster fields spanning many arcminutes).
+    center = pos_sc[0]
+    max_offset_deg = float(np.max(center.separation(pos_sc).deg))
+    # Over-inclusion here is free -- the exact cut below removes the extras -- while
+    # under-inclusion is a silent miss, so keep the flat-sky bound deliberately loose.
+    search_rad = 1.05 * (radius.to_value(u.deg) + max_offset_deg) + 1e-4
+    cos_dec = np.cos(np.radians(center.dec.deg))
+    # Wrap the RA difference into (-180, 180] before scaling. Without this, a source
+    # just across the RA=0/360 meridian looks ~360 deg away instead of ~0, so every
+    # counterpart on the other side of the meridian is silently dropped.
+    dra = ((catalog_ra - center.ra.deg + 180.0) % 360.0 - 180.0) * cos_dec
+    ddec = catalog_dec - center.dec.deg
+    (candidates,) = np.nonzero(np.sqrt(dra**2 + ddec**2) < search_rad)
+    if len(candidates) == 0:
+        return candidates
+
+    # Exact per-source cut. The bounding cone is sized to the whole field, so on its
+    # own it admits sources arcminutes from any input position, and the callers that
+    # use these catalogs directly feed astromon_cat_src with no later radius cut.
+    candidate_sc = coords.SkyCoord(
+        catalog_ra[candidates], catalog_dec[candidates], unit="deg"
+    )
+    _, sep_to_nearest, _ = candidate_sc.match_to_catalog_sky(pos_sc)
+    return candidates[sep_to_nearest < radius]
+
+
 def _local_catalog_near(
     catalog: table.Table,
     catalog_name: str,
@@ -324,42 +389,7 @@ def _local_catalog_near(
     if not pos.isscalar and len(pos) == 0:
         return table.Table(dtype=CROSS_MATCH_DTYPE)
 
-    # Build a bare SkyCoord from the coordinates: this handles a scalar `pos`
-    # uniformly and drops frame attributes (e.g. obstime) that would otherwise have
-    # to match when comparing against the catalog positions.
-    pos_sc = coords.SkyCoord(
-        ra=np.atleast_1d(pos.ra.deg), dec=np.atleast_1d(pos.dec.deg), unit="deg"
-    )
-
-    # Bounding cone: a cheap flat-sky pre-filter so the multi-million-row catalogs
-    # never become a SkyCoord in full. Any input position works as the cone
-    # reference, so use the first one -- a coordinate-wise mean would land at RA=180
-    # for a field straddling the RA=0/360 meridian and exclude the whole field. The
-    # cone radius adapts to how far the positions actually spread (a hardcoded pad
-    # fails for crowded/cluster fields spanning many arcminutes, e.g. Perseus).
-    center = pos_sc[0]
-    max_offset_deg = float(np.max(center.separation(pos_sc).deg))
-    # Over-inclusion here is free -- the exact cut below removes the extras -- while
-    # under-inclusion is a silent miss, so keep the flat-sky bound deliberately loose.
-    search_rad = 1.05 * (radius.to_value(u.deg) + max_offset_deg) + 1e-4
-    cos_dec = np.cos(np.radians(center.dec.deg))
-    # Wrap the RA difference into (-180, 180] before scaling. Without this, a source
-    # just across the RA=0/360 meridian looks ~360 deg away instead of ~0, so every
-    # counterpart on the other side of the meridian is silently dropped.
-    dra = ((catalog["ra"] - center.ra.deg + 180.0) % 360.0 - 180.0) * cos_dec
-    ddec = catalog["dec"] - center.dec.deg
-    nearby_mask = np.sqrt(dra**2 + ddec**2) < search_rad
-    nearby = catalog[nearby_mask]
-
-    if len(nearby) > 0:
-        # Exact per-source cut. The bounding cone is sized to the whole field, so on
-        # its own it admits sources arcminutes from any input position, and the
-        # callers that use these catalogs directly (get_gaia_agn,
-        # get_gaia_qso_candidates, get_quaia_candidates) feed astromon_cat_src with
-        # no later radius cut of their own.
-        nearby_sc = coords.SkyCoord(nearby["ra"], nearby["dec"], unit="deg")
-        _, sep_to_nearest, _ = nearby_sc.match_to_catalog_sky(pos_sc)
-        nearby = nearby[sep_to_nearest < radius]
+    nearby = catalog[rows_near_positions(catalog, pos, radius)]
 
     if len(nearby) == 0:
         logger.debug(f"{logging_tag}{catalog_name} has 0 results")
@@ -1433,6 +1463,106 @@ def get_gaia_qso_candidates(
     return _local_catalog_near(catalog, "GaiaQSO", pos, radius, logging_tag)
 
 
+def _obs_epoch_year(pos: coords.SkyCoord, logging_tag: str = "") -> float | None:
+    """The observation epoch in Julian years, or None if `pos` carries no obstime."""
+    if pos.obstime is None:
+        logger.warning(
+            f"{logging_tag} GaiaVarStar: pos.obstime not set,"
+            " skipping proper motion correction"
+        )
+        return None
+    return (
+        pos.obstime.jyear
+        if hasattr(pos.obstime, "jyear")
+        else float(pos.obstime.decimalyear)
+    )
+
+
+def _query_gaia_var_star_rows(
+    pos_ra_deg: np.ndarray,
+    pos_dec_deg: np.ndarray,
+    radius: u.Quantity,
+    *,
+    max_ruwe: float = 1.4,
+    batch_size: int = 50,
+    logging_tag: str = "",
+) -> table.Table | None:
+    """Raw Gaia DR3 rotation-modulation rows near any of the given positions.
+
+    Returns source_id, ra, dec, pmra, pmdec and phot_g_mean_mag with **no epoch
+    correction applied**, deduplicated by source_id, or None if nothing was found.
+
+    The cones are drawn around the input positions against Gaia's catalog (J2016)
+    positions, so this query says nothing about when anything was observed. That is
+    what lets one call serve many observations -- see
+    :func:`get_gaia_var_stars_by_obsid` -- with the per-observation correction
+    applied afterwards by :func:`_format_gaia_var_stars`.
+    """
+    radius_deg = radius.to(u.deg).value
+    all_results = []
+    for batch_start in range(0, len(pos_ra_deg), batch_size):
+        batch_ra = pos_ra_deg[batch_start : batch_start + batch_size]
+        batch_dec = pos_dec_deg[batch_start : batch_start + batch_size]
+        where_clauses = [
+            f"CONTAINS(POINT('ICRS', g.ra, g.dec), CIRCLE('ICRS', {ra}, {dec}, {radius_deg}))=1"
+            for ra, dec in zip(batch_ra, batch_dec, strict=True)
+        ]
+        query = f"""
+        SELECT g.source_id, g.ra, g.dec, g.pmra, g.pmdec, g.phot_g_mean_mag
+        FROM gaiadr3.gaia_source g
+        INNER JOIN gaiadr3.vari_rotation_modulation v ON g.source_id = v.source_id
+        WHERE g.ruwe < {max_ruwe}
+        AND ({" OR ".join(where_clauses)})
+        """
+        try:
+            result = _execute_gaia_tap_query(query)
+            if result is not None and len(result) > 0:
+                all_results.append(result)
+            logger.debug(
+                f"{logging_tag} GaiaVarStar batch got"
+                f" {len(result) if result is not None else 0} sources"
+            )
+        except Exception as exc:
+            logger.warning(
+                f"{logging_tag} GaiaVarStar batch failed after all retries: {exc}"
+            )
+            continue
+
+    if not all_results:
+        return None
+    combined = table.vstack(all_results)
+    _, unique_idx = np.unique(combined["source_id"], return_index=True)
+    return combined[sorted(unique_idx)]
+
+
+def _format_gaia_var_stars(
+    rows: table.Table, obs_epoch_yr: float | None
+) -> table.Table:
+    """Raw var-star rows as CROSS_MATCH_DTYPE, positions moved to `obs_epoch_yr`."""
+    if len(rows) == 0:
+        return table.Table(dtype=CROSS_MATCH_DTYPE)
+
+    ra = np.array(rows["ra"], dtype=float)
+    dec = np.array(rows["dec"], dtype=float)
+    if obs_epoch_yr is not None:
+        ra, dec = _apply_proper_motion(
+            ra,
+            dec,
+            np.array(rows["pmra"], dtype=float),
+            np.array(rows["pmdec"], dtype=float),
+            obs_epoch_yr,
+        )
+
+    output = table.Table(data=np.zeros(len(rows), dtype=CROSS_MATCH_DTYPE))
+    output["ra"] = ra
+    output["dec"] = dec
+    output["catalog"] = "GaiaVarStar"
+    output["name"] = [f"GaiaVarStar-{sid}" for sid in rows["source_id"]]
+    # The query always selects phot_g_mean_mag, so the column is always present.
+    output["mag"] = np.asarray(rows["phot_g_mean_mag"], dtype=np.float32)
+    return output
+
+
 def get_gaia_var_stars(
     pos: coords.SkyCoord,
     radius: u.Quantity = 3 * u.arcsec,
@@ -1476,78 +1606,81 @@ def get_gaia_var_stars(
         logger.debug(f"{logging_tag} GaiaVarStar has no results")
         return table.Table(dtype=CROSS_MATCH_DTYPE)
 
-    if pos.obstime is not None:
-        obs_epoch_yr = (
-            pos.obstime.jyear
-            if hasattr(pos.obstime, "jyear")
-            else float(pos.obstime.decimalyear)
-        )
-    else:
-        logger.warning(
-            f"{logging_tag} GaiaVarStar: pos.obstime not set, skipping proper motion correction"
-        )
-        obs_epoch_yr = None
-
-    radius_deg = radius.to(u.deg).value
-    all_results = []
-
-    pos_ra_deg = np.atleast_1d(pos.ra.deg)
-    pos_dec_deg = np.atleast_1d(pos.dec.deg)
-    for batch_start in range(0, len(pos_ra_deg), batch_size):
-        batch_ra = pos_ra_deg[batch_start : batch_start + batch_size]
-        batch_dec = pos_dec_deg[batch_start : batch_start + batch_size]
-        where_clauses = [
-            f"CONTAINS(POINT('ICRS', g.ra, g.dec), CIRCLE('ICRS', {ra}, {dec}, {radius_deg}))=1"
-            for ra, dec in zip(batch_ra, batch_dec, strict=True)
-        ]
-        query = f"""
-        SELECT g.source_id, g.ra, g.dec, g.pmra, g.pmdec, g.phot_g_mean_mag
-        FROM gaiadr3.gaia_source g
-        INNER JOIN gaiadr3.vari_rotation_modulation v ON g.source_id = v.source_id
-        WHERE g.ruwe < {max_ruwe}
-        AND ({" OR ".join(where_clauses)})
-        """
-        try:
-            result = _execute_gaia_tap_query(query)
-            if result is not None and len(result) > 0:
-                all_results.append(result)
-            logger.debug(
-                f"{logging_tag} GaiaVarStar batch got {len(result) if result else 0} sources"
-            )
-        except Exception as e:
-            logger.warning(
-                f"{logging_tag} GaiaVarStar batch failed after all retries: {e}"
-            )
-            continue
-
-    if not all_results:
+    rows = _query_gaia_var_star_rows(
+        np.atleast_1d(pos.ra.deg),
+        np.atleast_1d(pos.dec.deg),
+        radius,
+        max_ruwe=max_ruwe,
+        batch_size=batch_size,
+        logging_tag=logging_tag,
+    )
+    if rows is None:
         logger.debug(f"{logging_tag} GaiaVarStar has no results")
         return table.Table(dtype=CROSS_MATCH_DTYPE)
 
-    combined = table.vstack(all_results)
-    _, unique_idx = np.unique(combined["source_id"], return_index=True)
-    combined = combined[sorted(unique_idx)]
-
-    ra = np.array(combined["ra"], dtype=float)
-    dec = np.array(combined["dec"], dtype=float)
-    pmra = np.array(combined["pmra"], dtype=float)
-    pmdec = np.array(combined["pmdec"], dtype=float)
-
-    if obs_epoch_yr is not None:
-        ra, dec = _apply_proper_motion(ra, dec, pmra, pmdec, obs_epoch_yr)
-
-    combined["catalog"] = "GaiaVarStar"
-    combined["name"] = [f"GaiaVarStar-{sid}" for sid in combined["source_id"]]
-    # The query always selects phot_g_mean_mag, so the column is always present.
-    combined["mag"] = combined["phot_g_mean_mag"].astype(np.float32)
-
-    output = table.Table(data=np.zeros(len(combined), dtype=CROSS_MATCH_DTYPE))
-    output["ra"] = ra
-    output["dec"] = dec
-    for col in ("catalog", "name", "mag"):
-        output[col] = combined[col]
+    output = _format_gaia_var_stars(rows, _obs_epoch_year(pos, logging_tag))
     logger.debug(f"{logging_tag} GaiaVarStar has {len(output)} results")
     return output
+
+
+def get_gaia_var_stars_by_obsid(
+    positions: dict,
+    radius: u.Quantity = 3 * u.arcsec,
+    max_ruwe: float = 1.4,
+    batch_size: int = 500,
+    logging_tag: str = "",
+) -> dict:
+    """Query GaiaVarStar once for many observations, then split the answer per obsid.
+
+    `positions` maps a key (an obsid) to that observation's `SkyCoord`, whose
+    ``obstime`` sets its proper-motion epoch. Returns a table per key, with the same
+    contents :func:`get_gaia_var_stars` would return for that key alone.
+
+    The saving is round trips. Queried one observation at a time, this catalog costs
+    a Gaia TAP round trip per obsid -- measured at ~17 s, which over 8,451 obsids is
+    ~39 hours, for a catalog that yields fewer than a hundred matches in total.
+    Pooling the positions makes it a few hundred queries instead.
+
+    What makes that sound is that the query is epoch-free: its cones are drawn
+    around the input positions against Gaia's own J2016 catalog positions, and the
+    correction to the observation epoch happens afterwards, here. So the split has
+    to happen *before* the correction -- on the uncorrected positions, which is also
+    what the per-obsid query selected on -- and each key then gets corrected with
+    its own epoch. Correcting the pooled result once would stamp one observation's
+    epoch on every other one's positions.
+
+    A source near more than one observation's positions is returned for each of
+    them, which is what repeat observations of the same field require.
+    """
+    empty = {key: table.Table(dtype=CROSS_MATCH_DTYPE) for key in positions}
+    keys = [key for key, pos in positions.items() if pos.isscalar or len(pos) > 0]
+    if not keys:
+        return empty
+
+    rows = _query_gaia_var_star_rows(
+        np.concatenate([np.atleast_1d(positions[key].ra.deg) for key in keys]),
+        np.concatenate([np.atleast_1d(positions[key].dec.deg) for key in keys]),
+        radius,
+        max_ruwe=max_ruwe,
+        batch_size=batch_size,
+        logging_tag=logging_tag,
+    )
+    if rows is None:
+        logger.debug(f"{logging_tag} GaiaVarStar has no results for any obsid")
+        return empty
+
+    result = dict(empty)
+    for key in keys:
+        pos = positions[key]
+        near = rows[rows_near_positions(rows, pos, radius)]
+        if len(near) == 0:
+            continue
+        result[key] = _format_gaia_var_stars(near, _obs_epoch_year(pos, f"{key}"))
+    found = sum(len(candidates) for candidates in result.values())
+    logger.debug(
+        f"{logging_tag} GaiaVarStar: {found} candidate(s) across {len(keys)} obsid(s)"
+    )
+    return result
 
 
 # Radius used to positionally match Milliquas optical positions to Gaia DR3 sources.
@@ -1902,6 +2035,48 @@ def get_desi_v161_candidates(
         f"{logging_tag} DESIV161: {len(output)} QSO/GALAXY results with ZWARN=0"
     )
     return output
+
+
+def get_desi_v161_by_obsid(
+    positions: dict,
+    radius: u.Quantity = 3 * u.arcsec,
+    logging_tag: str = "",
+) -> dict:
+    """Query DESI EDR once for many observations, then split the answer per obsid.
+
+    `positions` maps a key (an obsid) to that observation's `SkyCoord`. Returns a
+    table per key, with the same contents :func:`get_desi_v161_candidates` would
+    return for that key alone.
+
+    Simpler than the GaiaVarStar equivalent because nothing here depends on when
+    the observation happened: the VizieR query asks for plain RAICRS/DEICRS, with
+    no epoch expression and no proper-motion correction, so the pooled result can
+    be split on the positions exactly as returned.
+    """
+    empty = {key: table.Table(dtype=CROSS_MATCH_DTYPE) for key in positions}
+    keys = [key for key, pos in positions.items() if pos.isscalar or len(pos) > 0]
+    if not keys:
+        return empty
+
+    pooled = coords.SkyCoord(
+        ra=np.concatenate([np.atleast_1d(positions[key].ra.deg) for key in keys]),
+        dec=np.concatenate([np.atleast_1d(positions[key].dec.deg) for key in keys]),
+        unit="deg",
+    )
+    bulk = get_desi_v161_candidates(pooled, radius=radius, logging_tag=logging_tag)
+    if len(bulk) == 0:
+        return empty
+
+    result = dict(empty)
+    for key in keys:
+        near = bulk[rows_near_positions(bulk, positions[key], radius)]
+        if len(near):
+            result[key] = near
+    found = sum(len(candidates) for candidates in result.values())
+    logger.debug(
+        f"{logging_tag} DESIV161: {found} candidate(s) across {len(keys)} obsid(s)"
+    )
+    return result
 
 
 # Locally cached whole catalogs served by the bounding-cone prefilter instead of a
