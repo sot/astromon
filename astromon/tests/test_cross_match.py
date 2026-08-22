@@ -20,7 +20,6 @@ from astromon import cross_match, db
 DATA_DIR = Path(__file__).parent / "data"
 
 HAS_INTERNET = has_internet()
-
 # Vizier queries occasionally hit a transient connection reset with no indication of an actual
 # problem with the query itself (observed as requests.exceptions.ConnectionError). Retry those
 # rather than failing the test outright.
@@ -823,29 +822,18 @@ def test_get_milliquas_gaia_mocked_response():
     """get_milliquas_gaia produces correct output from mocked VizieR + Gaia responses."""
     pos = coords.SkyCoord([_3C273_RA], [_3C273_DEC], unit="deg")
 
-    # Mocked Milliquas VizieR row: spectroscopic type "Q" passes the type filter.
-    mq_row = Table(
+    # Patch the precomputed mapping, not the queries that built it: nothing in this
+    # suite may reach CDS, and an unpatched getter would download the whole 130 MB
+    # crossmatch and cache it under $SKA.
+    mapping = Table(
         {
-            "RAJ2000": np.array([_3C273_RA], dtype=float),
-            "DEJ2000": np.array([_3C273_DEC], dtype=float),
-            "Name": [_3C273_MILLIQUAS_NAME],
-            "Type": ["Q"],
-            "Rmag": np.ma.MaskedArray([12.9], mask=[False]),
-        }
-    )
-    # Mocked Gaia DR3 row confirming a counterpart within 1.5 arcsec.
-    gaia_row = Table(
-        {
-            "source_id": np.array([_3C273_QSO_SOURCE_ID], dtype=np.int64),
+            "name": np.array([_3C273_MILLIQUAS_NAME]),
             "ra": np.array([_3C273_RA]),
             "dec": np.array([_3C273_DEC]),
+            "mag": np.array([12.9], dtype=np.float32),
         }
     )
-
-    with (
-        patch.object(cross_match, "_query_vizier_region", return_value=[mq_row]),
-        patch.object(cross_match, "_execute_gaia_tap_query", return_value=gaia_row),
-    ):
+    with patch.object(cross_match, "get_milliquas_gaia_catalog", lambda: mapping):
         result = cross_match.get_milliquas_gaia(pos, radius=3 * u.arcsec)
 
     assert len(result) == 1
@@ -853,7 +841,6 @@ def test_get_milliquas_gaia_mocked_response():
     assert _3C273_MILLIQUAS_NAME in result["name"][0]
     assert np.isclose(result["ra"][0], _3C273_RA, atol=1e-4)
     assert np.isclose(result["dec"][0], _3C273_DEC, atol=1e-4)
-
 
 def test_get_milliquas_gaia_type_filter_excludes_photometric():
     """Photometric-only (K-type) Milliquas sources are excluded by the type filter."""
@@ -875,7 +862,6 @@ def test_get_milliquas_gaia_type_filter_excludes_photometric():
         result = cross_match.get_milliquas_gaia(pos, radius=3 * u.arcsec)
 
     assert len(result) == 0
-
 
 # ---------------------------------------------------------------------------
 # brightest / acis_streak filter tests for compute_cross_matches
