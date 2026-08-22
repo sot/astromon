@@ -32,6 +32,7 @@ setup(
     packages=[
         "astromon",
         "astromon.scripts",
+        "astromon.scripts.analysis",
         "astromon.scripts.calalign",
         "astromon.scripts.calalign.check",
         "astromon.tests",
