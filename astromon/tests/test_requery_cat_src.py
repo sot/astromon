@@ -8,6 +8,8 @@ with the rows already stored, and writing one catalog at a time so a re-query of
 RFC cannot disturb the obsid's 2MASS rows.
 """
 
+from unittest.mock import patch
+
 import numpy as np
 import pytest
 from astropy.table import Table, vstack
@@ -298,6 +300,91 @@ def test_requery_records_the_catalog_releases_it_queried_against(tmp_path):
     summary = requery_cat_src.requery(dbfile, [], catalogs=("RFC",))
 
     assert set(summary["catalog_versions"]) == set(cross_match.CATALOG_CACHE_PATHS)
+# ─── catalog classification ──────────────────────────────────────────────────
+
+
+def test_milliquas_gaia_is_served_locally_now():
+    """It is a local lookup since the Gaia upgrade became a precomputed mapping."""
+    assert "MilliquasGaia" in requery_cat_src.LOCAL_CATALOGS
+    assert "MilliquasGaia" not in requery_cat_src.REMOTE_CATALOGS
+
+
+def test_batched_catalogs_are_declared_apart_from_the_per_obsid_ones():
+    """DESI is queried once for a whole chunk of obsids rather than once each.
+
+    GaiaVarStar is queried the same way but is not in the default set at all -- see
+    test_gaia_var_star_is_not_matched_by_default.
+    """
+    assert set(requery_cat_src.BATCHED_CATALOGS) == {"DESIV161"}
+    assert set(requery_cat_src.BATCHED_CATALOGS) <= set(requery_cat_src.ALL_CATALOGS)
+    assert set(requery_cat_src.BATCHED_GETTERS) == {"DESIV161", "GaiaVarStar"}
+    # The four rough_match catalogs stay per obsid: their VizieR query asks for
+    # positions at the observation epoch, so it cannot be pooled.
+    assert set(requery_cat_src.REMOTE_CATALOGS) == {
+        "Tycho2",
+        "USNO-B1.0",
+        "2MASS",
+        "SDSS",
+    }
+
+
+# ─── folding a batched result into one obsid's candidates ────────────────────
+
+
+def test_requery_obsid_uses_precomputed_candidates_instead_of_querying():
+    def explode(*args, **kwargs):
+        raise AssertionError("a precomputed catalog must not be queried again")
+
+    candidates = requery_cat_src.requery_obsid(
+        obsid=7001,
+        sources=_xray_sources(),
+        quat=QUAT,
+        obs_time="2020:001",
+        catalogs=("RFC",),
+        id_offset=0,
+        getters={"RFC": explode},
+        precomputed={"RFC": _candidates([150.0], [2.0], catalog="RFC")},
+    )
+
+    assert list(candidates["catalog"]) == ["RFC"]
+
+
+def test_requery_obsid_numbers_precomputed_and_queried_in_one_sequence():
+    """Ids run consecutively per obsid however the candidates were obtained."""
+    getters = {
+        "Quaia": lambda sources, obs_time, logging_tag="": _candidates(
+            [150.01], [2.01], catalog="Quaia"
+        )
+    }
+
+    candidates = requery_cat_src.requery_obsid(
+        obsid=7001,
+        sources=_xray_sources(ids=(3, 7)),
+        quat=QUAT,
+        obs_time="2020:001",
+        catalogs=("GaiaVarStar", "Quaia"),
+        id_offset=5,
+        getters=getters,
+        precomputed={"GaiaVarStar": _candidates([150.0], [2.0], catalog="GaiaVarStar")},
+    )
+
+    assert list(candidates["catalog"]) == ["GaiaVarStar", "Quaia"]
+    assert list(candidates["id"]) == [5, 6]
+
+
+def test_requery_obsid_does_not_demand_a_getter_for_a_precomputed_catalog():
+    candidates = requery_cat_src.requery_obsid(
+        obsid=7001,
+        sources=_xray_sources(),
+        quat=QUAT,
+        obs_time="2020:001",
+        catalogs=("GaiaVarStar",),
+        id_offset=0,
+        getters={},
+        precomputed={"GaiaVarStar": _candidates([150.0], [2.0], catalog="GaiaVarStar")},
+    )
+
+    assert len(candidates) == 1
 # ─── resuming a long run ─────────────────────────────────────────────────────
 
 
@@ -375,3 +462,53 @@ def test_requery_skips_only_obsids_whose_requested_catalogs_are_all_done(tmp_pat
 
     # 7001 already has RFC; 7002 has only DESIV161, so it still needs RFC.
     assert summary["resumed"] == 1
+
+
+# ─── GaiaVarStar is out of the default set ───────────────────────────────────
+
+
+def test_gaia_var_star_is_not_matched_by_default():
+    """It costs more than everything it finds.
+
+    99 rows across the whole database, from 96 obsids, and its Gaia TAP query owns
+    every stall in a full run: a 120 s hard timeout inside tries=3/delay=10/backoff=2
+    is up to ~6.5 minutes per bad batch, and a measured chunk of 100 obsids hit four
+    of them.
+    """
+    assert "GaiaVarStar" not in requery_cat_src.ALL_CATALOGS
+    assert "GaiaVarStar" not in requery_cat_src.BATCHED_CATALOGS
+    assert "GaiaVarStar" in requery_cat_src.OPTIONAL_CATALOGS
+
+
+def test_catalogs_all_excludes_gaia_var_star():
+    resolved = requery_cat_src._resolve_catalogs(["all"])
+
+    assert "GaiaVarStar" not in resolved
+    assert "DESIV161" in resolved
+    assert "MilliquasGaia" in resolved
+
+
+def test_gaia_var_star_can_still_be_asked_for_by_name():
+    """Excluded from the default set, not removed -- a later pass can still run it."""
+    assert requery_cat_src._resolve_catalogs(["GaiaVarStar"]) == ["GaiaVarStar"]
+    assert "GaiaVarStar" in requery_cat_src.CATALOG_GETTERS
+    assert "GaiaVarStar" in requery_cat_src.BATCHED_GETTERS
+
+
+def test_named_gaia_var_star_still_goes_through_the_batched_path():
+    """Asking for it explicitly must not fall back to a query per obsid."""
+    calls = []
+
+    def batched(positions, radius=None, logging_tag=""):
+        calls.append(sorted(positions))
+        return {obsid: _candidates([], []) for obsid in positions}
+
+    with patch.dict(
+        requery_cat_src.BATCHED_GETTERS, {"GaiaVarStar": batched}, clear=False
+    ):
+        result = requery_cat_src._batched_candidates(
+            ["GaiaVarStar"], {7001: None, 7002: None}
+        )
+
+    assert calls == [[7001, 7002]]
+    assert set(result) == {"GaiaVarStar"}
