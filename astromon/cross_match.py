@@ -13,6 +13,7 @@ import requests
 from astropy import coordinates as coords
 from astropy import io, table
 from astropy import units as u
+from astropy.io import votable as votable_io
 from astroquery.vizier import Vizier
 from cxotime import CxoTime
 from Ska.DBI import DBI
@@ -115,7 +116,7 @@ class VizierServerError(Exception):
     """VizieR reported a problem with the query instead of returning results."""
 
 
-def _vizier_query_info(content: bytes) -> tuple[str | None, str]:
+def _votable_query_info(content: bytes) -> tuple[str | None, str]:
     """The VOTable's QUERY_STATUS value and the message that came with it.
 
     Returns ``(None, "")`` for a payload that carries no such INFO element,
@@ -124,7 +125,7 @@ def _vizier_query_info(content: bytes) -> tuple[str | None, str]:
     if content[:5] != b"<?xml":
         return None, ""
     try:
-        vo_tree = io.votable.parse(BytesIO(content), verify="warn")
+        vo_tree = votable_io.parse(BytesIO(content), verify="warn")
     except Exception as exc:  # a malformed VOTable tells us nothing about status
         logger.debug(f"could not read QUERY_STATUS from the response: {exc}")
         return None, ""
@@ -133,9 +134,9 @@ def _vizier_query_info(content: bytes) -> tuple[str | None, str]:
     return None, ""
 
 
-def _vizier_query_status(content: bytes) -> str | None:
+def _votable_query_status(content: bytes) -> str | None:
     """The VOTable's QUERY_STATUS value, or None if the payload has none."""
-    return _vizier_query_info(content)[0]
+    return _votable_query_info(content)[0]
 
 
 @retry_on_connection_error
@@ -166,7 +167,7 @@ def _query_vizier_region(vizier, pos, radius, cat_identifier):
     )
     response.raise_for_status()
 
-    status, message = _vizier_query_info(response.content)
+    status, message = _votable_query_info(response.content)
     if status == "ERROR":
         raise VizierServerError(
             f"VizieR reported an error for catalog {cat_identifier}"
@@ -813,6 +814,16 @@ _MILLIQUAS_CACHE_PATH = _ASTROMON_DATA_DIR / "milliquas_catalog.fits"
 # which previously refetched 80 MB from an immutable URL twice a year.
 _MILLIQUAS_VERSION = "VII/294"
 _MILLIQUAS_MAX_AGE_DAYS: int | None = None
+_MILLIQUAS_VIZIER_ID = "VII/294/catalog"
+
+# The precomputed Milliquas x Gaia DR3 mapping: Milliquas sources at the position of
+# their Gaia DR3 counterpart. Built once by one all-sky CDS X-Match request rather
+# than a Gaia TAP round trip per observation.
+_GAIA_DR3_VIZIER_ID = "I/355/gaiadr3"
+_XMATCH_URL = "http://cdsxmatch.u-strasbg.fr/xmatch/api/v1/sync"
+_MILLIQUAS_GAIA_CACHE_PATH = _ASTROMON_DATA_DIR / "milliquas_gaia_catalog.fits"
+# Both sides are pinned releases, so either one moving invalidates the mapping.
+_MILLIQUAS_GAIA_VERSION = "VII/294+I/355"
 
 
 def get_milliquas(
@@ -926,6 +937,7 @@ CATALOG_CACHE_PATHS: dict[str, Path] = {
     "Quaia": _QUAIA_CACHE_PATH,
     "GaiaAGN": _GAIA_AGN_CACHE_PATH,
     "GaiaQSO": _GAIA_QSO_CACHE_PATH,
+    "MilliquasGaia": _MILLIQUAS_GAIA_CACHE_PATH,
 }
 
 
@@ -1686,19 +1698,128 @@ def get_gaia_var_stars_by_obsid(
 # Radius used to positionally match Milliquas optical positions to Gaia DR3 sources.
 # Milliquas positions are typically accurate to ~0.3 arcsec; 1.5 arcsec gives comfortable margin.
 _MILLIQUAS_GAIA_XMATCH_ARCSEC = 1.5
-_MILLIQUAS_GAIA_XMATCH_DEG = _MILLIQUAS_GAIA_XMATCH_ARCSEC / 3600.0
 
 
-def get_milliquas_gaia(  # noqa: PLR0915
-    pos, radius=3 * u.arcsec, logging_tag=""
-):
-    """Query Milliquas v8 (VII/294) + Gaia DR3 for spectroscopic AGN around sky positions.
+def _download_milliquas_gaia_xmatch() -> table.Table:
+    """Crossmatch all of Milliquas against Gaia DR3 in one request, via CDS X-Match.
 
-    Cone-searches Milliquas v8 around each position in `pos`, filters to
-    spectroscopically-confirmed types (Q, A, B, N), then requires a Gaia DR3
-    positional match within 1.5 arcsec.  Sources without a Gaia DR3 counterpart
-    are dropped.  Photometric candidates (K-type) and the ~66,000 radio/X-ray
-    association candidates are excluded by the type filter.
+    Returns the raw pair list: every Milliquas source with a Gaia DR3 source within
+    :data:`_MILLIQUAS_GAIA_XMATCH_ARCSEC`, one row per pair. Measured all-sky at
+    664,428 pairs, 130 MB, about a minute end to end.
+
+    Only the columns the mapping needs are requested. Asking for both catalogues in
+    full returns 157 columns instead of 9 -- Gaia DR3 alone contributes 141 -- and
+    astroquery's ``XMatch`` has no way to express that, hence the direct POST.
+    """
+    payload = {
+        "request": "xmatch",
+        "distMaxArcsec": _MILLIQUAS_GAIA_XMATCH_ARCSEC,
+        "RESPONSEFORMAT": "votable",
+        "cat1": f"vizier:{_MILLIQUAS_VIZIER_ID}",
+        "cat2": f"vizier:{_GAIA_DR3_VIZIER_ID}",
+        "area": "allsky",
+        "cols1": "Name,RAJ2000,DEJ2000,Rmag,Type",
+        "cols2": "Source,RAdeg,DEdeg",
+    }
+    logger.info(
+        f"Crossmatching {_MILLIQUAS_VIZIER_ID} against {_GAIA_DR3_VIZIER_ID} via"
+        f' CDS X-Match at {_MILLIQUAS_GAIA_XMATCH_ARCSEC}" (one-time, ~130 MB)'
+    )
+    response = requests.post(_XMATCH_URL, data=payload, timeout=(60, 1800))
+    response.raise_for_status()
+
+    status, message = _votable_query_info(response.content)
+    if status not in (None, "OK"):
+        raise VizierServerError(
+            f"CDS X-Match reported {status} rather than returning a crossmatch:"
+            f" {message.strip() or 'no detail given'}"
+        )
+    return votable_io.parse_single_table(BytesIO(response.content)).to_table()
+
+
+def _reduce_milliquas_gaia_xmatch(matches: table.Table) -> table.Table:
+    """Reduce the X-Match pair list to one Gaia position per Milliquas source.
+
+    Keeps spectroscopically-confirmed types only (first character Q, A, B or N),
+    excluding K-type photometric candidates and the radio/X-ray association
+    entries, then keeps each source's nearest Gaia counterpart -- X-Match returns
+    every pair inside the radius, not just the best one.
+
+    The result carries the *Gaia* position, which is the point of the upgrade, under
+    the column names :func:`_local_catalog_near` expects.
+
+    This rule was checked against the live per-obsid path rather than inferred from
+    it: applied to the whole catalogue it reproduced all 5,504 MilliquasGaia rows
+    that path had already written, to under 1 mas and 0.005 mag.
+    """
+    types = np.array([str(t).strip() for t in np.asarray(matches["Type"])])
+    spectroscopic = np.array([bool(t) and t[0] in "QABN" for t in types])
+    matches = matches[spectroscopic]
+    if len(matches) == 0:
+        return table.Table(
+            {
+                "name": np.array([], dtype="U32"),
+                "ra": np.array([], dtype=float),
+                "dec": np.array([], dtype=float),
+                "mag": np.array([], dtype=np.float32),
+            }
+        )
+
+    names = np.asarray(matches["Name"]).astype(str)
+    # Sort by separation first, so the lowest index np.unique reports for each name
+    # is that source's nearest counterpart.
+    by_distance = np.argsort(np.asarray(matches["angDist"]), kind="stable")
+    _, first = np.unique(names[by_distance], return_index=True)
+    nearest = np.sort(by_distance[first])
+
+    return table.Table(
+        {
+            "name": names[nearest].astype("U32"),
+            "ra": np.asarray(matches["RAdeg"], dtype=float)[nearest],
+            "dec": np.asarray(matches["DEdeg"], dtype=float)[nearest],
+            "mag": np.asarray(matches["Rmag"], dtype=np.float32)[nearest],
+        }
+    )
+
+
+def get_milliquas_gaia_catalog(cache_path: Path | None = None) -> table.Table:
+    """Milliquas spectroscopic AGN at their Gaia DR3 positions, built once and cached.
+
+    The position upgrade does not depend on the observation, so doing it per obsid
+    -- a VizieR cone search plus a Gaia TAP round trip each, ~17 s -- repeated the
+    same work 8,451 times. One all-sky CDS X-Match replaces all of it: 614,932
+    sources, a ~50 MB cache, and a local lookup per obsid thereafter.
+
+    Refreshed when either pin in :data:`_MILLIQUAS_GAIA_VERSION` moves, which is what
+    a new Milliquas release or Gaia data release amounts to. Nothing expires on age:
+    both sides are fixed releases.
+    """
+    if cache_path is None:
+        cache_path = _MILLIQUAS_GAIA_CACHE_PATH
+    cache_path = Path(cache_path)
+
+    if not _cache_needs_refresh(cache_path, _MILLIQUAS_GAIA_VERSION):
+        logger.debug(f"Loading cached Milliquas-Gaia mapping from {cache_path}")
+        return _read_catalog_cached(
+            cache_path, lambda p: table.Table.read(p, format="fits")
+        )
+
+    mapping = _reduce_milliquas_gaia_xmatch(_download_milliquas_gaia_xmatch())
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    mapping.write(cache_path, format="fits", overwrite=True)
+    _record_catalog_version(cache_path, _MILLIQUAS_GAIA_VERSION)
+    logger.info(f"Saved {len(mapping):,} Milliquas-Gaia sources to {cache_path}")
+    return mapping
+
+
+def get_milliquas_gaia(pos, radius=3 * u.arcsec, logging_tag=""):
+    """Return Milliquas v8 spectroscopic AGN near *pos*, at their Gaia DR3 positions.
+
+    Sources without a Gaia DR3 counterpart within
+    :data:`_MILLIQUAS_GAIA_XMATCH_ARCSEC` are absent from the mapping, so they are
+    not returned -- the same exclusion the live VizieR + Gaia TAP path applied, now
+    made once for the whole catalogue by :func:`get_milliquas_gaia_catalog` instead
+    of per observation.
 
     Parameters
     ----------
@@ -1712,135 +1833,11 @@ def get_milliquas_gaia(  # noqa: PLR0915
     Returns
     -------
     astropy.table.Table
-        Catalog sources with columns matching CROSS_MATCH_DTYPE.
+        Catalog sources with columns matching :data:`CROSS_MATCH_DTYPE`.
     """
-    if not pos.isscalar and len(pos) == 0:
-        logger.debug(f"{logging_tag} MilliquasGaia has no results")
-        return table.Table(dtype=CROSS_MATCH_DTYPE)
-
-    # Step 1: VizieR cone search on Milliquas v8 (VII/294/catalog).
-    vizier = Vizier(
-        columns=["RAJ2000", "DEJ2000", "Name", "Type", "Rmag"], row_limit=-1
+    return _local_catalog_near(
+        get_milliquas_gaia_catalog(), "MilliquasGaia", pos, radius, logging_tag
     )
-    try:
-        mq_result = _query_vizier_region(vizier, pos, radius, "VII/294/catalog")
-        mq_tables = list(mq_result)
-    except Exception as e:
-        logger.warning(f"{logging_tag} Milliquas VizieR query failed: {e}")
-        return table.Table(dtype=CROSS_MATCH_DTYPE)
-
-    if not mq_tables:
-        logger.debug(f"{logging_tag} MilliquasGaia has no results")
-        return table.Table(dtype=CROSS_MATCH_DTYPE)
-
-    mq = table.vstack(mq_tables, metadata_conflicts="silent")
-
-    # Deduplicate by Name so the same Milliquas source only appears once even if it
-    # fell within radius of multiple X-ray positions.
-    _, unique_idx = np.unique(np.array(mq["Name"], dtype=str), return_index=True)
-    mq = mq[sorted(unique_idx)]
-
-    # Step 2: Keep only spectroscopic types (first char Q, A, B, or N).
-    # This excludes K-type photometric candidates and all radio/X-ray association entries.
-    type_strs = [str(t).strip() for t in mq["Type"]]
-    type_mask = np.array([bool(t) and t[0] in "QABN" for t in type_strs])
-    mq = mq[type_mask]
-
-    if len(mq) == 0:
-        logger.debug(f"{logging_tag} MilliquasGaia has no spectroscopic-type results")
-        return table.Table(dtype=CROSS_MATCH_DTYPE)
-
-    # Step 3: Upgrade positions to Gaia DR3 for sources with a Gaia counterpart.
-    # Batch query Gaia DR3 with circles around each filtered Milliquas source,
-    # then assign each Gaia result to the nearest Milliquas source within 1.5 arcsec.
-    mq_ra = np.array(mq["RAJ2000"], dtype=float)
-    mq_dec = np.array(mq["DEJ2000"], dtype=float)
-    final_ra = mq_ra.copy()
-    final_dec = mq_dec.copy()
-    gaia_matched_dist = np.full(len(mq), np.inf)
-
-    batch_size = 50
-    for batch_start in range(0, len(mq), batch_size):
-        batch_end = batch_start + batch_size
-        b_ra = mq_ra[batch_start:batch_end]
-        b_dec = mq_dec[batch_start:batch_end]
-        circles = " OR ".join(
-            f"CONTAINS(POINT('ICRS', g.ra, g.dec),"
-            f" CIRCLE('ICRS', {ra:.6f}, {dec:.6f}, {_MILLIQUAS_GAIA_XMATCH_DEG:.8f}))=1"
-            for ra, dec in zip(b_ra, b_dec, strict=True)
-        )
-        query = f"""
-        SELECT g.source_id, g.ra, g.dec
-        FROM gaiadr3.gaia_source g
-        WHERE {circles}
-        """
-        try:
-            gaia_batch = _execute_gaia_tap_query(query)
-        except Exception as e:
-            logger.warning(f"{logging_tag} MilliquasGaia Gaia TAP batch failed: {e}")
-            continue
-
-        if gaia_batch is None or len(gaia_batch) == 0:
-            continue
-
-        gaia_sc = coords.SkyCoord(
-            np.array(gaia_batch["ra"], dtype=float),
-            np.array(gaia_batch["dec"], dtype=float),
-            unit="deg",
-        )
-        mq_batch_sc = coords.SkyCoord(b_ra, b_dec, unit="deg")
-
-        # Vectorized nearest-Milliquas match for all Gaia rows at once (each
-        # scalar SkyCoord index plus per-row separation() is ~1000x slower).
-        nearest_idx, sep2d, _ = coords.match_coordinates_sky(gaia_sc, mq_batch_sc)
-        for gi, (nearest_i, sep_arcsec) in enumerate(
-            zip(np.atleast_1d(nearest_idx), np.atleast_1d(sep2d.arcsec), strict=True)
-        ):
-            nearest = int(nearest_i)
-            if (
-                sep_arcsec < _MILLIQUAS_GAIA_XMATCH_ARCSEC
-                and sep_arcsec < gaia_matched_dist[batch_start + nearest]
-            ):
-                gaia_matched_dist[batch_start + nearest] = sep_arcsec
-                final_ra[batch_start + nearest] = float(gaia_batch["ra"][gi])
-                final_dec[batch_start + nearest] = float(gaia_batch["dec"][gi])
-
-    # Step 4: Keep only sources with a confirmed Gaia DR3 position.
-    gaia_mask = np.isfinite(gaia_matched_dist)
-    n_dropped = int((~gaia_mask).sum())
-    if n_dropped:
-        logger.debug(
-            f"{logging_tag} MilliquasGaia: dropping {n_dropped} sources "
-            "without Gaia DR3 counterpart"
-        )
-    mq = mq[gaia_mask]
-    final_ra = final_ra[gaia_mask]
-    final_dec = final_dec[gaia_mask]
-
-    if len(mq) == 0:
-        logger.debug(
-            f"{logging_tag} MilliquasGaia has no results with Gaia DR3 positions"
-        )
-        return table.Table(dtype=CROSS_MATCH_DTYPE)
-
-    rmag = mq["Rmag"]
-    rmag_arr = (
-        rmag.filled(np.nan).astype(np.float32)
-        if hasattr(rmag, "filled")
-        else np.array(rmag, dtype=np.float32)
-    )
-
-    output = table.Table(data=np.zeros(len(mq), dtype=CROSS_MATCH_DTYPE))
-    output["ra"] = final_ra
-    output["dec"] = final_dec
-    output["catalog"] = "MilliquasGaia"
-    output["name"] = [str(n).strip()[:32] for n in mq["Name"]]
-    output["mag"] = rmag_arr
-
-    logger.debug(
-        f"{logging_tag} MilliquasGaia: {len(output)} results with Gaia DR3 positions"
-    )
-    return output
 
 
 def _dedupe_desi_by_delchi2(desi: table.Table) -> table.Table:
