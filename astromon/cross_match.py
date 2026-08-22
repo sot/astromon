@@ -1725,7 +1725,10 @@ def _download_milliquas_gaia_xmatch() -> table.Table:
         f"Crossmatching {_MILLIQUAS_VIZIER_ID} against {_GAIA_DR3_VIZIER_ID} via"
         f' CDS X-Match at {_MILLIQUAS_GAIA_XMATCH_ARCSEC}" (one-time, ~130 MB)'
     )
-    response = requests.post(_XMATCH_URL, data=payload, timeout=(60, 1800))
+    # Read timeout well above the ~65 s this takes, but nowhere near an hour: the
+    # failure mode is the transfer stalling mid-stream, and a generous read timeout
+    # turns that into a silent hang for its whole duration rather than an error.
+    response = requests.post(_XMATCH_URL, data=payload, timeout=(60, 600))
     response.raise_for_status()
 
     status, message = _votable_query_info(response.content)
