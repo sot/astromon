@@ -340,9 +340,39 @@ _RFC_CACHE_PATH = _ASTROMON_DATA_DIR / "rfc_catalog.txt"
 _RFC_CHECK_INTERVAL_DAYS = 1
 
 
-def _rfc_release_marker(cache_path: Path) -> Path:
+def _release_marker(cache_path: Path) -> Path:
     """Path to the small sidecar file recording which release `cache_path` holds."""
     return cache_path.with_name(cache_path.name + ".release")
+
+
+def _record_catalog_version(cache_path: Path, version: str) -> None:
+    """Record which upstream release `cache_path` was just downloaded from."""
+    _release_marker(cache_path).write_text(version)
+
+
+def _cache_needs_refresh(
+    cache_path: Path, version: str, max_age_days: int | None = None
+) -> bool:
+    """Whether a locally cached catalog should be downloaded again.
+
+    These catalogs are pinned to a named release -- a VizieR designation, a CDS
+    catalogue number, a Zenodo record, a Gaia data-release schema -- so what makes
+    a cache out of date is that pin changing, not the file getting old. Comparing
+    the recorded release against the declared one costs a small file read and, unlike
+    an age check, is both necessary and sufficient: it never refetches an identical
+    file, and it never misses a genuine change because a timer had not expired.
+
+    A cache with no recorded release is adopted as it stands. Caches predating this
+    bookkeeping already exist -- several hundred MB of them -- and treating unknown
+    as mismatched would redownload every one. Their provenance stays unknown rather
+    than being backfilled with a version nothing verified.
+    """
+    if _cache_is_stale(cache_path, max_age_days):
+        return True
+    marker = _release_marker(cache_path)
+    if not marker.exists():
+        return False
+    return marker.read_text().strip() != version
 
 
 def _rfc_attempt_marker(cache_path: Path) -> Path:
@@ -458,7 +488,7 @@ def get_rfc(
     if cache_path is None:
         cache_path = _RFC_CACHE_PATH
     cache_path = Path(cache_path)
-    release_marker = _rfc_release_marker(cache_path)
+    release_marker = _release_marker(cache_path)
     attempt_marker = _rfc_attempt_marker(cache_path)
 
     if _rfc_check_is_due(cache_path, release_marker, attempt_marker, max_age_days):
@@ -523,8 +553,12 @@ def _get_rfc(
 # ---------------------------------------------------------------------------
 
 _ICRF3_VIZIER_ID = "J/A+A/644/A159/table10"
+_ICRF3_VERSION = "J/A+A/644/A159"
 _ICRF3_CACHE_PATH = _ASTROMON_DATA_DIR / "icrf3_catalog.ecsv"
-_ICRF3_MAX_AGE_DAYS = 365  # ICRF3 is updated very rarely
+# None = no age check. A new ICRF realisation gets a new VizieR designation, so
+# _ICRF3_VERSION changing is what invalidates the cache; a timer only forced a
+# refetch of the identical table.
+_ICRF3_MAX_AGE_DAYS: int | None = None
 
 
 def get_icrf3(
@@ -558,7 +592,7 @@ def get_icrf3(
     if cache_path is None:
         cache_path = _ICRF3_CACHE_PATH
     cache_path = Path(cache_path)
-    if _cache_is_stale(cache_path, max_age_days):
+    if _cache_needs_refresh(cache_path, _ICRF3_VERSION, max_age_days):
         logger.info(f"Downloading ICRF3 from VizieR {_ICRF3_VIZIER_ID} → {cache_path}")
         vizier = Vizier(row_limit=-1, columns=["ICRF", "_RAJ2000", "_DEJ2000"])
         result = vizier.get_catalogs(_ICRF3_VIZIER_ID)
@@ -576,6 +610,7 @@ def get_icrf3(
         )
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         icrf3.write(cache_path, format="ascii.ecsv", overwrite=True)
+        _record_catalog_version(cache_path, _ICRF3_VERSION)
         logger.info(f"  Saved {len(icrf3)} ICRF3 sources to {cache_path}")
     else:
         logger.debug(f"Loading cached ICRF3 from {cache_path}")
@@ -670,9 +705,13 @@ def _get_icrf2(
     """Return ICRF2 sources near *pos* within *radius*, formatted like VizieR results."""
     return _local_catalog_near(get_icrf2(), "ICRF2", pos, radius, logging_tag)
 
-
+_MILLIQUAS_URL = "https://cdsarc.cds.unistra.fr/ftp/VII/294/catalog.dat.gz"
 _MILLIQUAS_CACHE_PATH = _ASTROMON_DATA_DIR / "milliquas_catalog.fits"
-_MILLIQUAS_MAX_AGE_DAYS = 180  # update twice a year; v8 released 2023-07-30
+# VII/294 is Milliquas v8 (v7 was VII/290), so the CDS catalogue number is the
+# version. A new release means a new number and a code change; None = no timer,
+# which previously refetched 80 MB from an immutable URL twice a year.
+_MILLIQUAS_VERSION = "VII/294"
+_MILLIQUAS_MAX_AGE_DAYS: int | None = None
 
 
 def get_milliquas(
@@ -711,7 +750,7 @@ def get_milliquas(
         cache_path = _MILLIQUAS_CACHE_PATH
     cache_path = Path(cache_path)
 
-    if not _cache_is_stale(cache_path, max_age_days):
+    if not _cache_needs_refresh(cache_path, _MILLIQUAS_VERSION, max_age_days):
         logger.debug(f"Loading cached Milliquas from {cache_path}")
         return _read_catalog_cached(
             cache_path, lambda p: table.Table.read(p, format="fits")
@@ -720,8 +759,7 @@ def get_milliquas(
     logger.info(
         f"Downloading Milliquas v8 from CDS → {cache_path} (~80 MB compressed, one-time)"
     )
-    url = "https://cdsarc.cds.unistra.fr/ftp/VII/294/catalog.dat.gz"
-    resp = requests.get(url, timeout=600, stream=True)
+    resp = requests.get(_MILLIQUAS_URL, timeout=600, stream=True)
     resp.raise_for_status()
 
     raw_bytes = b"".join(resp.iter_content(chunk_size=65536))
@@ -758,6 +796,7 @@ def get_milliquas(
     )
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     mq.write(cache_path, format="fits", overwrite=True)
+    _record_catalog_version(cache_path, _MILLIQUAS_VERSION)
     logger.info(f"Saved {len(mq)} Milliquas spectroscopic sources to {cache_path}")
     return mq
 
@@ -765,6 +804,8 @@ def get_milliquas(
 # Quaia G<20.0: Gaia DR3 + unWISE quasar catalog (Storey-Fisher et al. 2024, ApJ 964, 69).
 # v1.0.0 released 2023-12-18; tied to Gaia DR3, no update expected before Gaia DR4.
 _QUAIA_URL = "https://zenodo.org/records/10403370/files/quaia_G20.0.fits"
+# Zenodo records are immutable; a new Quaia release gets a new record id.
+_QUAIA_VERSION = "zenodo/10403370"
 _QUAIA_CACHE_PATH = _ASTROMON_DATA_DIR / "quaia_catalog.fits"
 # None = download only when absent; the catalog is static until Gaia DR4.
 _QUAIA_MAX_AGE_DAYS: int | None = None
@@ -773,6 +814,40 @@ _QUAIA_MAX_AGE_DAYS: int | None = None
 # static until Gaia DR4, so no automatic refresh is needed.
 _GAIA_AGN_CACHE_PATH = _ASTROMON_DATA_DIR / "gaia_agn_catalog.fits"
 _GAIA_QSO_CACHE_PATH = _ASTROMON_DATA_DIR / "gaia_qso_catalog.fits"
+# The queried schema is the version: DR4 tables will be gaiadr4.*, a code change.
+_GAIA_DR3_VERSION = "gaiadr3"
+
+
+CATALOG_CACHE_PATHS: dict[str, Path] = {
+    "RFC": _RFC_CACHE_PATH,
+    "ICRF3": _ICRF3_CACHE_PATH,
+    "Milliquas": _MILLIQUAS_CACHE_PATH,
+    "Quaia": _QUAIA_CACHE_PATH,
+    "GaiaAGN": _GAIA_AGN_CACHE_PATH,
+    "GaiaQSO": _GAIA_QSO_CACHE_PATH,
+}
+
+
+def catalog_versions(paths: dict[str, Path] | None = None) -> dict[str, str | None]:
+    """The upstream release each locally cached catalog was downloaded from.
+
+    ``None`` means the release is unknown: either the cache is absent, or it
+    predates this bookkeeping. Callers that write derived data should log this, so
+    a result set can be traced back to the catalog releases that produced it.
+
+    Examples
+    --------
+    >>> versions = catalog_versions()
+    >>> set(versions) == set(CATALOG_CACHE_PATHS)
+    True
+    """
+    if paths is None:
+        paths = CATALOG_CACHE_PATHS
+    versions: dict[str, str | None] = {}
+    for name, cache_path in paths.items():
+        marker = _release_marker(Path(cache_path))
+        versions[name] = marker.read_text().strip() if marker.exists() else None
+    return versions
 
 
 def get_quaia(
@@ -816,7 +891,7 @@ def get_quaia(
         cache_path = _QUAIA_CACHE_PATH
     cache_path = Path(cache_path)
 
-    if not _cache_is_stale(cache_path, max_age_days):
+    if not _cache_needs_refresh(cache_path, _QUAIA_VERSION, max_age_days):
         logger.debug(f"Loading cached Quaia from {cache_path}")
         return _read_catalog_cached(
             cache_path, lambda p: table.Table.read(p, format="fits")
@@ -850,6 +925,7 @@ def get_quaia(
 
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     quaia.write(cache_path, format="fits", overwrite=True)
+    _record_catalog_version(cache_path, _QUAIA_VERSION)
     logger.info(f"Saved {len(quaia):,} Quaia G<20.0 sources to {cache_path}")
     return quaia
 
@@ -1157,13 +1233,13 @@ def get_gaia_agn_catalog(cache_path: Path | None = None) -> table.Table:
     if cache_path is None:
         cache_path = _GAIA_AGN_CACHE_PATH
     cache_path = Path(cache_path)
-    if cache_path.exists():
+    if not _cache_needs_refresh(cache_path, _GAIA_DR3_VERSION):
         logger.debug(f"Loading cached GaiaAGN catalog from {cache_path}")
         return _read_catalog_cached(
             cache_path, lambda p: table.Table.read(p, format="fits")
         )
 
-    return _download_gaia_catalog_to_cache(
+    catalog = _download_gaia_catalog_to_cache(
         adql_query="""
             SELECT g.source_id, g.ra, g.dec, g.phot_g_mean_mag
             FROM gaiadr3.gaia_source g
@@ -1173,6 +1249,8 @@ def get_gaia_agn_catalog(cache_path: Path | None = None) -> table.Table:
         label="GaiaAGN (agn_cross_id)",
         name_prefix="GaiaAGN",
     )
+    _record_catalog_version(cache_path, _GAIA_DR3_VERSION)
+    return catalog
 
 
 def get_gaia_qso_catalog(cache_path: Path | None = None) -> table.Table:
@@ -1192,13 +1270,15 @@ def get_gaia_qso_catalog(cache_path: Path | None = None) -> table.Table:
     if cache_path is None:
         cache_path = _GAIA_QSO_CACHE_PATH
     cache_path = Path(cache_path)
-    if cache_path.exists():
+    if not _cache_needs_refresh(cache_path, _GAIA_DR3_VERSION):
         logger.debug(f"Loading cached GaiaQSO catalog from {cache_path}")
         return _read_catalog_cached(
             cache_path, lambda p: table.Table.read(p, format="fits")
         )
 
-    return _download_gaia_qso_catalog_chunked(cache_path)
+    catalog = _download_gaia_qso_catalog_chunked(cache_path)
+    _record_catalog_version(cache_path, _GAIA_DR3_VERSION)
+    return catalog
 
 
 def get_gaia_agn(

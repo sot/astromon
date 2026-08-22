@@ -63,6 +63,7 @@ from ska_helpers.logging import basic_logger
 from astromon import db
 from astromon.cross_match import (
     assign_cat_src_ids,
+    catalog_versions,
     get_desi_v161_candidates,
     get_gaia_agn,
     get_gaia_qso_candidates,
@@ -440,6 +441,9 @@ def requery(  # noqa: PLR0917
         "resumed": resumed,
         "obsids": len(obsids),
         "catalogs": list(catalogs),
+        # The releases behind the locally cached catalogs, so the rows this run
+        # writes can be traced to what produced them. None means unknown.
+        "catalog_versions": catalog_versions(),
         "added_rows": 0,
         "replaced_obsids": [],
         "queried": 0,

@@ -6,12 +6,15 @@ case the interval originally missed -- a check or download that *fails* -- which
 matters as soon as anything loops over thousands of obsids in one process.
 """
 
+import inspect
 import os
 import time
 import urllib.error
 from unittest.mock import patch
 
+import numpy as np
 import pytest
+from astropy.table import Table
 
 from astromon import cross_match
 
@@ -148,3 +151,144 @@ def test_get_rfc_raises_when_there_is_no_cache_to_fall_back_on(tmp_path):
         pytest.raises(urllib.error.HTTPError),
     ):
         cross_match.get_rfc(cache_path=tmp_path / "absent.txt", max_age_days=1)
+
+
+# ─── recorded catalog versions ───────────────────────────────────────────────
+
+
+ICRF3_SAMPLE_ROWS = 2
+
+
+def _icrf3_cache(tmp_path, version=None, age_days=0):
+    """An ICRF3 cache, optionally with a recorded version and an age."""
+    cache = tmp_path / "icrf3_catalog.ecsv"
+    Table(
+        {
+            "name": np.array(["ICRF J000020.3-322101", "ICRF J122906.6+020308"]),
+            "ra": np.array([0.0848, 187.2779]),
+            "dec": np.array([-32.3504, 2.0524]),
+        }
+    ).write(cache, format="ascii.ecsv", overwrite=True)
+    if version is not None:
+        cross_match._release_marker(cache).write_text(version)
+    if age_days:
+        old = time.time() - age_days * 86400
+        os.utime(cache, (old, old))
+    return cache
+
+
+def _exploding_vizier(*args, **kwargs):
+    raise AssertionError("no catalog download should have been attempted")
+
+
+def _stub_vizier(calls):
+    """A Vizier stand-in returning two ICRF3 rows in VizieR's column names."""
+
+    class StubVizier:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def get_catalogs(self, catalog_id):
+            calls.append(catalog_id)
+            return [
+                Table(
+                    {
+                        "ICRF": np.array(["J000020.3-322101", "J122906.6+020308"]),
+                        "_RAJ2000": np.array([0.0848, 187.2779]),
+                        "_DEJ2000": np.array([-32.3504, 2.0524]),
+                    }
+                )
+            ]
+
+    return StubVizier
+
+
+def test_declared_catalog_versions_match_the_identifiers_used_to_fetch_them():
+    """The version and the thing it describes must not drift apart.
+
+    Each of these catalogs is pinned by an identifier that already names its
+    release -- a VizieR designation, a CDS catalogue number, a Zenodo record, a
+    Gaia data-release schema. The recorded version is that identifier, so assert
+    it is still a substring of what the code actually fetches rather than a
+    string someone updated in one place only.
+    """
+    assert cross_match._ICRF3_VERSION in cross_match._ICRF3_VIZIER_ID
+    assert cross_match._MILLIQUAS_VERSION in cross_match._MILLIQUAS_URL
+    assert cross_match._QUAIA_VERSION.split("/")[-1] in cross_match._QUAIA_URL
+
+    for getter in (cross_match.get_gaia_agn_catalog, cross_match.get_gaia_qso_catalog):
+        assert f"{cross_match._GAIA_DR3_VERSION}." in inspect.getsource(getter)
+
+
+def test_icrf3_is_not_refetched_because_the_cache_got_old(tmp_path):
+    """ICRF3 is a published realisation; age says nothing about it being current.
+
+    A new realisation means a new VizieR designation, which means a code change,
+    which the recorded version detects. A timer only forced a pointless refetch.
+    """
+    cache = _icrf3_cache(tmp_path, version=cross_match._ICRF3_VERSION, age_days=400)
+
+    with patch.object(cross_match, "Vizier", _exploding_vizier):
+        icrf3 = cross_match.get_icrf3(cache_path=cache)
+
+    assert len(icrf3) == ICRF3_SAMPLE_ROWS
+
+
+def test_cache_is_refetched_when_the_recorded_version_is_not_the_declared_one(tmp_path):
+    """Bumping the pinned identifier is what invalidates a cache."""
+    cache = _icrf3_cache(tmp_path, version="J/A+A/000/A000")
+    calls = []
+
+    with patch.object(cross_match, "Vizier", _stub_vizier(calls)):
+        icrf3 = cross_match.get_icrf3(cache_path=cache)
+
+    assert calls == [cross_match._ICRF3_VIZIER_ID]
+    assert len(icrf3) == ICRF3_SAMPLE_ROWS
+    recorded = cross_match._release_marker(cache).read_text().strip()
+    assert recorded == cross_match._ICRF3_VERSION
+
+
+def test_cache_predating_version_recording_is_adopted_not_refetched(tmp_path):
+    """There are already hundreds of MB of these caches on disk with no marker.
+
+    Treating an unrecorded version as a mismatch would re-download every one of
+    them. Adopt what is there instead -- and do not write a marker claiming a
+    version that was never verified.
+    """
+    cache = _icrf3_cache(tmp_path, version=None, age_days=400)
+
+    with patch.object(cross_match, "Vizier", _exploding_vizier):
+        cross_match.get_icrf3(cache_path=cache)
+
+    assert not cross_match._release_marker(cache).exists()
+
+
+def test_catalog_versions_reports_recorded_unrecorded_and_absent(tmp_path):
+    """Provenance of what is actually on disk, for a run to log."""
+    recorded = tmp_path / "recorded.fits"
+    recorded.write_text("not really a catalog")
+    cross_match._release_marker(recorded).write_text("VII/294")
+    unrecorded = tmp_path / "unrecorded.fits"
+    unrecorded.write_text("not really a catalog")
+
+    versions = cross_match.catalog_versions(
+        {
+            "Recorded": recorded,
+            "Unrecorded": unrecorded,
+            "Absent": tmp_path / "absent.fits",
+        }
+    )
+
+    assert versions == {"Recorded": "VII/294", "Unrecorded": None, "Absent": None}
+
+
+def test_catalog_versions_covers_every_locally_cached_catalog():
+    """A new local cache should show up here without anyone remembering to add it."""
+    assert set(cross_match.CATALOG_CACHE_PATHS) == {
+        "RFC",
+        "ICRF3",
+        "Milliquas",
+        "Quaia",
+        "GaiaAGN",
+        "GaiaQSO",
+    }

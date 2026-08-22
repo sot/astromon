@@ -13,7 +13,7 @@ import pytest
 from astropy.table import Table, vstack
 from Quaternion import Quat
 
-from astromon import db
+from astromon import cross_match, db
 from astromon.scripts.maintenance import requery_cat_src
 
 # A pointing quaternion for an arbitrary field; only used to turn ra/dec into
@@ -285,6 +285,19 @@ def test_write_candidates_reports_obsids_needing_an_xcorr_rebuild(tmp_path):
     assert result["added_rows"] == 2
 
 
+def test_requery_records_the_catalog_releases_it_queried_against(tmp_path):
+    """A run's output should be traceable to the catalog releases behind it.
+
+    astromon_cat_src has no per-row provenance, so the run summary is where this
+    gets written down. It would not have detected the rows missing from the
+    current database -- absence cannot be annotated -- but it makes the next
+    question ("which release produced these?") answerable at all.
+    """
+    dbfile = _seeded_db(tmp_path)
+
+    summary = requery_cat_src.requery(dbfile, [], catalogs=("RFC",))
+
+    assert set(summary["catalog_versions"]) == set(cross_match.CATALOG_CACHE_PATHS)
 # ─── resuming a long run ─────────────────────────────────────────────────────
 
 
