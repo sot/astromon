@@ -64,10 +64,12 @@ from astromon import db
 from astromon.cross_match import (
     assign_cat_src_ids,
     catalog_versions,
+    get_desi_v161_by_obsid,
     get_desi_v161_candidates,
     get_gaia_agn,
     get_gaia_qso_candidates,
     get_gaia_var_stars,
+    get_gaia_var_stars_by_obsid,
     get_milliquas_gaia,
     get_quaia_candidates,
     rough_match,
@@ -78,21 +80,27 @@ logger = basic_logger("astromon", level="INFO")
 SEARCH_RADIUS = 3 * u.arcsec
 
 # Served from a local cache, so a full pass over every obsid costs no network at all.
-LOCAL_CATALOGS = ("RFC", "ICRF3", "GaiaAGN", "GaiaQSO", "Quaia")
+LOCAL_CATALOGS = ("RFC", "ICRF3", "GaiaAGN", "GaiaQSO", "Quaia", "MilliquasGaia")
 
-# One VizieR cone search or Gaia TAP round trip per obsid each. Orders of magnitude
-# slower than the local ones, which is why --catalogs defaults to the local set.
-REMOTE_CATALOGS = (
-    "Tycho2",
-    "USNO-B1.0",
-    "2MASS",
-    "SDSS",
-    "MilliquasGaia",
-    "DESIV161",
-    "GaiaVarStar",
-)
+# Queried once for a whole chunk of obsids rather than once each: the query does
+# not depend on when the observation happened, so the positions can be pooled and
+# the answer split up afterwards.
+BATCHED_CATALOGS = ("DESIV161",)
 
-ALL_CATALOGS = LOCAL_CATALOGS + REMOTE_CATALOGS
+# Reachable by naming it, but not part of any default set. GaiaVarStar yields 99
+# rows across the whole database from 96 obsids, and its Gaia TAP query is where a
+# full run spends its time: a 120 s hard timeout inside tries=3/delay=10/backoff=2
+# costs up to ~6.5 minutes per bad batch, and a measured chunk of 100 obsids hit
+# four of them -- 36 minutes for that chunk against a projected 50 hours overall.
+# Excluded rather than deleted, so a dedicated pass can still run it when the Gaia
+# archive is cooperative.
+OPTIONAL_CATALOGS = ("GaiaVarStar",)
+
+# Still one VizieR cone search per obsid: rough_match asks for positions at the
+# observation epoch, so these cannot be pooled without changing the astrometry.
+REMOTE_CATALOGS = ("Tycho2", "USNO-B1.0", "2MASS", "SDSS")
+
+ALL_CATALOGS = LOCAL_CATALOGS + BATCHED_CATALOGS + REMOTE_CATALOGS
 
 
 class CatalogQueryError(Exception):
@@ -151,6 +159,12 @@ CATALOG_GETTERS: dict[str, Callable] = {
     "MilliquasGaia": _position_getter(get_milliquas_gaia),
     "DESIV161": _position_getter(get_desi_v161_candidates),
     "GaiaVarStar": _position_getter(get_gaia_var_stars),
+}
+
+
+BATCHED_GETTERS: dict[str, Callable] = {
+    "GaiaVarStar": get_gaia_var_stars_by_obsid,
+    "DESIV161": get_desi_v161_by_obsid,
 }
 
 
@@ -282,6 +296,7 @@ def requery_obsid(  # noqa: PLR0917
     catalogs: Sequence[str],
     id_offset: int = 0,
     getters: dict[str, Callable] | None = None,
+    precomputed: dict[str, Table] | None = None,
 ) -> Table:
     """Query each of `catalogs` around `sources` and return one cat_src table.
 
@@ -293,21 +308,29 @@ def requery_obsid(  # noqa: PLR0917
     is the exact failure mode this script exists to undo.
     """
     getters = CATALOG_GETTERS if getters is None else getters
-    unknown = [name for name in catalogs if name not in getters]
+    precomputed = {} if precomputed is None else precomputed
+    unknown = [
+        name for name in catalogs if name not in getters and name not in precomputed
+    ]
     if unknown:
         raise KeyError(f"no catalog getter for: {', '.join(unknown)}")
 
     found = []
     next_id = id_offset
     for catalog in catalogs:
-        try:
-            candidates = getters[catalog](
-                sources, obs_time, logging_tag=f"OBSID={obsid}"
-            )
-        except Exception as exc:
-            raise CatalogQueryError(
-                f"OBSID={obsid} {catalog} query failed: {exc}"
-            ) from exc
+        # A batched catalog was already queried for this whole chunk of obsids; its
+        # candidates arrive here rather than being fetched again per obsid.
+        if catalog in precomputed:
+            candidates = precomputed[catalog]
+        else:
+            try:
+                candidates = getters[catalog](
+                    sources, obs_time, logging_tag=f"OBSID={obsid}"
+                )
+            except Exception as exc:
+                raise CatalogQueryError(
+                    f"OBSID={obsid} {catalog} query failed: {exc}"
+                ) from exc
         if len(candidates) == 0:
             logger.debug(f"OBSID={obsid} {catalog}: no candidates")
             continue
@@ -388,21 +411,71 @@ def write_candidates(dbfile: Path, candidates: Table, dry_run: bool = False) -> 
 
 def _query_one(args: tuple) -> tuple[int, Table | None, str | None]:
     """Query one obsid; return (obsid, candidates, error). Runs in a worker thread."""
-    obsid, sources, id_offset, catalogs = args
-    pointing = obspar_pointing(obsid)
-    if pointing is None:
-        return obsid, None, "no mica obspar entry"
-    quat, obs_time = pointing
+    obsid, sources, quat, obs_time, id_offset, catalogs, precomputed = args
     try:
         candidates = requery_obsid(
-            obsid, sources, quat, obs_time, catalogs, id_offset=id_offset
+            obsid,
+            sources,
+            quat,
+            obs_time,
+            catalogs,
+            id_offset=id_offset,
+            precomputed=precomputed,
         )
     except CatalogQueryError as exc:
         return obsid, None, str(exc)
     return obsid, candidates, None
 
 
-def requery(  # noqa: PLR0917
+def _prepare_chunk(xray: Table, chunk: Sequence[int]) -> tuple[list, dict]:
+    """Collect what each obsid in `chunk` needs, before anything is queried.
+
+    Returns ``([(obsid, sources, quat, obs_time), ...], {obsid: reason_skipped})``.
+    Both the x-ray positions and the pointing have to be in hand up front, because
+    the batched catalogs are asked once for every position in the chunk.
+    """
+    prepared, skipped = [], {}
+    for obsid in chunk:
+        try:
+            sources = celldetect_sources(xray, obsid)
+        except ValueError as exc:
+            skipped[str(obsid)] = str(exc)
+            continue
+        pointing = obspar_pointing(obsid)
+        if pointing is None:
+            skipped[str(obsid)] = "no mica obspar entry"
+            logger.warning(f"OBSID={obsid} skipped: no mica obspar entry")
+            continue
+        quat, obs_time = pointing
+        prepared.append((obsid, sources, quat, obs_time))
+    return prepared, skipped
+
+
+def _batched_candidates(
+    catalogs: Sequence[str], positions: dict, logging_tag: str = ""
+) -> dict:
+    """Query each batched catalog once for the whole chunk.
+
+    Returns ``{catalog: {obsid: Table}}``. A batched catalog that fails takes only
+    itself down: the obsids still get everything else, and the failure is reported
+    rather than recorded as "no candidates here".
+    """
+    results = {}
+    for catalog in catalogs:
+        if catalog not in BATCHED_GETTERS:
+            continue
+        try:
+            results[catalog] = BATCHED_GETTERS[catalog](
+                positions, radius=SEARCH_RADIUS, logging_tag=logging_tag
+            )
+        except Exception as exc:
+            raise CatalogQueryError(
+                f"{catalog} batched query failed for {len(positions)} obsid(s): {exc}"
+            ) from exc
+    return results
+
+
+def requery(  # noqa: PLR0917, PLR0912
     dbfile: Path,
     obsids: Sequence[int],
     catalogs: Sequence[str],
@@ -418,10 +491,13 @@ def requery(  # noqa: PLR0917
     work a crash throws away. Each chunk re-reads the stored ids so a catalog
     replaced in an earlier chunk does not hand out ids twice.
 
-    With `resume`, obsids already listed in `progress_file` are skipped -- keyed
-    by (obsid, catalog), so a run with a narrower catalog set cannot mark an
-    obsid complete for catalogs it never queried. Finished records are appended
-    only after each chunk is safely written.
+    Catalogs in :data:`BATCHED_CATALOGS` are queried once per chunk for every obsid
+    in it, rather than once per obsid; the rest are queried per obsid, in parallel
+    when `workers` > 1.
+
+    With `resume`, obsids already listed in `progress_file` are skipped -- a killed
+    run then costs its network time once rather than twice. Finished obsids are
+    appended to that file as each chunk is written, whether or not `resume` is set.
     """
     xray = db.get_table("astromon_xray_src", dbfile)
     requested = list(obsids)
@@ -436,6 +512,9 @@ def requery(  # noqa: PLR0917
         f"re-querying {len(catalogs)} catalog(s) for {len(obsids):,} obsid(s): "
         f"{', '.join(catalogs)}"
     )
+    batched = [name for name in catalogs if name in BATCHED_CATALOGS]
+    if batched:
+        logger.info(f"batched across obsids: {', '.join(batched)}")
 
     summary = {
         "resumed": resumed,
@@ -454,14 +533,47 @@ def requery(  # noqa: PLR0917
         chunk = list(obsids[start : start + chunk_size])
         cat = db.get_table("astromon_cat_src", dbfile)
 
-        work = []
-        for obsid in chunk:
-            try:
-                sources = celldetect_sources(xray, obsid)
-            except ValueError as exc:
+        # Gather what every obsid in the chunk needs before querying anything, so
+        # the batched catalogs can be asked once for all of their positions.
+        prepared, skipped = _prepare_chunk(xray, chunk)
+        summary["skipped"].update(skipped)
+
+        if not prepared:
+            continue
+
+        positions = {
+            obsid: coords.SkyCoord(
+                sources["ra"], sources["dec"], unit="deg", obstime=obs_time
+            )
+            for obsid, sources, _, obs_time in prepared
+        }
+        try:
+            batched_candidates = _batched_candidates(
+                catalogs, positions, logging_tag=f"chunk@{start}"
+            )
+        except CatalogQueryError as exc:
+            # One failed batched query would otherwise be recorded as "no
+            # candidates" for every obsid in the chunk at once.
+            logger.warning(str(exc))
+            for obsid, *_ in prepared:
                 summary["skipped"][str(obsid)] = str(exc)
-                continue
-            work.append((obsid, sources, next_cat_src_id(cat, obsid), catalogs))
+            continue
+
+        work = [
+            (
+                obsid,
+                sources,
+                quat,
+                obs_time,
+                next_cat_src_id(cat, obsid),
+                catalogs,
+                {
+                    catalog: per_obsid[obsid]
+                    for catalog, per_obsid in batched_candidates.items()
+                },
+            )
+            for obsid, sources, quat, obs_time in prepared
+        ]
 
         if workers > 1:
             with ThreadPool(workers) as pool:
@@ -491,6 +603,7 @@ def requery(  # noqa: PLR0917
         # whose candidates never landed.
         if completed and progress_file is not None and not dry_run:
             record_completed(progress_file, dict.fromkeys(completed, catalogs))
+
         logger.info(
             f"{min(start + chunk_size, len(obsids)):,}/{len(obsids):,} obsids -- "
             f"{summary['added_rows']:,} rows written, "
@@ -519,7 +632,9 @@ def get_parser() -> argparse.ArgumentParser:
         nargs="+",
         default=list(LOCAL_CATALOGS),
         help=(
-            "catalogs to re-query, or 'local' / 'remote' / 'all'. "
+            "catalogs to re-query, or 'local' / 'batched' / 'remote' / 'all'. "
+            f"'all' is the default-matched set and excludes "
+            f"{' '.join(OPTIONAL_CATALOGS)}, which must be named explicitly. "
             f"Default: {' '.join(LOCAL_CATALOGS)}"
         ),
     )
@@ -556,14 +671,25 @@ def get_parser() -> argparse.ArgumentParser:
 
 
 def _resolve_catalogs(names: Sequence[str]) -> list[str]:
-    groups = {"local": LOCAL_CATALOGS, "remote": REMOTE_CATALOGS, "all": ALL_CATALOGS}
+    """Expand a group name, or validate an explicit list.
+
+    Note that "all" means every catalog matched by default, which is not every
+    catalog there is a getter for -- see :data:`OPTIONAL_CATALOGS`.
+    """
+    groups = {
+        "local": LOCAL_CATALOGS,
+        "batched": BATCHED_CATALOGS,
+        "remote": REMOTE_CATALOGS,
+        "all": ALL_CATALOGS,
+    }
     if len(names) == 1 and names[0] in groups:
         return list(groups[names[0]])
     unknown = [name for name in names if name not in CATALOG_GETTERS]
     if unknown:
         raise SystemExit(
             f"unknown catalog(s): {', '.join(unknown)}. "
-            f"Known: {', '.join(ALL_CATALOGS)}"
+            f"Default set: {', '.join(ALL_CATALOGS)}. "
+            f"Also available by name: {', '.join(OPTIONAL_CATALOGS)}"
         )
     return list(names)
 
@@ -595,8 +721,12 @@ def main() -> None:
         dry_run=args.dry_run,
         workers=args.workers,
         chunk_size=args.chunk_size,
+        progress_file=args.progress_file,
+        resume=args.resume,
     )
 
+    if summary["resumed"]:
+        logger.info(f"skipped {summary['resumed']:,} obsid(s) already done")
     logger.info(
         f"done: {summary['queried']:,} obsid(s) queried, "
         f"{summary['added_rows']:,} row(s) written, "
