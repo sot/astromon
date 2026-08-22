@@ -116,6 +116,24 @@ class VizierServerError(Exception):
     """VizieR reported a problem with the query instead of returning results."""
 
 
+class CatalogQueryFailed(Exception):
+    """A catalog query failed, so whether the field has counterparts is unknown.
+
+    Distinct from a query that succeeded and found nothing. Conflating the two is
+    how a cross-match records "no counterpart here" for a field it never managed to
+    look at -- and when the query covered a hundred observations at once, for all
+    of them.
+    """
+
+
+# Positions per network query when several observations are pooled into one. The
+# first full re-query attempt batched ~900 at a time: the Gaia ADQL grew to ~900
+# OR'd CONTAINS clauses and retried, and VizieR read-timed-out. Both services
+# tolerate this much comfortably, and the round-trip saving is already most of the
+# way to what an unbounded batch would give.
+BATCHED_POSITIONS_PER_QUERY = 100
+
+
 def _votable_query_info(content: bytes) -> tuple[str | None, str]:
     """The VOTable's QUERY_STATUS value and the message that came with it.
 
@@ -1535,10 +1553,13 @@ def _query_gaia_var_star_rows(
                 f" {len(result) if result is not None else 0} sources"
             )
         except Exception as exc:
-            logger.warning(
-                f"{logging_tag} GaiaVarStar batch failed after all retries: {exc}"
-            )
-            continue
+            # Dropping the batch would silently narrow the search: the sources it
+            # would have found become absences that nothing distinguishes from a
+            # field with no variable stars in it.
+            raise CatalogQueryFailed(
+                f"{logging_tag} GaiaVarStar batch of {len(batch_ra)} position(s)"
+                f" failed after all retries: {exc}"
+            ) from exc
 
     if not all_results:
         return None
@@ -1639,7 +1660,7 @@ def get_gaia_var_stars_by_obsid(
     positions: dict,
     radius: u.Quantity = 3 * u.arcsec,
     max_ruwe: float = 1.4,
-    batch_size: int = 500,
+    batch_size: int = BATCHED_POSITIONS_PER_QUERY,
     logging_tag: str = "",
 ) -> dict:
     """Query GaiaVarStar once for many observations, then split the answer per obsid.
@@ -1996,9 +2017,11 @@ def get_desi_v161_candidates(
     try:
         result = _query_vizier_region(vizier, pos, radius, "V/161")
         tables = list(result)
-    except Exception as e:
-        logger.warning(f"{logging_tag} DESIV161 VizieR query failed: {e}")
-        return table.Table(dtype=CROSS_MATCH_DTYPE)
+    except Exception as exc:
+        # Returning an empty table here reports an absence that was never measured.
+        raise CatalogQueryFailed(
+            f"{logging_tag} DESIV161 VizieR query failed: {exc}"
+        ) from exc
 
     if not tables:
         logger.debug(f"{logging_tag} DESIV161 has no results")
@@ -2040,6 +2063,7 @@ def get_desi_v161_candidates(
 def get_desi_v161_by_obsid(
     positions: dict,
     radius: u.Quantity = 3 * u.arcsec,
+    batch_size: int = BATCHED_POSITIONS_PER_QUERY,
     logging_tag: str = "",
 ) -> dict:
     """Query DESI EDR once for many observations, then split the answer per obsid.
@@ -2058,14 +2082,31 @@ def get_desi_v161_by_obsid(
     if not keys:
         return empty
 
-    pooled = coords.SkyCoord(
-        ra=np.concatenate([np.atleast_1d(positions[key].ra.deg) for key in keys]),
-        dec=np.concatenate([np.atleast_1d(positions[key].dec.deg) for key in keys]),
-        unit="deg",
-    )
-    bulk = get_desi_v161_candidates(pooled, radius=radius, logging_tag=logging_tag)
-    if len(bulk) == 0:
+    pooled_ra = np.concatenate([np.atleast_1d(positions[key].ra.deg) for key in keys])
+    pooled_dec = np.concatenate([np.atleast_1d(positions[key].dec.deg) for key in keys])
+
+    # Query in bounded sub-batches: pooling every position of a large chunk into one
+    # request is what made VizieR time out. A failure still raises rather than
+    # yielding an empty result, but it now costs one sub-batch's worth of retrying.
+    found = []
+    for start in range(0, len(pooled_ra), batch_size):
+        sub_pos = coords.SkyCoord(
+            ra=pooled_ra[start : start + batch_size],
+            dec=pooled_dec[start : start + batch_size],
+            unit="deg",
+        )
+        candidates = get_desi_v161_candidates(
+            sub_pos, radius=radius, logging_tag=logging_tag
+        )
+        if len(candidates):
+            found.append(candidates)
+
+    if not found:
         return empty
+    bulk = table.vstack(found, metadata_conflicts="silent")
+    # The same target can sit near positions in two different sub-batches.
+    _, unique_idx = np.unique(np.asarray(bulk["name"]).astype(str), return_index=True)
+    bulk = bulk[sorted(unique_idx)]
 
     result = dict(empty)
     for key in keys:
