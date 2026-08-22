@@ -9,3 +9,9 @@ work
 test
 archive
 notebooks/catalog_matches_validation_preview.html
+*.h5
+*.h5.pre_migrate
+rfc_*_cat.txt
+*.ipynb
+run_local.sh
+gaia_var_stars_ruwe1.4.ecsv
