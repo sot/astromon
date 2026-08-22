@@ -16,6 +16,7 @@ from unittest.mock import patch
 
 import numpy as np
 import pytest
+import requests
 from astropy import coordinates as coords
 from astropy import units as u
 from astropy.table import Table
@@ -260,3 +261,109 @@ def test_desi_by_obsid_agrees_with_the_per_obsid_function():
 
     assert list(batched[7001]["name"]) == list(one["name"])
     assert np.allclose(batched[7001]["ra"], one["ra"])
+
+
+# ─── a failing query must not look like an empty sky ─────────────────────────
+#
+# These exist because the first full run exposed what stubs cannot: under load,
+# Gaia TAP retried and VizieR read-timed-out, and both getters turned that into
+# "no candidates". Pooled across a hundred obsids, one timeout would have written
+# an authoritative-looking absence for all of them -- the same defect this whole
+# branch is repairing, one layer above astroquery and with a far larger reach.
+
+
+def _boom(*args, **kwargs):
+    raise requests.exceptions.ReadTimeout("Read timed out.")
+
+
+def test_gaia_var_stars_raises_when_a_tap_batch_fails():
+    pos = coords.SkyCoord(FIELD_A, obstime=CxoTime("2020:001"))
+
+    with (
+        patch.object(cross_match, "_execute_gaia_tap_query", _boom),
+        pytest.raises(cross_match.CatalogQueryFailed, match="GaiaVarStar"),
+    ):
+        cross_match.get_gaia_var_stars(pos, radius=RADIUS)
+
+
+def test_gaia_var_stars_by_obsid_raises_rather_than_returning_empty_tables():
+    with (
+        patch.object(cross_match, "_execute_gaia_tap_query", _boom),
+        pytest.raises(cross_match.CatalogQueryFailed),
+    ):
+        cross_match.get_gaia_var_stars_by_obsid(
+            _positions_by_obsid(), radius=RADIUS, batch_size=100
+        )
+
+
+def test_desi_candidates_raises_when_the_vizier_query_fails():
+    pos = coords.SkyCoord(FIELD_A, obstime=CxoTime("2020:001"))
+
+    with (
+        patch.object(cross_match, "_query_vizier_region", _boom),
+        pytest.raises(cross_match.CatalogQueryFailed, match="DESIV161"),
+    ):
+        cross_match.get_desi_v161_candidates(pos, radius=RADIUS)
+
+
+def test_desi_by_obsid_raises_rather_than_returning_empty_tables():
+    with (
+        patch.object(cross_match, "_query_vizier_region", _boom),
+        pytest.raises(cross_match.CatalogQueryFailed),
+    ):
+        cross_match.get_desi_v161_by_obsid(_positions_by_obsid(), radius=RADIUS)
+
+
+# ─── sub-batching, so one timeout costs one sub-batch ────────────────────────
+
+
+def _many_positions(count, obsids=4):
+    """`count` positions spread over `obsids` keys, as a big chunk would produce."""
+    per = count // obsids
+    return {
+        7000 + index: coords.SkyCoord(
+            np.linspace(100.0 + index, 100.5 + index, per),
+            np.linspace(10.0, 10.5, per),
+            unit="deg",
+            obstime=CxoTime("2020:001"),
+        )
+        for index in range(obsids)
+    }
+
+
+def test_gaia_var_stars_splits_positions_into_bounded_sub_batches():
+    """A query with ~900 OR'd CONTAINS clauses is what broke the first full run."""
+    sizes = []
+
+    def counting(query):
+        sizes.append(query.count("CONTAINS("))
+        return _gaia_rows([])
+
+    with patch.object(cross_match, "_execute_gaia_tap_query", counting):
+        cross_match.get_gaia_var_stars_by_obsid(
+            _many_positions(240), radius=RADIUS, batch_size=100
+        )
+
+    assert len(sizes) == 3, f"240 positions at 100 per query should be 3, got {sizes}"
+    assert max(sizes) <= 100
+
+
+def test_desi_splits_positions_into_bounded_sub_batches():
+    counts = []
+
+    def counting(vizier, pos, radius, cat_identifier):
+        counts.append(len(pos))
+        return []
+
+    with patch.object(cross_match, "_query_vizier_region", counting):
+        cross_match.get_desi_v161_by_obsid(
+            _many_positions(240), radius=RADIUS, batch_size=100
+        )
+
+    assert len(counts) == 3, f"240 positions at 100 per query should be 3, got {counts}"
+    assert max(counts) <= 100
+
+
+def test_batched_positions_per_query_is_well_under_what_the_services_refused():
+    """900 positions per query timed out on both services; 500 was the old default."""
+    assert cross_match.BATCHED_POSITIONS_PER_QUERY <= 100
