@@ -219,6 +219,12 @@ def test_declared_catalog_versions_match_the_identifiers_used_to_fetch_them():
     for getter in (cross_match.get_gaia_agn_catalog, cross_match.get_gaia_qso_catalog):
         assert f"{cross_match._GAIA_DR3_VERSION}." in inspect.getsource(getter)
 
+    # The crossmatch is pinned to a release on each side, so its version names both
+    # and each half has to still match the identifier that side is fetched by.
+    milliquas_pin, gaia_pin = cross_match._MILLIQUAS_GAIA_VERSION.split("+")
+    assert milliquas_pin in cross_match._MILLIQUAS_VIZIER_ID
+    assert gaia_pin in cross_match._GAIA_DR3_VIZIER_ID
+
 
 def test_icrf3_is_not_refetched_because_the_cache_got_old(tmp_path):
     """ICRF3 is a published realisation; age says nothing about it being current.
@@ -291,4 +297,5 @@ def test_catalog_versions_covers_every_locally_cached_catalog():
         "Quaia",
         "GaiaAGN",
         "GaiaQSO",
+        "MilliquasGaia",
     }

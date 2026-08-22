@@ -143,9 +143,9 @@ def test_an_unparseable_response_raises_rather_than_returning_none():
 
 def test_query_status_is_read_without_parsing_rows():
     """The status check is a cheap read of the INFO elements, not a second parse."""
-    assert cross_match._vizier_query_status(ERROR_VOTABLE) == "ERROR"
-    assert cross_match._vizier_query_status(OK_EMPTY_VOTABLE) == "OK"
-    assert cross_match._vizier_query_status(HTML_ERROR_PAGE) is None
+    assert cross_match._votable_query_status(ERROR_VOTABLE) == "ERROR"
+    assert cross_match._votable_query_status(OK_EMPTY_VOTABLE) == "OK"
+    assert cross_match._votable_query_status(HTML_ERROR_PAGE) is None
 
 
 def test_overflow_raises_instead_of_returning_a_truncated_result():
@@ -159,7 +159,7 @@ def test_overflow_after_ok_is_still_caught():
     one for the same response. Reading only the first INFO element reads "OK"
     and never sees the OVERFLOW -- the truncated result then looks complete.
     """
-    assert cross_match._vizier_query_status(OK_THEN_OVERFLOW_VOTABLE) == "OVERFLOW"
+    assert cross_match._votable_query_status(OK_THEN_OVERFLOW_VOTABLE) == "OVERFLOW"
     with pytest.raises(cross_match.VizierServerError, match="truncated"):
         _query(OK_THEN_OVERFLOW_VOTABLE)
 
