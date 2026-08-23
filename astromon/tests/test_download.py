@@ -204,17 +204,59 @@ def test_timeout_kills_the_process_and_raises(tmp_path, monkeypatch):
     assert proc.communicate_calls == 2, "must reap the killed process"
 
 
-def test_existing_secondary_short_circuits_the_download(tmp_path, monkeypatch):
-    """secondary/ is the already-downloaded sentinel; a second call is a no-op."""
+def _refuse_to_run(*args, **kwargs):
+    raise AssertionError("the download must not be attempted")
+
+
+def test_a_completed_download_short_circuits_a_second_call(tmp_path, monkeypatch):
+    """A marker written after success is what says "already downloaded"."""
     obs = _obs(tmp_path)
     (obs.workdir / "secondary").mkdir(parents=True)
+    obs._archive_download_marker().write_text("done")
 
-    def should_not_run(*args, **kwargs):
-        raise AssertionError("download must not be attempted when secondary/ exists")
-
-    monkeypatch.setattr(observation.subprocess, "Popen", should_not_run)
-    monkeypatch.setattr(observation.cda, "get_ocat_local", should_not_run)
+    monkeypatch.setattr(observation.subprocess, "Popen", _refuse_to_run)
+    monkeypatch.setattr(observation.cda, "get_ocat_local", _refuse_to_run)
     obs._download_archive(["evt2"])
+
+
+def test_a_partial_download_is_retried_rather_than_trusted(tmp_path, monkeypatch):
+    """secondary/ existing used to mean "done", which made a failure sticky.
+
+    download_chandra_obsid creates secondary/ early, and the timeout and error
+    paths do not remove it, so an interrupted download left a directory that every
+    later attempt read as success -- and the run proceeded with missing files until
+    someone deleted it by hand.
+    """
+    obs = _obs(tmp_path)
+    (obs.workdir / "secondary").mkdir(parents=True)
+    assert not obs._archive_download_marker().exists()
+
+    past = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d %H:%M:%S")
+    _stub_ocat(monkeypatch, past)
+    _stub_ciao(monkeypatch)
+    attempted = []
+    _stub_popen(
+        monkeypatch,
+        FakeProcess(on_communicate=lambda: attempted.append(True)),
+    )
+    obs._download_archive(["evt2"])
+
+    assert attempted, "a download with no completion marker must be retried"
+    assert obs._archive_download_marker().exists()
+
+
+def test_a_failed_download_leaves_no_completion_marker(tmp_path, monkeypatch):
+    """So the next attempt retries instead of inheriting the failure."""
+    obs = _obs(tmp_path)
+    past = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d %H:%M:%S")
+    _stub_ocat(monkeypatch, past)
+    _stub_ciao(monkeypatch)
+    _stub_popen(monkeypatch, FakeProcess(returncode=1))
+
+    with pytest.raises(Exception):
+        obs._download_archive(["evt2"])
+
+    assert not obs._archive_download_marker().exists()
 
 
 def test_asol_is_linked_into_secondary_after_download(tmp_path, monkeypatch):
