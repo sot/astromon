@@ -304,8 +304,16 @@ class Observation:
             Per-obsid FITS copies of the DB tables (redundant with astromon.h5).
         images/
             fluximage outputs (flux map, PSF map, exposure map), pileup maps,
-            and acis_streak images.  All are regenerable from the filtered
-            evt2 + asol; not needed for aggregate analysis or cross-matching.
+            and acis_streak images.  Not needed for aggregate analysis or
+            cross-matching.
+
+            Regenerating them means re-downloading: ``make_images`` declares
+            ``primary/*_evt2.fits*`` -- the raw level-2 events -- among its
+            inputs, and this method deletes exactly that, keeping only the
+            filtered copy.  So a cleaned workdir cannot re-image in place.
+            ``clear_invalid_make_images.py`` exists because that bit in
+            production: ~437 obsids were marked for re-imaging and failed with
+            "Missing input files for task make_images: events".
 
         Kept
         ----
@@ -350,6 +358,16 @@ class Observation:
                     _remove(path)
                 shutil.rmtree(dirpath, ignore_errors=True)
 
+        # images/ is gone, so make_images is no longer done. Its stored result
+        # lives in cache/, which this method deliberately keeps, so without this it
+        # would go on reporting success while its outputs were deleted -- and
+        # pileup, acis_streak and grating_arm would come back as measured zeros on
+        # any later recompute. This does not make the images regenerable in place;
+        # the raw evt2 make_images needs is deleted above. What it buys is that a
+        # recompute fails loudly on the missing input rather than quietly writing
+        # zeros. follow_dependents=False because the detection results stay valid:
+        # keeping sources/*.src is the point of this cleanup.
+        make_images.invalidate_result(self, follow_dependents=False)
         logger.info(f"{self} cleanup_downloads removed {deleted_bytes / 1e6:.1f} MB")
 
     def create_archive_symlinks(self):
