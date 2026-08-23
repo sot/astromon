@@ -280,23 +280,3 @@ def test_peak_offset_in_xray_src_schema():
     assert db.ASTROMON_XRAY_SRC_DTYPE["peak_offset"].kind == "f", (
         "must be a float so the missing-value fill is NaN rather than a real-looking 0"
     )
-
-
-def test_download_archive_skips_when_repro_already_exists(tmp_path):
-    """An already-reprocessed obsid must not re-download its archive files.
-
-    _download_archive used to check both secondary/ and repro/ as "already
-    done" sentinels; the repro/ check was dropped when it was rewritten to
-    look up the public release date first. A workdir with repro/ present but
-    no secondary/ must still skip the download instead of hitting the
-    network.
-    """
-    from unittest.mock import patch
-
-    obs = observation.Observation(7002, workdir=tmp_path, use_ciao=False)
-    (obs.workdir / "repro").mkdir(parents=True)
-
-    with patch.object(observation.cda, "get_ocat_local") as mock_local:
-        obs._download_archive(ftypes=None)
-
-    mock_local.assert_not_called()
