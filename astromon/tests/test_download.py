@@ -384,3 +384,62 @@ def test_mica_obspar_hit_returns_the_dict(tmp_path, monkeypatch):
         lambda obsid, **kw: {"instrume": "ACIS", "obsid": obsid},
     )
     assert obs._get_mica_obspar()["instrume"] == "ACIS"
+
+
+# --- the obspar has exactly two sources, and CDA is not one of them ---------
+
+
+def test_archive_mode_refuses_an_obspar_download(tmp_path, monkeypatch):
+    """CDA publishes no obspar, so asking for one is a mistake, not a download.
+
+    download_chandra_obsid's filetypes are asol, bpix, ... vv, vvref -- there is
+    no observation-parameter file among them. _download_archive ignoring ftypes
+    meant this request quietly fetched a full evt2 and five other filetypes and
+    then reported that "the download produced nothing".
+    """
+    obs = _obs(tmp_path)
+    monkeypatch.setattr(observation.subprocess, "Popen", _refuse_to_run)
+    monkeypatch.setattr(observation.cda, "get_ocat_local", _refuse_to_run)
+
+    with pytest.raises(observation.ObsparUnavailable) as excinfo:
+        obs._download_archive(["obspar"])
+
+    message = str(excinfo.value)
+    assert "mica" in message
+    assert "arc5gl" in message
+
+
+def test_archive_mode_still_downloads_the_filetypes_it_can_supply(
+    tmp_path, monkeypatch
+):
+    """Only the impossible request is refused; the rest is unchanged."""
+    past = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d %H:%M:%S")
+    _stub_ocat(monkeypatch, past)
+    _stub_ciao(monkeypatch)
+    seen = {}
+    _stub_popen(
+        monkeypatch, FakeProcess(on_communicate=lambda: seen.setdefault("ran", True))
+    )
+
+    _obs(tmp_path)._download_archive(["evt2"])
+
+    assert seen.get("ran")
+
+
+def test_get_obspar_names_its_two_real_sources_when_both_are_absent(
+    tmp_path, monkeypatch
+):
+    """The old message blamed the download; the download was never possible."""
+    from mica.archive import obspar as mica_obspar
+
+    obs = _obs(tmp_path)
+    monkeypatch.setattr(mica_obspar, "get_obspar", lambda obsid, **kw: None)
+    monkeypatch.setattr(observation.subprocess, "Popen", _refuse_to_run)
+    monkeypatch.setattr(observation.cda, "get_ocat_local", _refuse_to_run)
+
+    with pytest.raises(observation.ObsparUnavailable) as excinfo:
+        obs.get_obspar()
+
+    message = str(excinfo.value)
+    assert str(obs.obsid) in message
+    assert "mica" in message and "arc5gl" in message

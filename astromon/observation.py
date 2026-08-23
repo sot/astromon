@@ -34,7 +34,16 @@ from astromon.stored_result import Storage, stored_result
 from astromon.task import TASKS, ReturnCode, ReturnValue, dependencies, run_tasks, task
 from astromon.utils import Ciao, chdir, logging_call_decorator
 
-__all__ = ["Observation", "ObsidNotPubliclyAvailable"]
+__all__ = ["Observation", "ObsidNotPubliclyAvailable", "ObsparUnavailable"]
+
+
+class ObsparUnavailable(RuntimeError):
+    """Raised when no obspar can be obtained for an obsid.
+
+    The obspar has exactly two sources: the local mica archive, or an arc5gl
+    download. The public archive is not one of them -- CDA does not publish the
+    observation parameter file among download_chandra_obsid's filetypes.
+    """
 
 
 class ObsidNotPubliclyAvailable(RuntimeError):
@@ -540,10 +549,12 @@ class Observation:
             # par files use 'date-obs' (hyphen); normalise to 'date_obs'
             self._obsid_info["date_obs"] = self._obsid_info.pop("date-obs", "")
         else:
-            raise FileNotFoundError(
+            raise ObsparUnavailable(
                 f"{self} no obspar available for OBSID {self.obsid}: not in the"
-                " working directory, not in the local mica archive, and the"
-                " download produced nothing."
+                " working directory and not in the local mica archive"
+                " ($SKA/data/mica/archive/obspar). Its only other source is an"
+                ' arc5gl download, which needs source="arc5gl" and the CXC'
+                " network."
             )
 
         self._obsid_info["instrument"] = self._obsid_info["instrume"].lower()
@@ -630,6 +641,10 @@ class Observation:
     # and deleting the excess afterward.
     _ARCHIVE_FILETYPES = "asol,bpix,dtf,evt2,fov,msk"
 
+    # Requested filetypes the public archive cannot supply at all, as opposed to
+    # the ones _download_archive covers by always fetching _ARCHIVE_FILETYPES.
+    _ARCHIVE_UNAVAILABLE = ("obspar",)
+
     def _archive_download_marker(self) -> Path:
         """File written once an archive download has fully succeeded.
 
@@ -684,12 +699,26 @@ class Observation:
 
         Uses CIAO's ``download_chandra_obsid`` to fetch only the filetypes the
         pipeline actually reads (``_ARCHIVE_FILETYPES``).  ``ftypes`` is accepted
-        for API compatibility with ``_download_arc5gl`` but is otherwise ignored.
+        for API compatibility with ``_download_arc5gl`` and is otherwise ignored --
+        except for the filetypes CDA does not publish at all, listed in
+        ``_ARCHIVE_UNAVAILABLE``, which raise :class:`ObsparUnavailable`. Ignoring
+        those silently meant a request for the obspar fetched a full evt2 and five
+        other filetypes and then failed claiming the download produced nothing.
         A marker written after the download and its layout fix-ups have all
         succeeded is the "already downloaded" signal -- see
         :meth:`_archive_download_marker` for why the ``secondary/`` directory
         cannot be. Subsequent calls are then no-ops.
         """
+        unavailable = sorted(set(ftypes or ()) & set(self._ARCHIVE_UNAVAILABLE))
+        if unavailable:
+            raise ObsparUnavailable(
+                f"obsid {self.obsid}: {', '.join(unavailable)} cannot be downloaded"
+                " from the public archive -- CDA does not publish it among"
+                " download_chandra_obsid's filetypes. It has to come from the local"
+                " mica archive ($SKA/data/mica/archive/obspar) or from arc5gl with"
+                ' source="arc5gl".'
+            )
+
         secondary = self.workdir / "secondary"
         marker = self._archive_download_marker()
         if marker.exists():
