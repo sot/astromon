@@ -253,7 +253,7 @@ def test_a_failed_download_leaves_no_completion_marker(tmp_path, monkeypatch):
     _stub_ciao(monkeypatch)
     _stub_popen(monkeypatch, FakeProcess(returncode=1))
 
-    with pytest.raises(Exception):
+    with pytest.raises(Exception, match="exit code"):
         obs._download_archive(["evt2"])
 
     assert not obs._archive_download_marker().exists()
@@ -443,3 +443,54 @@ def test_get_obspar_names_its_two_real_sources_when_both_are_absent(
     message = str(excinfo.value)
     assert str(obs.obsid) in message
     assert "mica" in message and "arc5gl" in message
+
+
+# --- cleaned workdirs stay reusable ----------------------------------------
+
+
+def test_cleanup_marks_make_images_as_not_done(tmp_path):
+    """cleanup_downloads deletes images/, so the task that made them is not done.
+
+    Its docstring keeps cache/ deliberately, "so reruns skip completed steps".
+    That left make_images' stored result claiming success while its outputs were
+    gone, and the columns derived from them -- pileup, acis_streak, grating_arm --
+    came back as measured zeros on any later recompute.
+    """
+    from astromon.task import ReturnValue
+
+    obs = _obs(tmp_path)
+    images = obs.workdir / "images"
+    images.mkdir(parents=True)
+    (images / "something.img").write_bytes(b"x")
+    observation.make_images.set_result(
+        obs, ReturnValue(return_code=observation.ReturnCode.OK, msg="made them")
+    )
+
+    obs.cleanup_downloads()
+
+    assert not images.exists()
+    assert observation.make_images.get_result(obs).return_code == (
+        observation.ReturnCode.INVALID
+    )
+
+
+def test_cleanup_leaves_the_detection_results_valid(tmp_path):
+    """Only make_images is invalidated -- keeping the .src files is the point.
+
+    cleanup_downloads keeps sources/*.src so detection does not have to re-run,
+    so invalidating make_images must not cascade into the detection tasks.
+    """
+    from astromon.task import ReturnValue
+
+    obs = _obs(tmp_path)
+    (obs.workdir / "images").mkdir(parents=True)
+    for task in (observation.make_images, observation.wavdetect):
+        task.set_result(
+            obs, ReturnValue(return_code=observation.ReturnCode.OK, msg="done")
+        )
+
+    obs.cleanup_downloads()
+
+    assert observation.wavdetect.get_result(obs).return_code == (
+        observation.ReturnCode.OK
+    )
