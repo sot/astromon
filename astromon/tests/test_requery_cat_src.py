@@ -282,3 +282,80 @@ def test_write_candidates_reports_obsids_needing_an_xcorr_rebuild(tmp_path):
 
     assert result["replaced_obsids"] == [7001]
     assert result["added_rows"] == 2
+# ─── resuming a long run ─────────────────────────────────────────────────────
+
+
+def test_progress_records_which_catalogs_each_obsid_finished(tmp_path):
+    progress = tmp_path / "done.txt"
+
+    requery_cat_src.record_completed(progress, {7001: ["RFC", "Quaia"]})
+    requery_cat_src.record_completed(progress, {7002: ["RFC"]})
+
+    assert requery_cat_src.load_completed(progress) == {
+        7001: {"RFC", "Quaia"},
+        7002: {"RFC"},
+    }
+
+
+def test_progress_accumulates_catalogs_across_runs(tmp_path):
+    """A second pass adds catalogs to an obsid rather than replacing them."""
+    progress = tmp_path / "done.txt"
+
+    requery_cat_src.record_completed(progress, {7001: ["RFC"]})
+    requery_cat_src.record_completed(progress, {7001: ["DESIV161"]})
+
+    assert requery_cat_src.load_completed(progress) == {7001: {"RFC", "DESIV161"}}
+
+
+def test_load_completed_tolerates_an_absent_file(tmp_path):
+    assert requery_cat_src.load_completed(tmp_path / "nope.txt") == {}
+
+
+def test_load_completed_ignores_a_torn_final_line(tmp_path):
+    """A run killed mid-append leaves a partial record; only whole ones count."""
+    progress = tmp_path / "done.txt"
+    progress.write_text("7001 RFC\n7002 RFC\n7003 QU")
+
+    assert requery_cat_src.load_completed(progress) == {7001: {"RFC"}, 7002: {"RFC"}}
+
+
+def test_an_obsid_is_skipped_only_when_every_requested_catalog_is_done():
+    completed = {7001: {"RFC", "Quaia"}, 7002: {"RFC"}}
+
+    assert requery_cat_src.is_complete(completed, 7001, ("RFC",))
+    assert requery_cat_src.is_complete(completed, 7001, ("RFC", "Quaia"))
+    # 7002 never got Quaia, so a run that wants Quaia must not skip it.
+    assert not requery_cat_src.is_complete(completed, 7002, ("RFC", "Quaia"))
+    assert not requery_cat_src.is_complete(completed, 7003, ("RFC",))
+
+
+def test_a_legacy_obsid_only_record_is_not_treated_as_complete(tmp_path):
+    """Bare-obsid files predate this and say nothing about which catalogs ran.
+
+    Assuming they covered everything is the exact mistake this change removes, so
+    they count as unknown and get re-queried.
+    """
+    progress = tmp_path / "legacy.txt"
+    progress.write_text("7001\n7002\n")
+
+    completed = requery_cat_src.load_completed(progress)
+
+    assert completed == {}
+    assert not requery_cat_src.is_complete(completed, 7001, ("RFC",))
+
+
+def test_requery_skips_only_obsids_whose_requested_catalogs_are_all_done(tmp_path):
+    dbfile = _seeded_db(tmp_path)
+    progress = tmp_path / "done.txt"
+    requery_cat_src.record_completed(progress, {7001: ["RFC"], 7002: ["DESIV161"]})
+
+    summary = requery_cat_src.requery(
+        dbfile,
+        [7001, 7002],
+        catalogs=("RFC",),
+        progress_file=progress,
+        resume=True,
+    )
+
+    # 7001 already has RFC; 7002 has only DESIV161, so it still needs RFC.
+    assert summary["resumed"] == 1
