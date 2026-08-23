@@ -630,6 +630,19 @@ class Observation:
     # and deleting the excess afterward.
     _ARCHIVE_FILETYPES = "asol,bpix,dtf,evt2,fov,msk"
 
+    def _archive_download_marker(self) -> Path:
+        """File written once an archive download has fully succeeded.
+
+        The presence of ``secondary/`` cannot serve as this signal:
+        download_chandra_obsid creates it early, and neither the timeout nor the
+        error path removes it, so an interrupted download left behind a directory
+        that every later attempt read as "already done" -- turning one transient
+        failure into a workdir that needed manual cleanup before it would ever
+        download again. It lives inside ``secondary/`` so that removing that
+        directory resets the state deliberately.
+        """
+        return self.workdir / "secondary" / ".download_complete"
+
     def _fix_archive_bpix(self) -> None:
         """Gunzip the bad pixel file from secondary/ into primary/ as a real file.
 
@@ -672,12 +685,15 @@ class Observation:
         Uses CIAO's ``download_chandra_obsid`` to fetch only the filetypes the
         pipeline actually reads (``_ARCHIVE_FILETYPES``).  ``ftypes`` is accepted
         for API compatibility with ``_download_arc5gl`` but is otherwise ignored.
-        The ``secondary/`` directory serves as the "already downloaded" sentinel;
-        subsequent calls are no-ops.
+        A marker written after the download and its layout fix-ups have all
+        succeeded is the "already downloaded" signal -- see
+        :meth:`_archive_download_marker` for why the ``secondary/`` directory
+        cannot be. Subsequent calls are then no-ops.
         """
         secondary = self.workdir / "secondary"
-        if secondary.exists():
-            logger.debug(f"{self} {secondary} exists, skipping download")
+        marker = self._archive_download_marker()
+        if marker.exists():
+            logger.debug(f"{self} {marker} present, skipping download")
             self._fix_archive_bpix()
             return
 
@@ -767,6 +783,10 @@ class Observation:
             if not link.exists():
                 link.symlink_to(asol_file)
         self._fix_archive_bpix()
+
+        # Last, so that anything raising above leaves the download retryable.
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text("download_chandra_obsid completed\n")
 
     def _download_arc5gl(self, ftypes, revision=None, force=False):
         """
