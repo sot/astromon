@@ -153,6 +153,71 @@ CATALOG_GETTERS: dict[str, Callable] = {
 }
 
 
+def load_completed(progress_file: Path | None) -> dict[int, set[str]]:
+    """What a previous run finished, as ``{obsid: {catalog, ...}}``.
+
+    Records are ``"<obsid> <catalog>"``, one per line, appended as the run goes.
+    Keying on the pair rather than the obsid alone is what makes resuming across
+    different ``--catalogs`` sets safe: an obsid that got ten catalogs in one pass
+    is not complete for a run that also wants the eleventh.
+
+    Two kinds of line are ignored. A torn final record, because a run killed
+    mid-append leaves one, and only newline-terminated records count -- "70" is
+    both a plausible obsid and the first half of "7001". And a bare obsid with no
+    catalog, which is the older format: it says nothing about which catalogs ran,
+    and assuming it covered everything is precisely the mistake this keying
+    removes, so those obsids are re-queried.
+    """
+    if progress_file is None or not Path(progress_file).exists():
+        return {}
+    records = Path(progress_file).read_text().split("\n")
+    if records and records[-1] != "":
+        logger.debug(f"ignoring unterminated final record {records[-1]!r}")
+    completed: dict[int, set[str]] = {}
+    legacy = 0
+    for record in records[:-1]:
+        fields = record.split()
+        if not fields:
+            continue
+        if len(fields) < 2:
+            legacy += 1
+            continue
+        try:
+            obsid = int(fields[0])
+        except ValueError:
+            logger.debug(f"ignoring unparsable progress record {record!r}")
+            continue
+        completed.setdefault(obsid, set()).add(fields[1])
+    if legacy:
+        logger.warning(
+            f"{progress_file}: {legacy} record(s) name an obsid but no catalog."
+            " They predate per-catalog progress and cannot say what ran, so those"
+            " obsids will be re-queried."
+        )
+    return completed
+
+
+def record_completed(progress_file: Path, done: dict) -> None:
+    """Append the catalogs finished for each obsid, as ``{obsid: [catalog, ...]}``.
+
+    Appended rather than rewritten, so a killed run loses at most its last record,
+    and accumulating: a later pass adds catalogs to an obsid instead of replacing
+    what it already had.
+    """
+    with open(progress_file, "a") as handle:
+        handle.write(
+            "".join(
+                f"{int(obsid)} {catalog}\n"
+                for obsid, catalogs in done.items()
+                for catalog in catalogs
+            )
+        )
+        handle.flush()
+
+
+def is_complete(completed: dict, obsid: int, catalogs: Sequence[str]) -> bool:
+    """Whether `obsid` has already been re-queried for every one of `catalogs`."""
+    return set(catalogs) <= completed.get(int(obsid), set())
 def empty_cat_src() -> Table:
     """A zero-row astromon_cat_src table with every column the schema requires."""
     return Table(np.zeros(0, dtype=db.ASTROMON_CAT_SRC_DTYPE))
@@ -341,20 +406,36 @@ def requery(  # noqa: PLR0917
     dry_run: bool = False,
     workers: int = 1,
     chunk_size: int = 200,
+    progress_file: Path | None = None,
+    resume: bool = False,
 ) -> dict:
     """Re-query `catalogs` for `obsids`, writing a chunk at a time.
 
     Writing per chunk rather than once at the end bounds both memory and how much
     work a crash throws away. Each chunk re-reads the stored ids so a catalog
     replaced in an earlier chunk does not hand out ids twice.
+
+    With `resume`, obsids already listed in `progress_file` are skipped -- keyed
+    by (obsid, catalog), so a run with a narrower catalog set cannot mark an
+    obsid complete for catalogs it never queried. Finished records are appended
+    only after each chunk is safely written.
     """
     xray = db.get_table("astromon_xray_src", dbfile)
+    requested = list(obsids)
+    already_done = load_completed(progress_file) if resume else {}
+    obsids = [
+        obsid for obsid in requested if not is_complete(already_done, obsid, catalogs)
+    ]
+    resumed = len(requested) - len(obsids)
+    if resumed:
+        logger.info(f"resuming: {resumed:,} obsid(s) already recorded as done")
     logger.info(
         f"re-querying {len(catalogs)} catalog(s) for {len(obsids):,} obsid(s): "
         f"{', '.join(catalogs)}"
     )
 
     summary = {
+        "resumed": resumed,
         "obsids": len(obsids),
         "catalogs": list(catalogs),
         "added_rows": 0,
@@ -382,13 +463,14 @@ def requery(  # noqa: PLR0917
         else:
             results = [_query_one(item) for item in work]
 
-        found = []
+        found, completed = [], []
         for obsid, candidates, error in results:
             if error is not None:
                 logger.warning(f"OBSID={obsid} skipped: {error}")
                 summary["skipped"][str(obsid)] = error
                 continue
             summary["queried"] += 1
+            completed.append(obsid)
             if len(candidates):
                 found.append(candidates)
 
@@ -399,6 +481,10 @@ def requery(  # noqa: PLR0917
             summary["added_rows"] += written["added_rows"]
             summary["replaced_obsids"].extend(written["replaced_obsids"])
 
+        # Only after the rows are safely written, so a resume never skips an obsid
+        # whose candidates never landed.
+        if completed and progress_file is not None and not dry_run:
+            record_completed(progress_file, dict.fromkeys(completed, catalogs))
         logger.info(
             f"{min(start + chunk_size, len(obsids)):,}/{len(obsids):,} obsids -- "
             f"{summary['added_rows']:,} rows written, "
@@ -438,6 +524,23 @@ def get_parser() -> argparse.ArgumentParser:
         help="threads for the catalog queries; only worth raising for remote catalogs",
     )
     parser.add_argument("--chunk-size", type=int, default=200)
+    parser.add_argument(
+        "--progress-file",
+        type=Path,
+        help=(
+            "append each finished (obsid, catalog) pair here, so --resume can skip"
+            " what is already done -- per catalog, so a run with a different"
+            " --catalogs set cannot mark an obsid complete for catalogs it skipped"
+        ),
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help=(
+            "skip obsids whose every requested catalog is already recorded in"
+            " --progress-file"
+        ),
+    )
     parser.add_argument("--dry-run", action="store_true", dest="dry_run")
     parser.add_argument(
         "--summary-file", type=Path, help="write the JSON summary here as well"
