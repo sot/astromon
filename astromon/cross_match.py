@@ -800,7 +800,7 @@ CROSS_MATCHES_ARGS = {
         "snr": 3,
         "r_angle": 120.0,
         "r_angle_grating": 120.0,
-        "near_neighbor_dist": 6.0,
+        "near_neighbor_dist": utils.NEAR_NEIGHBOR_DIST_ARCSEC,
         "dr": 3.0,
     },
     "astromon_22": {

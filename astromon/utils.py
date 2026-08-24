@@ -26,7 +26,18 @@ __all__ = [
     "get_calalign_offsets",
     "get_wcs_from_fits_header",
     "get_near_neighbor_dist",
+    "NEAR_NEIGHBOR_DIST_ARCSEC",
 ]
+
+
+# The one near_neighbor_dist threshold used everywhere it matters: excluding a
+# source from matching in cross_match.simple_cross_match's default args, and
+# excluding a celldetect source from even being handed to a gaussian fit in
+# observation._drop_crowded_seeds. One constant so the two cannot drift apart --
+# they are answering the same question ("is this position crowded?") at two
+# different points in the pipeline, and disagreeing between them defeats the
+# point of filtering early.
+NEAR_NEIGHBOR_DIST_ARCSEC = 6.0
 
 
 CIAO_ENV = {}

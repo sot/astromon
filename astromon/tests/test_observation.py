@@ -409,3 +409,95 @@ def test_filter_events_still_declares_the_raw_evt2_download():
     from astromon.task import TASKS
 
     assert "evt2" in TASKS.tasks["filter_events"]._download
+
+
+# ---- dropping crowded seeds before a gaussian fit is attempted ----
+
+
+def _celldetect_pair(y1, z1, y2, z2, *, component1=1, component2=2):
+    """Two celldetect sources, as the .src file gaussian_detect reads."""
+    return table.Table(
+        {
+            "COMPONENT": np.array([component1, component2], dtype=np.int32),
+            "y_angle": np.array([y1, y2]),
+            "z_angle": np.array([z1, z2]),
+        }
+    )
+
+
+def test_drop_crowded_seeds_removes_a_close_pair():
+    """obsid 7263 in miniature: two seeds 3.71" apart, both must go."""
+    sources = _celldetect_pair(-11.52, 5.77, -15.22, 5.55)
+
+    result = observation._drop_crowded_seeds(sources)
+
+    assert len(result) == 0
+
+
+def test_drop_crowded_seeds_keeps_isolated_sources():
+    """Two seeds well past the crowding radius survive untouched."""
+    sources = _celldetect_pair(0.0, 0.0, 100.0, 0.0)
+
+    result = observation._drop_crowded_seeds(sources)
+
+    assert sorted(result["COMPONENT"].tolist()) == [1, 2]
+
+
+def test_drop_crowded_seeds_boundary_matches_simple_cross_match():
+    """Exactly at the threshold is dropped, matching simple_cross_match's own
+    `near_neighbor_dist > near_neighbor_dist` cut: a value equal to the
+    threshold does not satisfy a strict ">" there either, so a source sitting
+    exactly on the boundary is excluded downstream regardless -- the pre-filter
+    must agree, or it would keep something selection then throws away anyway."""
+    sources = _celldetect_pair(0.0, 0.0, 6.0, 0.0)
+
+    result = observation._drop_crowded_seeds(sources)
+
+    assert len(result) == 0
+
+    just_outside = _celldetect_pair(0.0, 0.0, 6.001, 0.0)
+    assert len(observation._drop_crowded_seeds(just_outside)) == 2
+
+
+def test_drop_crowded_seeds_handles_a_single_source():
+    """One source has no neighbour at all, so it is never crowded."""
+    sources = table.Table(
+        {
+            "COMPONENT": np.array([1], dtype=np.int32),
+            "y_angle": np.array([0.0]),
+            "z_angle": np.array([0.0]),
+        }
+    )
+
+    result = observation._drop_crowded_seeds(sources)
+
+    assert len(result) == 1
+
+
+def test_drop_crowded_seeds_handles_empty_input():
+    sources = table.Table(
+        {
+            "COMPONENT": np.array([], dtype=np.int32),
+            "y_angle": np.array([]),
+            "z_angle": np.array([]),
+        }
+    )
+
+    result = observation._drop_crowded_seeds(sources)
+
+    assert len(result) == 0
+
+
+def test_drop_crowded_seeds_three_sources_only_the_close_pair_goes():
+    """A third, isolated source in the same field must not be affected."""
+    sources = table.Table(
+        {
+            "COMPONENT": np.array([1, 2, 3], dtype=np.int32),
+            "y_angle": np.array([0.0, 3.0, 100.0]),
+            "z_angle": np.array([0.0, 0.0, 0.0]),
+        }
+    )
+
+    result = observation._drop_crowded_seeds(sources)
+
+    assert sorted(result["COMPONENT"].tolist()) == [3]
