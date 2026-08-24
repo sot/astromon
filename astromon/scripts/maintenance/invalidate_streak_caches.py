@@ -15,7 +15,8 @@ subsequent full pipeline rerun.
 
 Usage::
 
-    python -m astromon.scripts.maintenance.invalidate_streak_caches [--preserve-workdir DIR] [--dry-run]
+    python -m astromon.scripts.maintenance.invalidate_streak_caches \\
+        [--preserve-workdir DIR] [--dry-run]
 """
 
 import argparse
