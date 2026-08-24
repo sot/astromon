@@ -409,7 +409,7 @@ def _minimal_xray_src(
 
 def _minimal_cat_src(
     obsid: int = 99900,
-    x_id: int = 1,
+    celldetect_x_id: int = 1,
     catalog: str = "Tycho2",
     name: str = "test-star",
     ra: float = 83.82028,
@@ -421,7 +421,7 @@ def _minimal_cat_src(
         {
             "obsid": [obsid],
             "id": [0],
-            "x_id": [x_id],
+            "celldetect_x_id": [celldetect_x_id],
             "catalog": [catalog],
             "name": [name],
             "ra": [ra],
@@ -1423,6 +1423,118 @@ def test_cache_is_stale_none_max_age_never_refreshes(tmp_path):
     assert not cross_match._cache_is_stale(cache_path, max_age_days=None)
 
 
+# ---- the anchor invariant ----
+
+
+def test_the_anchor_always_names_a_celldetect_source():
+    """Every anchor resolves to a celldetect source in the same observation.
+
+    This is what makes the anchor meaningful, and it held with no exceptions across
+    the live database: 99,558 of 99,558. It would have failed the moment a second
+    detection method started being written without giving cat_src a per-method
+    dimension, which is the state that let _remap_x_id exist.
+    """
+    cat_src = Table.read(DATA_DIR / "astromon_cat_src.ecsv")
+    xray_src = Table.read(DATA_DIR / "astromon_xray_src.ecsv")
+
+    if "detect_method" in xray_src.colnames:
+        xray_src = xray_src[xray_src["detect_method"] == "celldetect"]
+    celldetect = set(
+        zip(
+            np.asarray(xray_src["obsid"]).tolist(),
+            np.asarray(xray_src["id"]).tolist(),
+            strict=True,
+        )
+    )
+
+    unresolved = [
+        (int(obsid), int(anchor))
+        for obsid, anchor in zip(
+            cat_src["obsid"], cat_src["celldetect_x_id"], strict=True
+        )
+        if (int(obsid), int(anchor)) not in celldetect
+    ]
+
+    assert not unresolved, f"anchors naming no celldetect source: {unresolved[:5]}"
+
+
+# ---- the celldetect anchor is not a match key ----
+
+
+def test_matches_are_unchanged_when_the_anchor_is_scrambled():
+    """cat_src's anchor must not decide which X-ray source a catalogue row matches.
+
+    This is the contract, not an incidental property: the anchor is celldetect's
+    numbering, and joining on it made it a per-method key in a table that has no
+    per-method dimension. Matching is decided by position and the dr cut, so
+    scrambling the anchor must change nothing. If someone reinstates the join, this
+    fails.
+    """
+    obs = _minimal_obs(99900)
+    xray = _minimal_xray_src(99900)
+    good = _minimal_cat_src(99900)
+
+    scrambled = good.copy()
+    scrambled["celldetect_x_id"] = 4242  # names no source that exists
+
+    from_good = cross_match.compute_cross_matches(
+        "tycho2", astromon_obs=obs, astromon_xray_src=xray, astromon_cat_src=good
+    )
+    from_scrambled = cross_match.compute_cross_matches(
+        "tycho2", astromon_obs=obs, astromon_xray_src=xray, astromon_cat_src=scrambled
+    )
+
+    assert len(from_good) == 1
+    for column in ("obsid", "x_id", "c_id", "dr", "detect_method"):
+        assert list(from_good[column]) == list(from_scrambled[column]), column
+
+
+def test_a_method_missing_the_source_yields_no_match_for_that_method():
+    """gaussian dropping a source means no gaussian match, not a substituted one.
+
+    Gaussian ids are a subset of celldetect ids in 8,445 of 8,445 obsids, so when
+    the anchor names an id gaussian does not have, the source was dropped by the
+    fit. _remap_x_id substituted the nearest gaussian source instead, which
+    manufactured matches against different objects -- obsid 332 got dr=0.09" against
+    a source 2.4" from the real counterpart.
+    """
+    xray = _two_method_xray_src(99900)
+    # celldetect keeps id 1 on the catalogue source; gaussian has only id 2, well
+    # outside the 3" dr cut. dr is measured in the y/z plane, so that is what has
+    # to move -- ra/dec alone would leave dr at zero for both.
+    xray["id"] = [1, 2]
+    xray["y_angle"] = [0.0, 36.0]
+
+    matches = cross_match.compute_cross_matches(
+        "tycho2",
+        astromon_obs=_minimal_obs(99900),
+        astromon_xray_src=xray,
+        astromon_cat_src=_minimal_cat_src(99900),
+    )
+
+    assert list(matches["detect_method"]) == ["celldetect"]
+    assert list(matches["x_id"]) == [1]
+
+
+def test_empty_inputs_still_return_the_joined_dtype():
+    """The empty path must not reference a column the schema no longer has."""
+    empty_cat = _minimal_cat_src(99900)[:0]
+
+    matches = cross_match.compute_cross_matches(
+        "tycho2",
+        astromon_obs=_minimal_obs(99900),
+        astromon_xray_src=_minimal_xray_src(99900),
+        astromon_cat_src=empty_cat,
+    )
+
+    assert len(matches) == 0
+    # dy/dz/dr are computed after the join, so the empty path never carried them.
+    # What matters is that it builds its dtype without naming a column the schema
+    # no longer has, and that the anchor and the match key stay distinct names.
+    for column in ("obsid", "x_id", "c_id", "celldetect_x_id"):
+        assert column in matches.colnames, column
+
+
 # ---- per-method selection grouping ----
 
 
@@ -2064,36 +2176,3 @@ def test_get_gaia_var_stars_accepts_a_scalar_position():
 
     assert len(result) == 1
     assert result["catalog"][0] == "GaiaVarStar"
-
-
-def test_remap_x_id_to_sources_points_at_the_given_methods_ids():
-    """astromon_cat_src holds one x_id per catalog source, so a match set for a
-    second detect method needs it re-pointed at that method's source ids.
-
-    The pipeline does this per version in memory and never persists the result,
-    which is why anything recomputing matches from the stored table has to redo it
-    rather than trust the stored x_id.
-    """
-    candidates = Table({"ra": [150.0, 150.02], "dec": [2.0, 2.02], "x_id": [1, 2]})
-    version_sources = Table({"id": [41, 42], "ra": [150.0, 150.02], "dec": [2.0, 2.02]})
-
-    remapped = cross_match.remap_x_id_to_sources(candidates, version_sources)
-
-    assert list(remapped["x_id"]) == [41, 42]
-    assert list(candidates["x_id"]) == [1, 2], "the input must not be modified"
-
-
-def test_remap_x_id_to_sources_uses_the_nearest_source():
-    candidates = Table({"ra": [150.0001], "dec": [2.0], "x_id": [99]})
-    version_sources = Table({"id": [7, 8], "ra": [150.0, 151.0], "dec": [2.0, 2.0]})
-
-    remapped = cross_match.remap_x_id_to_sources(candidates, version_sources)
-
-    assert list(remapped["x_id"]) == [7]
-
-
-def test_remap_x_id_to_sources_handles_an_empty_candidate_table():
-    candidates = Table({"ra": [], "dec": [], "x_id": []})
-    version_sources = Table({"id": [1], "ra": [150.0], "dec": [2.0]})
-
-    assert len(cross_match.remap_x_id_to_sources(candidates, version_sources)) == 0

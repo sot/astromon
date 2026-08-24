@@ -1754,42 +1754,6 @@ def _get(
     return get_vizier(pos, radius=radius, logging_tag=logging_tag, **params, raw=raw)
 
 
-def remap_x_id_to_sources(
-    candidates: table.Table, version_sources: table.Table
-) -> table.Table:
-    """Return a copy of `candidates` with ``x_id`` re-pointed at `version_sources`.
-
-    ``astromon_cat_src`` stores one ``x_id`` per catalog source, but the pipeline
-    writes one match per (catalog source, detect_method) pair -- so for every method
-    beyond the one the stored ``x_id`` was assigned from, it has to be re-matched to
-    that method's source ids first. The pipeline does that per version in memory and
-    never persists the result.
-
-    Which means anything recomputing matches from the stored table has to redo this
-    rather than trust the stored ``x_id``. Skipping it silently yields one row per
-    catalog source instead of one per (source, method) -- half the matches, for two
-    methods -- and only the selections carrying a ``detect_method_filter`` come out
-    whole, because they want exactly one method anyway.
-
-    Parameters
-    ----------
-    candidates
-        Catalog candidates with ``ra``, ``dec`` and an ``x_id`` column.
-    version_sources
-        The x-ray sources of a single detect method, with ``ra``, ``dec`` and ``id``.
-    """
-    remapped = candidates.copy()
-    if len(candidates) == 0 or len(version_sources) == 0:
-        return remapped
-    nearest, _, _ = coords.SkyCoord(
-        candidates["ra"], candidates["dec"], unit="deg"
-    ).match_to_catalog_sky(
-        coords.SkyCoord(version_sources["ra"], version_sources["dec"], unit="deg")
-    )
-    remapped["x_id"] = np.asarray(version_sources["id"])[nearest]
-    return remapped
-
-
 def rough_match(
     sources,
     time,
@@ -2421,7 +2385,7 @@ def simple_cross_match(
     if len(astromon_xray_src) == 0 or len(astromon_cat_src) == 0:
         logger.debug(f"{logging_tag} No xray or cat sources")
         dtype = _join_dtype(astromon_obs.dtype, astromon_xray_src.dtype, ["obsid"])
-        dtype = _join_dtype(dtype, astromon_cat_src.dtype, ["obsid", "x_id"])
+        dtype = _join_dtype(dtype, astromon_cat_src.dtype, ["obsid"])
         return table.Table(dtype=dtype)
 
     matches = table.join(
@@ -2429,8 +2393,19 @@ def simple_cross_match(
         astromon_xray_src,
         keys=["obsid"],
     )
+    # Join on obsid alone and let the dr cut below decide the pairing. The old
+    # (obsid, x_id) key used cat_src's celldetect-scoped anchor as a per-method
+    # match key, which it cannot be. Dropping it cannot change the result: surviving
+    # sources are >6" apart in the y/z plane (near_neighbor_dist above) and dr cuts
+    # at 3" in that same plane, so at most one of them is ever within dr of a given
+    # catalogue source. Measured across the whole database, catalogue sources within
+    # dr of two or more surviving sources: zero, for both methods.
+    #
+    # This is a per-obsid cartesian product, as in rough_match. Measured cost over
+    # the live tables: 4.2M pairs in total, median 20 per obsid, worst single obsid
+    # 169,785.
     matches = table.join(
-        matches, astromon_cat_src, keys=["obsid", "x_id"], table_names=["xray", "cat"]
+        matches, astromon_cat_src, keys=["obsid"], table_names=["xray", "cat"]
     )
 
     matches["dz"] = matches["x_z_angle"] - matches["c_z_angle"]
