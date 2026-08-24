@@ -1306,29 +1306,47 @@ def test_cache_is_stale_none_max_age_never_refreshes(tmp_path):
 
 # ---- RFC release discovery and fail-soft caching tests ----
 
-_RFC_INDEX_HTML = """
+# The announcement page as astrogeo.org actually serves it: the current release
+# is stated in a link to /sol/rfc/<release>, and the same release is named again
+# in the citation text. Other releases appear only as image/PDF paths under /rfc/.
+_RFC_LANDING_HTML = """
 <html><body>
-<a href="int_2026a/">int_2026a/</a>
-<a href="headers/">headers/</a>
-<a href="obsolete/">obsolete/</a>
-<a href="rfc_2026a/">rfc_2026a/</a>
-<a href="rfc_2026b/">rfc_2026b/</a>
+<B><A HREF="/sol/rfc/rfc_2026b"> rfc_2026b catalogue of compact radio sources</A></B>.
+Please cite data release rfc_2026b and include DOI 10.25966/dhrk-zh08.
+<A HREF="/rfc/rfc_2026a_map.pdf"><IMG SRC="/rfc/rfc_2026a_map.png"></A>
 </body></html>
 """
 
 
-def test_discover_latest_rfc_release_picks_newest():
-    """Discovery picks the lexicographically-latest rfc_YYYY[a-d] entry, ignoring
-    non-quarterly-release directories like int_2026a/, headers/, obsolete/."""
-    fake_response = Mock(text=_RFC_INDEX_HTML)
+def test_discover_latest_rfc_release_reads_the_announced_release():
+    """Discovery reports the release astrogeo announces, not the newest directory.
+
+    The quarterly directory for a release appears under /sol/rfc/ before its data
+    files do -- rfc_2026c had a landing page and no catalogue for weeks -- so
+    taking the lexicographically-largest directory name adopts a release that has
+    not been published and every download from it 404s.
+    """
+    fake_response = Mock(text=_RFC_LANDING_HTML)
     fake_response.raise_for_status = Mock()
     with patch.object(cross_match.requests, "get", return_value=fake_response):
         release = cross_match._discover_latest_rfc_release()
     assert release == "rfc_2026b"
 
 
+def test_discover_latest_rfc_release_ignores_releases_named_only_as_assets():
+    """A map PDF for another release must not be mistaken for the announcement."""
+    html = (
+        '<A HREF="/sol/rfc/rfc_2025d">rfc_2025d</A>'
+        '<A HREF="/rfc/rfc_2026b_map.pdf">map</A>'
+    )
+    fake_response = Mock(text=html)
+    fake_response.raise_for_status = Mock()
+    with patch.object(cross_match.requests, "get", return_value=fake_response):
+        assert cross_match._discover_latest_rfc_release() == "rfc_2025d"
+
+
 def test_discover_latest_rfc_release_no_releases_found_raises():
-    """An index page with no rfc_YYYY[a-d] entries raises rather than returning junk."""
+    """A page announcing no release raises rather than returning junk."""
     fake_response = Mock(text="<html><body>nothing here</body></html>")
     fake_response.raise_for_status = Mock()
     with patch.object(cross_match.requests, "get", return_value=fake_response):
