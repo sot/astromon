@@ -1861,6 +1861,32 @@ def gaussian_detect(obs, inputs, outputs):
     return _fit_gaussian_sources(obs, inputs, outputs, seed_from_peak=False)
 
 
+def _drop_crowded_seeds(input_sources):
+    """Remove celldetect sources too close to another to trust a fit on.
+
+    A gaussian fit is not attempted for any source whose nearest neighbour is
+    within the crowding radius.
+
+    A fit seeded inside another source's footprint risks blending with it: at
+    obsid 7263, two celldetect sources 3.71" apart produced one fit that
+    absorbed both sources' counts and one fit that failed to converge at all.
+    Both outcomes are useless for astrometry, and every current selection
+    already excludes near_neighbor_dist <= 6" downstream -- so this is work the
+    pipeline was always going to discard, done before it is spent rather than
+    after.
+
+    Parameters
+    ----------
+    input_sources : astropy.table.Table
+        Celldetect sources with ``COMPONENT``, ``y_angle`` and ``z_angle``
+        columns, as read from the ``.src`` file.
+    """
+    if len(input_sources) == 0:
+        return input_sources
+    nnd = utils.get_near_neighbor_dist(input_sources, input_sources, id_col="COMPONENT")
+    return input_sources[nnd > utils.NEAR_NEIGHBOR_DIST_ARCSEC]
+
+
 def _seed_and_select_events(events_yag, events_zag, source, box_size, seed_from_peak):
     """Return ``(fit_source, event_mask)`` for one source.
 
@@ -1980,6 +2006,18 @@ def _fit_gaussian_sources(obs, inputs, outputs, seed_from_peak):
     input_sources["y_angle"], input_sources["z_angle"] = radec_to_yagzag(
         input_sources["RA"], input_sources["DEC"], att
     )
+
+    if not seed_from_peak:
+        # Only for gaussian_detect. peak_gaussian_detect is never persisted as its
+        # own detect_method (it exists to feed the peak_offset diagnostic) and its
+        # rows never enter matching, so filtering its input would only lose
+        # coverage -- exactly the coverage that made it possible to check, for a
+        # crowded pair, whether re-seeding from the peak recovers a usable fit.
+        input_sources = _drop_crowded_seeds(input_sources)
+        if len(input_sources) == 0:
+            results = table.Table(dtype=dtype)
+            results.write(outputs["src"], format="fits", overwrite=True)
+            return ReturnCode.OK
 
     events_yag = np.asarray(events["y_angle"])
     events_zag = np.asarray(events["z_angle"])
