@@ -1,7 +1,6 @@
 """ """
 
 import logging
-import os
 import re
 import threading
 import time as _time
@@ -319,20 +318,11 @@ def _local_catalog_near(
     return output
 
 
-# Shared location for the locally cached whole-catalog files (RFC, ICRF3,
-# Milliquas, Quaia, GaiaAGN, GaiaQSO).
-#
-# ASTROMON_DATA_DIR isolates these the way ASTROMON_FILE isolates the database.
-# Without it the only way to move the caches was to move SKA itself, which takes
-# mica, CALDB and everything else with it -- so a development run could point at
-# its own database but never at its own catalogs, and always read and refreshed
-# the shared ones.
-if "ASTROMON_DATA_DIR" in os.environ:
-    _ASTROMON_DATA_DIR = Path(os.environ["ASTROMON_DATA_DIR"])
-else:
-    _ASTROMON_DATA_DIR = (
-        Path(os.environ.get("SKA", Path.home() / "ska")) / "data" / "astromon"
-    )
+# Where the locally cached whole-catalog files live (RFC, ICRF3, Milliquas,
+# Quaia, GaiaAGN, GaiaQSO). Resolved in utils so that observation.ARCHIVE_DIR,
+# which sits in the same tree, cannot disagree with it. Honours
+# ASTROMON_DATA_DIR; see utils.
+_ASTROMON_DATA_DIR = utils.ASTROMON_DATA_DIR
 
 _RFC_INDEX_URL = "http://astrogeo.org/sol/rfc/"
 # The page where astrogeo.org states which release is current. Read this rather
@@ -431,7 +421,7 @@ def get_rfc(
     Parameters
     ----------
     cache_path
-        Override the default cache location (default: ``$ASTROMON_DATA_DIR/rfc_catalog.txt``, or ``$SKA/data/astromon/rfc_catalog.txt``).
+        Override the default cache location (default: ``$ASTROMON_DATA_DIR/rfc_catalog.txt``).
     max_age_days
         How often to check astrogeo.org for a newer release, in days. Default 1.
         Pass ``None`` to check only when `cache_path` is absent.
@@ -514,7 +504,7 @@ def get_icrf3(
     Parameters
     ----------
     cache_path
-        Override the default cache location (default: ``$ASTROMON_DATA_DIR/icrf3_catalog.ecsv``, or ``$SKA/data/astromon/icrf3_catalog.ecsv``).
+        Override the default cache location (default: ``$ASTROMON_DATA_DIR/icrf3_catalog.ecsv``).
     max_age_days
         Refresh threshold in days.  Default 365.  Pass ``None`` to download
         only when the file is absent.
@@ -585,7 +575,7 @@ def get_milliquas(
     ----------
     cache_path
         Override the default cache location
-        (default: ``$ASTROMON_DATA_DIR/milliquas_catalog.fits``, or ``$SKA/data/astromon/milliquas_catalog.fits``).
+        (default: ``$ASTROMON_DATA_DIR/milliquas_catalog.fits``).
     max_age_days
         Refresh threshold in days.  Default 180.  Pass ``None`` to download
         only when the file is absent.
@@ -691,7 +681,7 @@ def get_quaia(
     ----------
     cache_path
         Override the default cache location
-        (default: ``$ASTROMON_DATA_DIR/quaia_catalog.fits``, or ``$SKA/data/astromon/quaia_catalog.fits``).
+        (default: ``$ASTROMON_DATA_DIR/quaia_catalog.fits``).
     max_age_days
         Refresh threshold in days.  Default ``None`` (never auto-refresh).
 
@@ -1048,7 +1038,7 @@ def get_gaia_agn_catalog(cache_path: Path | None = None) -> table.Table:
     ----------
     cache_path
         Override the default cache location
-        (default: ``$ASTROMON_DATA_DIR/gaia_agn_catalog.fits``, or ``$SKA/data/astromon/gaia_agn_catalog.fits``).
+        (default: ``$ASTROMON_DATA_DIR/gaia_agn_catalog.fits``).
     """
     if cache_path is None:
         cache_path = _GAIA_AGN_CACHE_PATH
@@ -1083,7 +1073,7 @@ def get_gaia_qso_catalog(cache_path: Path | None = None) -> table.Table:
     ----------
     cache_path
         Override the default cache location
-        (default: ``$ASTROMON_DATA_DIR/gaia_qso_catalog.fits``, or ``$SKA/data/astromon/gaia_qso_catalog.fits``).
+        (default: ``$ASTROMON_DATA_DIR/gaia_qso_catalog.fits``).
     """
     if cache_path is None:
         cache_path = _GAIA_QSO_CACHE_PATH
