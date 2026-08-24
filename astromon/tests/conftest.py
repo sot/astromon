@@ -1,11 +1,12 @@
 """Test-suite guards.
 
 The whole-catalog caches (RFC, ICRF3, Milliquas, Quaia, GaiaAGN, GaiaQSO,
-MilliquasGaia) default to ``$SKA/data/astromon``, resolved at import time in
-:data:`astromon.cross_match._ASTROMON_DATA_DIR`. That is a real production
-directory holding hundreds of megabytes of catalogs -- and astromon.h5 itself --
-so a test that calls a catalog getter without an explicit ``cache_path`` writes
-there rather than into a temporary directory.
+MilliquasGaia) and the observation archive both sit under
+:data:`astromon.utils.ASTROMON_DATA_DIR`, resolved at import time and defaulting
+to ``$SKA/data/astromon``. That is a real production directory holding hundreds
+of megabytes of catalogs -- and astromon.h5 itself -- so a test that calls a
+catalog getter without an explicit ``cache_path`` writes there rather than into a
+temporary directory.
 
 That is not hypothetical. A refactor once moved the network call in
 ``get_milliquas_gaia`` behind a new helper; two tests still patched the old
@@ -21,7 +22,7 @@ from pathlib import Path
 import pytest
 from astropy.table import Table
 
-from astromon import cross_match
+from astromon import cross_match, utils
 
 #: Overrides the guarded directory. Exists so the guard itself can be tested
 #: against a scratch directory; nothing in the package reads it.
@@ -33,7 +34,7 @@ def guarded_directory() -> Path:
     override = os.environ.get(GUARDED_DIR_ENV)
     if override:
         return Path(override)
-    return Path(cross_match._ASTROMON_DATA_DIR)
+    return Path(utils.ASTROMON_DATA_DIR)
 
 
 def snapshot(directory: Path) -> dict[str, tuple[int, int]]:
