@@ -5,6 +5,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+import numpy as np
 import pytest
 from astropy.table import vstack
 
@@ -259,3 +260,119 @@ def test_save_with_lock_without_cat_src_keeps_xcorr():
         )
 
         assert len(db.get_table("astromon_xcorr", dbfile)) == 1
+
+
+# ---- an authoritative rewrite of an obsid's cat_src ----
+
+
+def _seed_obsid_with_matches(dbfile, obsid=7001):
+    """One cat_src row and the xcorr row that references it."""
+    cat = _cat_src_row(catalog="RFC", obsid=obsid)
+    cat["id"] = 1
+    db.save("astromon_cat_src", cat, dbfile, ignore_obsid=True)
+    db.save(
+        "astromon_xcorr",
+        _xcorr_row(select_name="astromon_21", obsid=obsid, c_id=1, x_id=1),
+        dbfile,
+        ignore_obsid=True,
+    )
+
+
+def test_empty_cat_src_leaves_the_obsid_alone_by_default():
+    """An empty table is not a statement that the obsid has nothing.
+
+    A rerun against a smaller catalog set legitimately produces fewer candidates,
+    and GaiaVarStar was dropped from the default set for exactly that reason, so
+    inferring deletion from a row count would discard real rows. Doing nothing
+    leaves cat_src and xcorr mutually consistent, which is the safe default.
+    """
+    from astromon.scripts.maintenance.process_one_obsid import save_with_lock
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dbfile = Path(tmpdir) / "pipeline.h5"
+        db.create_empty_tables(dbfile)
+        _seed_obsid_with_matches(dbfile)
+
+        save_with_lock(
+            dbfile,
+            {"astromon_cat_src": db.create_table("astromon_cat_src")},
+            obsid=7001,
+        )
+
+        assert len(db.get_table("astromon_cat_src", dbfile)) == 1
+        assert len(db.get_table("astromon_xcorr", dbfile)) == 1
+
+
+def test_replace_cat_src_removes_both_when_the_rerun_found_nothing():
+    """With replace_cat_src the caller is asserting the obsid really has nothing.
+
+    Then the stale rows have to go together: dropping only xcorr would leave
+    catalog rows with no matches, which reads as a genuine no-match result and is
+    a worse lie than leaving both.
+    """
+    from astromon.scripts.maintenance.process_one_obsid import save_with_lock
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dbfile = Path(tmpdir) / "pipeline.h5"
+        db.create_empty_tables(dbfile)
+        _seed_obsid_with_matches(dbfile)
+
+        save_with_lock(
+            dbfile,
+            {"astromon_cat_src": db.create_table("astromon_cat_src")},
+            obsid=7001,
+            replace_cat_src=True,
+        )
+
+        assert len(db.get_table("astromon_cat_src", dbfile)) == 0
+        assert len(db.get_table("astromon_xcorr", dbfile)) == 0
+
+
+def test_replace_cat_src_does_not_touch_other_obsids():
+    """Only the obsid being rewritten is affected."""
+    from astromon.scripts.maintenance.process_one_obsid import save_with_lock
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dbfile = Path(tmpdir) / "pipeline.h5"
+        db.create_empty_tables(dbfile)
+        _seed_obsid_with_matches(dbfile, obsid=7001)
+        other = _cat_src_row(catalog="RFC", obsid=7002)
+        other["id"] = 1
+        db.save("astromon_cat_src", other, dbfile)
+        db.save(
+            "astromon_xcorr",
+            _xcorr_row(select_name="astromon_21", obsid=7002, c_id=1, x_id=1),
+            dbfile,
+        )
+
+        save_with_lock(
+            dbfile,
+            {"astromon_cat_src": db.create_table("astromon_cat_src")},
+            obsid=7001,
+            replace_cat_src=True,
+        )
+
+        cat = db.get_table("astromon_cat_src", dbfile)
+        xcorr = db.get_table("astromon_xcorr", dbfile)
+        assert list(cat["obsid"]) == [7002]
+        assert list(xcorr["obsid"]) == [7002]
+
+
+def test_replace_cat_src_with_rows_present_behaves_as_before():
+    """A non-empty rewrite still drops the obsid's stale xcorr and writes the rows."""
+    from astromon.scripts.maintenance.process_one_obsid import save_with_lock
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dbfile = Path(tmpdir) / "pipeline.h5"
+        db.create_empty_tables(dbfile)
+        _seed_obsid_with_matches(dbfile)
+
+        fresh = _cat_src_row(catalog="Tycho2", obsid=7001, name="new")
+        fresh["id"] = 1
+        save_with_lock(
+            dbfile, {"astromon_cat_src": fresh}, obsid=7001, replace_cat_src=True
+        )
+
+        cat = db.get_table("astromon_cat_src", dbfile)
+        assert list(np.asarray(cat["catalog"]).astype(str)) == ["Tycho2"]
+        assert len(db.get_table("astromon_xcorr", dbfile)) == 0

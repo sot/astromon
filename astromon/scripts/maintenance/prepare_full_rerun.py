@@ -68,10 +68,14 @@ def main() -> None:
     )
     print(
         "\n# Notes:"
-        "\n#  - 1,785 obsids with invalidated make_images cache will re-run fluximage + acis_streak_map(ssigma=3)"
-        "\n#  - All other preserve-workdir obsids skip CIAO tasks (cached) and only re-run catalog+xcorr stage"
-        "\n#  - Pool F retry obsids not yet in preserve-workdir will re-download from public archive"
-        "\n#  - resume-safe: re-run the same command if interrupted (tracking-csv tracks done obsids)"
+        "\n#  - 1,785 obsids with invalidated make_images cache will re-run "
+        "fluximage + acis_streak_map(ssigma=3)"
+        "\n#  - All other preserve-workdir obsids skip CIAO tasks (cached) "
+        "and only re-run catalog+xcorr stage"
+        "\n#  - Pool F retry obsids not yet in preserve-workdir will "
+        "re-download from public archive"
+        "\n#  - resume-safe: re-run the same command if interrupted "
+        "(tracking-csv tracks done obsids)"
     )
 
 

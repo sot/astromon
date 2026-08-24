@@ -20,13 +20,16 @@ the raw data and re-runs ``make_images`` properly.
 Usage::
 
     # Dry run — show what would be cleared, write obsid list:
-    python -m astromon.scripts.maintenance.clear_invalid_make_images --workdir /Volumes/Black/data/astromon/work
+    python -m astromon.scripts.maintenance.clear_invalid_make_images \\
+        --workdir /Volumes/Black/data/astromon/work
 
     # Actually clear:
-    python -m astromon.scripts.maintenance.clear_invalid_make_images --workdir /Volumes/Black/data/astromon/work --apply
+    python -m astromon.scripts.maintenance.clear_invalid_make_images \\
+        --workdir /Volumes/Black/data/astromon/work --apply
 
     # Write cleared obsids to a file for use as --obsid-list:
-    python -m astromon.scripts.maintenance.clear_invalid_make_images --workdir /Volumes/Black/data/astromon/work --apply \\
+    python -m astromon.scripts.maintenance.clear_invalid_make_images \\
+        --workdir /Volumes/Black/data/astromon/work --apply \\
         --obsid-list /Volumes/Black/data/astromon/obsids_reimage.txt
 """
 
