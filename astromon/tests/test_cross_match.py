@@ -1706,3 +1706,36 @@ def test_get_gaia_var_stars_accepts_a_scalar_position():
 
     assert len(result) == 1
     assert result["catalog"][0] == "GaiaVarStar"
+
+
+def test_remap_x_id_to_sources_points_at_the_given_methods_ids():
+    """astromon_cat_src holds one x_id per catalog source, so a match set for a
+    second detect method needs it re-pointed at that method's source ids.
+
+    The pipeline does this per version in memory and never persists the result,
+    which is why anything recomputing matches from the stored table has to redo it
+    rather than trust the stored x_id.
+    """
+    candidates = Table({"ra": [150.0, 150.02], "dec": [2.0, 2.02], "x_id": [1, 2]})
+    version_sources = Table({"id": [41, 42], "ra": [150.0, 150.02], "dec": [2.0, 2.02]})
+
+    remapped = cross_match.remap_x_id_to_sources(candidates, version_sources)
+
+    assert list(remapped["x_id"]) == [41, 42]
+    assert list(candidates["x_id"]) == [1, 2], "the input must not be modified"
+
+
+def test_remap_x_id_to_sources_uses_the_nearest_source():
+    candidates = Table({"ra": [150.0001], "dec": [2.0], "x_id": [99]})
+    version_sources = Table({"id": [7, 8], "ra": [150.0, 151.0], "dec": [2.0, 2.0]})
+
+    remapped = cross_match.remap_x_id_to_sources(candidates, version_sources)
+
+    assert list(remapped["x_id"]) == [7]
+
+
+def test_remap_x_id_to_sources_handles_an_empty_candidate_table():
+    candidates = Table({"ra": [], "dec": [], "x_id": []})
+    version_sources = Table({"id": [1], "ra": [150.0], "dec": [2.0]})
+
+    assert len(cross_match.remap_x_id_to_sources(candidates, version_sources)) == 0
