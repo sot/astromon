@@ -34,6 +34,7 @@ from astromon.cross_match import (
     get_gaia_var_stars,
     get_milliquas_gaia,
     get_quaia_candidates,
+    remap_x_id_to_sources,
     rough_match,
 )
 from astromon.observation import Observation, ReturnCode
@@ -295,14 +296,7 @@ def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
 
     def _remap_x_id(candidates, version_sources):
         """Return a copy of candidates with x_id re-matched to version_sources."""
-        version_pos = coords.SkyCoord(
-            version_sources["ra"], version_sources["dec"], unit="deg"
-        )
-        cat_sc = coords.SkyCoord(candidates["ra"], candidates["dec"], unit="deg")
-        xray_idx, _, _ = cat_sc.match_to_catalog_sky(version_pos)
-        remapped = candidates.copy()
-        remapped["x_id"] = version_sources["id"][xray_idx]
-        return remapped
+        return remap_x_id_to_sources(candidates, version_sources)
 
     gaia_agn_candidates = get_gaia_agn(
         xray_pos, radius=3 * u.arcsec, logging_tag=f"OBSID={obsid}"
