@@ -1423,6 +1423,69 @@ def test_cache_is_stale_none_max_age_never_refreshes(tmp_path):
     assert not cross_match._cache_is_stale(cache_path, max_age_days=None)
 
 
+# ---- rough_match deduplication ----
+
+
+def test_rough_match_deduplicates_repeated_catalog_rows():
+    """One row per (catalog source, X-ray source) pair, not per returned copy.
+
+    get_vizier is called with every X-ray position at once and returns a catalogue
+    source once per input position that matched it. rough_match then cartesian-joins
+    that against the source list, so each returned copy became its own cat_src row:
+    17,595 rows in the live database sat in exact-duplicate groups, every one of them
+    from a VizieR catalogue.
+    """
+    # Two X-ray sources ~2" apart, and one catalogue source between them -- returned
+    # twice, as VizieR does when both positions match it.
+    sources = Table({"id": [1, 2], "ra": [10.0, 10.0005], "dec": [20.0, 20.0]})
+    returned_twice = Table(
+        {
+            "catalog": ["Tycho2", "Tycho2"],
+            "name": ["dup-source", "dup-source"],
+            "ra": [10.00025, 10.00025],
+            "dec": [20.0, 20.0],
+            "mag": [11.0, 11.0],
+        }
+    )
+
+    with patch.object(cross_match, "_get", return_value=returned_twice):
+        result = cross_match.rough_match(
+            sources, VIZIER_QUERY_TIME, radius=5 * u.arcsec, catalogs=["Tycho2"]
+        )
+
+    pairs = sorted(zip(result["name"], result["x_id"], strict=True))
+    assert pairs == [("dup-source", 1), ("dup-source", 2)], (
+        f"expected one row per X-ray source, got {pairs}"
+    )
+
+
+def test_rough_match_keeps_same_named_sources_at_different_positions():
+    """Deduplication keys on position too, because SDSS names are not unique.
+
+    613 groups in the live database share (obsid, catalog, name) while holding
+    genuinely different positions, all of them SDSS. Keying on name alone would
+    merge distinct objects.
+    """
+    sources = Table({"id": [1], "ra": [10.0], "dec": [20.0]})
+    two_objects_one_name = Table(
+        {
+            "catalog": ["SDSS", "SDSS"],
+            "name": ["shared-name", "shared-name"],
+            "ra": [10.0002, 10.0004],
+            "dec": [20.0, 20.0],
+            "mag": [19.0, 20.0],
+        }
+    )
+
+    with patch.object(cross_match, "_get", return_value=two_objects_one_name):
+        result = cross_match.rough_match(
+            sources, VIZIER_QUERY_TIME, radius=5 * u.arcsec, catalogs=["SDSS"]
+        )
+
+    assert len(result) == 2, "distinct positions must survive as distinct rows"
+    assert sorted(round(float(r), 4) for r in result["ra"]) == [10.0002, 10.0004]
+
+
 # ---- catalog cache location ----
 
 
