@@ -326,7 +326,13 @@ _ASTROMON_DATA_DIR = (
 )
 
 _RFC_INDEX_URL = "http://astrogeo.org/sol/rfc/"
-_RFC_RELEASE_RE = re.compile(r"rfc_(\d{4}[a-d])/")
+# The page where astrogeo.org states which release is current. Read this rather
+# than listing _RFC_INDEX_URL: a quarterly directory appears there, holding only a
+# landing page, before its data files are published.
+_RFC_LANDING_URL = "http://astrogeo.org/rfc/"
+# Matches only a link *into* a release directory, so that image and PDF paths for
+# other releases (/rfc/rfc_2026b_map.pdf) are not mistaken for the announcement.
+_RFC_ANNOUNCED_RE = re.compile(r'href="/sol/rfc/(rfc_\d{4}[a-d])', re.IGNORECASE)
 _RFC_CACHE_PATH = _ASTROMON_DATA_DIR / "rfc_catalog.txt"
 # How often to re-check astrogeo.org for a newer quarterly release. The production
 # pipeline (astromon-cross-match) runs once a day, so checking more often than that
@@ -342,19 +348,27 @@ def _rfc_release_marker(cache_path: Path) -> Path:
 
 @retry_on_connection_error
 def _discover_latest_rfc_release() -> str:
-    """Return the most recent RFC release name (e.g. 'rfc_2026b') from the astrogeo index.
+    """Return the RFC release that astrogeo.org currently announces.
 
-    astrogeo.org publishes RFC as dated quarterly directories (rfc_2026a, rfc_2026b,
-    ...) with no stable "latest" alias, and old releases are not updated in place —
-    so the current release has to be discovered by reading the plain directory
-    listing at `_RFC_INDEX_URL` rather than assumed from a fixed URL.
+    astrogeo.org publishes RFC as dated quarterly releases (rfc_2026a, rfc_2026b,
+    ...) with no stable "latest" alias, so the current one has to be discovered.
+
+    It has to be read from the announcement page, not inferred from the directory
+    listing at `_RFC_INDEX_URL`. A release's directory is created there -- with a
+    landing page and no data files -- before the release is published: rfc_2026c
+    existed like that while rfc_2026b was still current. Taking the
+    lexicographically-largest directory name therefore names a release whose
+    catalogue is not there yet, every download from it 404s, and `get_rfc` falls
+    back to the cache while logging what looks like a transient network problem.
+    Because the fallback never writes the release marker, the check is then due on
+    every subsequent call.
     """
-    resp = requests.get(_RFC_INDEX_URL, timeout=30)
+    resp = requests.get(_RFC_LANDING_URL, timeout=30)
     resp.raise_for_status()
-    releases = sorted(set(_RFC_RELEASE_RE.findall(resp.text)))
+    releases = sorted(set(_RFC_ANNOUNCED_RE.findall(resp.text)))
     if not releases:
-        raise RuntimeError(f"No RFC release directories found at {_RFC_INDEX_URL}")
-    return f"rfc_{releases[-1]}"
+        raise RuntimeError(f"No RFC release announced at {_RFC_LANDING_URL}")
+    return releases[-1]
 
 
 def _parse_rfc(text: str) -> table.Table:
