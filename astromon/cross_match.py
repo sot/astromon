@@ -2449,7 +2449,16 @@ def simple_cross_match(
     if len(matches) == 0:
         return matches
 
-    mg = matches.group_by(["obsid", "x_id"])
+    # Group per method as well as per source. Every caller today filters to one
+    # detect_method before getting here, so this changes nothing for them -- but
+    # keyed on (obsid, x_id) alone, a table holding two methods had them compete:
+    # the better-fitting one survived and the other vanished, so the surviving
+    # detect_method varied per source and dr was biased low by being the minimum of
+    # two measurements. rebuild_xcorr passed such a table and hit exactly that.
+    group_keys = ["obsid", "x_id"]
+    if "detect_method" in matches.colnames:
+        group_keys.append("detect_method")
+    mg = matches.group_by(group_keys)
     indices = mg.groups.indices
     idxs = []
     for i0, i1 in zip(indices[:-1], indices[1:], strict=True):
