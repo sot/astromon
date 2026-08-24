@@ -85,6 +85,15 @@ def guard_production_catalog_cache():
     and patch the network boundary (``cross_match.requests``), not an internal
     helper that a later refactor can route around.
 
+    For a run that must not touch the shared caches at all, set
+    ``ASTROMON_DATA_DIR`` to a scratch directory. Every cache moves before
+    import, so this guard then watches the scratch directory instead. Note what
+    that actually does on a *cold* scratch directory: the tests which reach a
+    catalogue getter download into it, and this guard fires on each of them --
+    correctly, since a test did write a cache. Seed the directory first (or run
+    once and accept those reports) and the suite is then clean against it. It is
+    opt-in for that reason, not because it does not work.
+
     Note for anyone extending this: the directory is resolved on each snapshot,
     but a test that redirects it with ``monkeypatch`` still will not be caught --
     monkeypatch is torn down before this fixture resumes. Use
