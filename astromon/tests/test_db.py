@@ -940,3 +940,61 @@ def test_sync_regions_is_idempotent():
         )
         ids = [int(v) for v in second["region_id"]]
         assert len(ids) == len(set(ids))
+
+
+# ---- renamed columns ----
+
+
+def test_reading_a_pre_rename_table_carries_the_anchor_over():
+    """A file written before the rename must not read the anchor back as zero.
+
+    _cast_to_dtype matches by name and fills anything absent via
+    missing_column_fill, which returns 0 for integers. Celldetect ids start at 1,
+    so without RENAMED_COLUMNS every anchor in an older file would silently become
+    an invalid 0.
+    """
+    old_dtype = np.dtype(
+        [
+            (("x_id" if n == "celldetect_x_id" else n), d)
+            for n, (d, _) in db.ASTROMON_CAT_SRC_DTYPE.fields.items()
+        ]
+    )
+    stored = np.zeros(2, dtype=old_dtype)
+    stored["obsid"] = [7001, 7001]
+    stored["id"] = [0, 1]
+    stored["x_id"] = [3, 4]
+
+    cast = db._cast_to_dtype(stored, db.ASTROMON_CAT_SRC_DTYPE)
+
+    assert list(cast["celldetect_x_id"]) == [3, 4]
+
+
+def test_saving_a_table_that_uses_the_former_name_still_works(tmp_path):
+    """Data carrying the old column name is accepted, not rejected as incomplete.
+
+    The column is not missing, it is under its former name -- so resolve it rather
+    than raising. Test fixtures and external dumps predate the rename.
+    """
+    dbfile = tmp_path / "renamed.h5"
+    db.create_empty_tables(dbfile)
+
+    cat = Table(np.zeros(1, dtype=db.ASTROMON_CAT_SRC_DTYPE))
+    cat.rename_column("celldetect_x_id", "x_id")
+    cat["obsid"] = 7001
+    cat["x_id"] = 9
+
+    db.save("astromon_cat_src", cat, dbfile)
+
+    stored = db.get_table("astromon_cat_src", dbfile)
+    assert list(stored["celldetect_x_id"]) == [9]
+
+
+def test_conform_to_dtype_prefers_the_former_name_over_a_zero_fill():
+    """conform_to_dtype must carry the value across too, not zero-fill beside it."""
+    cat = Table(np.zeros(1, dtype=db.ASTROMON_CAT_SRC_DTYPE))
+    cat.rename_column("celldetect_x_id", "x_id")
+    cat["x_id"] = 11
+
+    conformed = db.conform_to_dtype(cat, "astromon_cat_src")
+
+    assert list(conformed["celldetect_x_id"]) == [11]
