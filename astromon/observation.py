@@ -136,7 +136,10 @@ CDA_CATEGORY_ID_MAP = collections.defaultdict(
 """Mapping from CDA ocat category strings to numeric category IDs."""
 
 
-ARCHIVE_DIR = Path(os.environ["SKA"]) / "data" / "astromon" / "xray_observations"
+# Default archive location, under the same root as the cached catalogs so one
+# variable isolates a whole run. An explicit archive_dir -- what --archive-dir
+# supplies -- still wins over it; see Observation.__init__.
+ARCHIVE_DIR = utils.ASTROMON_DATA_DIR / "xray_observations"
 
 
 def _flag_brightest_source(snr_arr: np.ndarray) -> np.ndarray:
