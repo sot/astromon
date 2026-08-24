@@ -30,6 +30,7 @@ import time
 import traceback
 from pathlib import Path
 
+import numpy as np
 from ska_helpers.logging import basic_logger
 
 from astromon import db
@@ -89,7 +90,34 @@ def _drop_xcorr_for_obsid(con, obsid: int) -> int:
     return n_dropped
 
 
-def save_with_lock(db_file: Path, tables: dict, obsid: int | None = None):
+def _drop_cat_src_for_obsid(con, obsid: int) -> int:
+    """Remove all astromon_cat_src rows for `obsid`. Returns how many went.
+
+    Only called when the caller has said its (empty) table is authoritative for
+    the obsid. db.save cannot express this on its own: an empty table is a no-op
+    there, and one with the obsid's rows removed leaves them in place, which is
+    documented behaviour rather than an oversight.
+    """
+    cat_src = db.get_table("astromon_cat_src", con)
+    keep = np.asarray(cat_src["obsid"]) != obsid
+    n_removed = int((~keep).sum())
+    if n_removed:
+        db.save(
+            "astromon_cat_src",
+            cat_src[keep],
+            con,
+            ignore_obsid=True,
+            expect_existing=True,
+        )
+    return n_removed
+
+
+def save_with_lock(
+    db_file: Path,
+    tables: dict,
+    obsid: int | None = None,
+    replace_cat_src: bool = False,
+):
     """Serialize DB writes across concurrently-running worker processes.
 
     HDF5/PyTables doesn't support safe concurrent multi-process writes.
@@ -104,6 +132,18 @@ def save_with_lock(db_file: Path, tables: dict, obsid: int | None = None):
     (remove_node then create_table), so a worker SIGKILLed in that window --
     run_all does this on its per-obsid timeout -- leaves the table missing,
     and an unguarded save would recreate it holding only this obsid's rows.
+
+    `replace_cat_src` says the caller's astromon_cat_src is the authoritative
+    content for this obsid, so an empty table means "this obsid has none" and the
+    obsid's stored cat_src rows are removed along with its xcorr rows. Without it
+    an empty table is skipped and the stored rows are left alone, which is the
+    safe default: a rerun against a smaller catalog set legitimately produces
+    fewer -- possibly zero -- candidates, and inferring deletion from a row count
+    would silently discard real rows.
+
+    Both tables have to go together in that case. Dropping only xcorr would leave
+    catalog rows with no matches, which is indistinguishable from a genuine
+    no-match result and so a worse state than leaving both.
 
     When `obsid` is given and astromon_cat_src is among the tables being written,
     every astromon_xcorr row for that obsid is dropped first. astromon_cat_src has
@@ -128,12 +168,20 @@ def save_with_lock(db_file: Path, tables: dict, obsid: int | None = None):
 
             with db.connect(db_file, mode="r+") as con:
                 cat_src = tables.get("astromon_cat_src")
-                if obsid is not None and cat_src is not None and len(cat_src):
+                rewriting_cat_src = obsid is not None and cat_src is not None
+                if rewriting_cat_src and (len(cat_src) or replace_cat_src):
                     n_dropped = _drop_xcorr_for_obsid(con, obsid)
                     if n_dropped:
                         logging.getLogger("astromon").debug(
                             f"OBSID={obsid} dropped {n_dropped} stale astromon_xcorr "
                             "row(s) before rewriting astromon_cat_src"
+                        )
+                if rewriting_cat_src and replace_cat_src and not len(cat_src):
+                    n_removed = _drop_cat_src_for_obsid(con, obsid)
+                    if n_removed:
+                        logging.getLogger("astromon").info(
+                            f"OBSID={obsid} removed {n_removed} astromon_cat_src "
+                            "row(s): this run found no candidates for it"
                         )
 
                 for name, data in tables.items():
@@ -222,6 +270,13 @@ def main():
                 "astromon_xcorr": result["astromon_xcorr"],
             },
             obsid=obsid,
+            # The pipeline recomputes this obsid's catalog candidates from
+            # scratch, so its result is authoritative -- and already treated that
+            # way whenever it is non-empty, since db.save replaces every row for
+            # the obsids present in the data. Passing this makes the empty case
+            # behave the same instead of being the one exception that silently
+            # keeps the previous run's rows.
+            replace_cat_src=True,
         )
         emit_result(
             obsid=obsid,
