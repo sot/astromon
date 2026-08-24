@@ -1321,8 +1321,10 @@ def _resolved_cache_paths(env_overrides):
     script = (
         "import json\n"
         "from astromon import cross_match\n"
+        "from astromon import observation, utils\n"
         "print(json.dumps({\n"
-        "    'dir': str(cross_match._ASTROMON_DATA_DIR),\n"
+        "    'dir': str(utils.ASTROMON_DATA_DIR),\n"
+        "    'archive': str(observation.ARCHIVE_DIR),\n"
         "    'rfc': str(cross_match._RFC_CACHE_PATH),\n"
         "    'quaia': str(cross_match._QUAIA_CACHE_PATH),\n"
         # Enumerated by introspection rather than from CATALOG_CACHE_PATHS, which
@@ -1371,6 +1373,27 @@ def test_astromon_data_dir_overrides_the_cache_location():
     assert resolved["dir"] == "/tmp/isolated-catalogs"
     assert resolved["rfc"] == "/tmp/isolated-catalogs/rfc_catalog.txt"
     assert resolved["quaia"] == "/tmp/isolated-catalogs/quaia_catalog.fits"
+
+
+def test_archive_dir_defaults_under_the_shared_data_dir():
+    """The observation archive lives under the same root as the catalogs."""
+    resolved = _resolved_cache_paths({"SKA": "/tmp/fake-ska"})
+
+    assert resolved["archive"] == "/tmp/fake-ska/data/astromon/xray_observations"
+
+
+def test_astromon_data_dir_moves_the_archive_too():
+    """ARCHIVE_DIR follows ASTROMON_DATA_DIR, so one variable isolates a run.
+
+    Before this it was pinned to $SKA regardless, so a run could redirect its
+    database and its catalogs and still archive observations into the shared
+    tree.
+    """
+    resolved = _resolved_cache_paths(
+        {"SKA": "/tmp/fake-ska", "ASTROMON_DATA_DIR": "/tmp/isolated-catalogs"}
+    )
+
+    assert resolved["archive"] == "/tmp/isolated-catalogs/xray_observations"
 
 
 def test_astromon_data_dir_moves_every_catalog_cache():

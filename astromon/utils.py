@@ -27,6 +27,7 @@ __all__ = [
     "get_wcs_from_fits_header",
     "get_near_neighbor_dist",
     "NEAR_NEIGHBOR_DIST_ARCSEC",
+    "ASTROMON_DATA_DIR",
 ]
 
 
@@ -38,6 +39,23 @@ __all__ = [
 # different points in the pipeline, and disagreeing between them defeats the
 # point of filtering early.
 NEAR_NEIGHBOR_DIST_ARCSEC = 6.0
+
+
+# Root of astromon's own data: the locally cached whole catalogs and the archive
+# of downloaded observations. Defined here, in the module both cross_match and
+# observation import, so there is one answer rather than one per consumer.
+#
+# ASTROMON_DATA_DIR isolates it the way ASTROMON_FILE isolates the database.
+# Without it the only way to move this tree was to move SKA itself, which takes
+# mica, CALDB and everything else along -- so a development run could point at
+# its own database and still read, refresh and overwrite the shared catalogs and
+# archive into the shared tree.
+if "ASTROMON_DATA_DIR" in os.environ:
+    ASTROMON_DATA_DIR = Path(os.environ["ASTROMON_DATA_DIR"])
+else:
+    ASTROMON_DATA_DIR = (
+        Path(os.environ.get("SKA", Path.home() / "ska")) / "data" / "astromon"
+    )
 
 
 CIAO_ENV = {}
