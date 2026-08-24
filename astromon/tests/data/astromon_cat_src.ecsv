@@ -3,7 +3,7 @@
 # datatype:
 # - {name: obsid, datatype: int32}
 # - {name: id, datatype: int32}
-# - {name: x_id, datatype: int32}
+# - {name: celldetect_x_id, datatype: int32}
 # - {name: catalog, datatype: string}
 # - {name: name, datatype: string}
 # - {name: ra, datatype: float64}
@@ -13,7 +13,7 @@
 # - {name: y_angle, datatype: float32}
 # - {name: z_angle, datatype: float32}
 # schema: astropy-2.0
-obsid id x_id catalog name ra dec separation mag y_angle z_angle
+obsid id celldetect_x_id catalog name ra dec separation mag y_angle z_angle
 13276 0 12 Tycho2 7870-965-1 258.0868754233 -38.4918276755 0.15585381 10.982 -28.227802 -9.4078665
 13276 1 23 2MASS 17121072-3830281 258.044673 -38.507812 0.1844582 13.087 -78.88811 112.5849
 13276 2 24 2MASS 17121030-3830416 258.042927 -38.511578 0.15194412 12.672 -92.1441 118.266365
