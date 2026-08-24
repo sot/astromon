@@ -1853,6 +1853,16 @@ def rough_match(
     ]
     res = table.vstack(list(res), metadata_conflicts="silent")
 
+    # get_vizier is handed every X-ray position at once and returns a catalogue
+    # source once per position that matched it, so the same source arrives several
+    # times. Left in, the cartesian join below turns each copy into its own row and
+    # they all survive the separation cut together: 17,595 rows in the database sat
+    # in exact-duplicate groups, every one from a VizieR catalogue. Key on position
+    # as well as name -- SDSS names are not unique, and 613 groups share a name
+    # while holding genuinely different positions.
+    if len(res):
+        res = table.unique(res, keys=["catalog", "name", "ra", "dec"])
+
     if len(sources) and len(res):
         sources["coord_xray"] = coords.SkyCoord(
             sources["ra"], sources["dec"], unit="deg"
