@@ -1304,6 +1304,90 @@ def test_cache_is_stale_none_max_age_never_refreshes(tmp_path):
     assert not cross_match._cache_is_stale(cache_path, max_age_days=None)
 
 
+# ---- catalog cache location ----
+
+
+def _resolved_cache_paths(env_overrides):
+    """Import cross_match in a subprocess and report where its caches resolve.
+
+    A subprocess because the paths are module-level constants built at import;
+    setting the environment variable inside this process is too late.
+    """
+    import json
+    import os
+    import subprocess
+    import sys
+
+    script = (
+        "import json\n"
+        "from astromon import cross_match\n"
+        "print(json.dumps({\n"
+        "    'dir': str(cross_match._ASTROMON_DATA_DIR),\n"
+        "    'rfc': str(cross_match._RFC_CACHE_PATH),\n"
+        "    'quaia': str(cross_match._QUAIA_CACHE_PATH),\n"
+        # Enumerated by introspection rather than from CATALOG_CACHE_PATHS, which
+        # does not exist on every branch, and so that a cache constant added later
+        # is covered without anyone remembering to list it.
+        "    'all': {n: str(getattr(cross_match, n))\n"
+        "            for n in dir(cross_match) if n.endswith('_CACHE_PATH')},\n"
+        "}))\n"
+    )
+    repo_root = Path(__file__).resolve().parents[2]
+    # Start from a copy with the override cleared, so a value in the ambient
+    # environment cannot decide the result -- running the suite itself under
+    # ASTROMON_DATA_DIR would otherwise make the default case untestable.
+    child_env = {k: v for k, v in os.environ.items() if k != "ASTROMON_DATA_DIR"}
+    child_env["PYTHONPATH"] = str(repo_root)
+    child_env.update(env_overrides)
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=child_env,
+    )
+    return json.loads(completed.stdout)
+
+
+def test_cache_dir_defaults_under_ska():
+    """Without an override the caches stay where they have always been."""
+    resolved = _resolved_cache_paths({"SKA": "/tmp/fake-ska"})
+
+    assert resolved["dir"] == "/tmp/fake-ska/data/astromon"
+    assert resolved["rfc"] == "/tmp/fake-ska/data/astromon/rfc_catalog.txt"
+
+
+def test_astromon_data_dir_overrides_the_cache_location():
+    """ASTROMON_DATA_DIR isolates the catalog caches the way ASTROMON_FILE does the DB.
+
+    Without this the only way to move the caches was to move SKA itself, which
+    drags mica, CALDB and everything else along with it -- so a dev run could
+    isolate its database but never its catalogs.
+    """
+    resolved = _resolved_cache_paths(
+        {"SKA": "/tmp/fake-ska", "ASTROMON_DATA_DIR": "/tmp/isolated-catalogs"}
+    )
+
+    assert resolved["dir"] == "/tmp/isolated-catalogs"
+    assert resolved["rfc"] == "/tmp/isolated-catalogs/rfc_catalog.txt"
+    assert resolved["quaia"] == "/tmp/isolated-catalogs/quaia_catalog.fits"
+
+
+def test_astromon_data_dir_moves_every_catalog_cache():
+    """No cache may be left behind pointing at the default location."""
+    resolved = _resolved_cache_paths(
+        {"SKA": "/tmp/fake-ska", "ASTROMON_DATA_DIR": "/tmp/isolated-catalogs"}
+    )
+
+    assert resolved["all"], "no cache constants found to check"
+    stragglers = {
+        name: path
+        for name, path in resolved["all"].items()
+        if not path.startswith("/tmp/isolated-catalogs/")
+    }
+    assert not stragglers, f"still under the default location: {stragglers}"
+
+
 # ---- RFC release discovery and fail-soft caching tests ----
 
 # The announcement page as astrogeo.org actually serves it: the current release
