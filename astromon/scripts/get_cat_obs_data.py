@@ -34,7 +34,6 @@ from astromon.cross_match import (
     get_gaia_var_stars,
     get_milliquas_gaia,
     get_quaia_candidates,
-    remap_x_id_to_sources,
     rough_match,
 )
 from astromon.observation import Observation, ReturnCode
@@ -283,8 +282,14 @@ def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
         obstime=obs_time,
     )
 
-    def _add_obsid_and_x_id(candidates, id_offset):
-        """Stamp obsid, assign sequential IDs, compute y/z angles, assign x_id."""
+    def _add_obsid_and_anchor(candidates, id_offset):
+        """Stamp obsid, assign sequential IDs, compute y/z angles, set the anchor.
+
+        The anchor is the nearest celldetect source: provenance for why this
+        catalogue row was fetched, and what `separation` is measured from. It is
+        not a match key -- the pairing is decided per method by position and the
+        dr cut in simple_cross_match.
+        """
         candidates["obsid"] = obsid
         candidates["id"] = np.arange(len(candidates)) + id_offset
         candidates["y_angle"], candidates["z_angle"] = radec_to_yagzag(
@@ -292,17 +297,13 @@ def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
         )
         cat_sc = coords.SkyCoord(candidates["ra"], candidates["dec"], unit="deg")
         xray_match_idx, _, _ = cat_sc.match_to_catalog_sky(xray_pos)
-        candidates["x_id"] = celldetect_sources["id"][xray_match_idx]
-
-    def _remap_x_id(candidates, version_sources):
-        """Return a copy of candidates with x_id re-matched to version_sources."""
-        return remap_x_id_to_sources(candidates, version_sources)
+        candidates["celldetect_x_id"] = celldetect_sources["id"][xray_match_idx]
 
     gaia_agn_candidates = get_gaia_agn(
         xray_pos, radius=3 * u.arcsec, logging_tag=f"OBSID={obsid}"
     )
     if len(gaia_agn_candidates):
-        _add_obsid_and_x_id(gaia_agn_candidates, id_offset=len(match_candidates))
+        _add_obsid_and_anchor(gaia_agn_candidates, id_offset=len(match_candidates))
         logger.info(f"OBSID={obsid} GaiaAGN: {len(gaia_agn_candidates)} candidate(s)")
     else:
         logger.debug(f"OBSID={obsid} GaiaAGN: no candidates")
@@ -313,7 +314,7 @@ def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
     )
     if len(gaia_qso_candidates):
         id_offset = len(match_candidates) + len(gaia_agn_candidates)
-        _add_obsid_and_x_id(gaia_qso_candidates, id_offset=id_offset)
+        _add_obsid_and_anchor(gaia_qso_candidates, id_offset=id_offset)
         logger.info(f"OBSID={obsid} GaiaQSO: {len(gaia_qso_candidates)} candidate(s)")
     else:
         logger.debug(f"OBSID={obsid} GaiaQSO: no candidates")
@@ -326,7 +327,7 @@ def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
         id_offset = (
             len(match_candidates) + len(gaia_agn_candidates) + len(gaia_qso_candidates)
         )
-        _add_obsid_and_x_id(milliquas_candidates, id_offset=id_offset)
+        _add_obsid_and_anchor(milliquas_candidates, id_offset=id_offset)
         logger.info(
             f"OBSID={obsid} MilliquasGaia: {len(milliquas_candidates)} candidate(s)"
         )
@@ -344,7 +345,7 @@ def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
             + len(gaia_qso_candidates)
             + len(milliquas_candidates)
         )
-        _add_obsid_and_x_id(quaia_candidates, id_offset=id_offset)
+        _add_obsid_and_anchor(quaia_candidates, id_offset=id_offset)
         logger.info(f"OBSID={obsid} Quaia: {len(quaia_candidates)} candidate(s)")
     else:
         logger.debug(f"OBSID={obsid} Quaia: no candidates")
@@ -361,7 +362,7 @@ def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
             + len(milliquas_candidates)
             + len(quaia_candidates)
         )
-        _add_obsid_and_x_id(desi_candidates, id_offset=id_offset)
+        _add_obsid_and_anchor(desi_candidates, id_offset=id_offset)
         logger.info(f"OBSID={obsid} DESIV161: {len(desi_candidates)} candidate(s)")
     else:
         logger.debug(f"OBSID={obsid} DESIV161: no candidates")
@@ -379,7 +380,7 @@ def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
             + len(quaia_candidates)
             + len(desi_candidates)
         )
-        _add_obsid_and_x_id(var_star_candidates, id_offset=id_offset)
+        _add_obsid_and_anchor(var_star_candidates, id_offset=id_offset)
         logger.info(
             f"OBSID={obsid} GaiaVarStar: {len(var_star_candidates)} candidate(s)"
         )
@@ -457,75 +458,66 @@ def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
             all_xcorr.append(tycho2_matches[xcorr_cols])
 
         if len(gaia_agn_candidates):
-            # x_id in gaia_agn_candidates was assigned from celldetect source IDs.
-            # Re-match to this version's xray source IDs so the join in
-            # simple_cross_match works for non-celldetect versions.
-            candidates_for_version = _remap_x_id(gaia_agn_candidates, sources)
             gaia_matches = compute_cross_matches(
                 "gaia_agn",
                 astromon_obs=obspar,
                 astromon_xray_src=sources,
-                astromon_cat_src=candidates_for_version,
+                astromon_cat_src=gaia_agn_candidates,
                 logging_tag=f"OBSID={obsid}",
             )
             if len(gaia_matches):
                 all_xcorr.append(gaia_matches[xcorr_cols])
 
         if len(gaia_qso_candidates):
-            candidates_for_version = _remap_x_id(gaia_qso_candidates, sources)
             gaia_qso_matches = compute_cross_matches(
                 "gaia_qso",
                 astromon_obs=obspar,
                 astromon_xray_src=sources,
-                astromon_cat_src=candidates_for_version,
+                astromon_cat_src=gaia_qso_candidates,
                 logging_tag=f"OBSID={obsid}",
             )
             if len(gaia_qso_matches):
                 all_xcorr.append(gaia_qso_matches[xcorr_cols])
 
         if len(milliquas_candidates):
-            candidates_for_version = _remap_x_id(milliquas_candidates, sources)
             mq_matches = compute_cross_matches(
                 "milliquas_gaia",
                 astromon_obs=obspar,
                 astromon_xray_src=sources,
-                astromon_cat_src=candidates_for_version,
+                astromon_cat_src=milliquas_candidates,
                 logging_tag=f"OBSID={obsid}",
             )
             if len(mq_matches):
                 all_xcorr.append(mq_matches[xcorr_cols])
 
         if len(quaia_candidates):
-            candidates_for_version = _remap_x_id(quaia_candidates, sources)
             quaia_matches = compute_cross_matches(
                 "quaia",
                 astromon_obs=obspar,
                 astromon_xray_src=sources,
-                astromon_cat_src=candidates_for_version,
+                astromon_cat_src=quaia_candidates,
                 logging_tag=f"OBSID={obsid}",
             )
             if len(quaia_matches):
                 all_xcorr.append(quaia_matches[xcorr_cols])
 
         if len(desi_candidates):
-            candidates_for_version = _remap_x_id(desi_candidates, sources)
             desi_matches = compute_cross_matches(
                 "desi_v161",
                 astromon_obs=obspar,
                 astromon_xray_src=sources,
-                astromon_cat_src=candidates_for_version,
+                astromon_cat_src=desi_candidates,
                 logging_tag=f"OBSID={obsid}",
             )
             if len(desi_matches):
                 all_xcorr.append(desi_matches[xcorr_cols])
 
         if len(var_star_candidates):
-            candidates_for_version = _remap_x_id(var_star_candidates, sources)
             vs_matches = compute_cross_matches(
                 "gaia_var_star",
                 astromon_obs=obspar,
                 astromon_xray_src=sources,
-                astromon_cat_src=candidates_for_version,
+                astromon_cat_src=var_star_candidates,
                 logging_tag=f"OBSID={obsid}",
             )
             if len(vs_matches):
@@ -550,9 +542,7 @@ def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
             if len(t)
         ]
         if all_candidates:
-            combined_for_version = _remap_x_id(
-                vstack(all_candidates, metadata_conflicts="silent"), sources
-            )
+            combined_for_version = vstack(all_candidates, metadata_conflicts="silent")
             for select_name in (
                 "astromon_23",
                 "astromon_24",

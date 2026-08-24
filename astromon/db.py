@@ -37,6 +37,9 @@ elif "NO_DEFAULT_ASTROMON" in os.environ:
 else:
     FILE = Path(os.environ["SKA"]) / "data" / "astromon" / "astromon.h5"
 
+# astromon_xcorr.x_id plus detect_method is the final per-method match key: it
+# joins to astromon_xray_src on (obsid, id, detect_method). Unlike
+# astromon_cat_src.celldetect_x_id, this one really does identify a pairing.
 ASTROMON_XCORR_DTYPE = np.dtype(
     [
         ("select_name", "S14"),
@@ -91,11 +94,17 @@ ASTROMON_XRAY_SRC_DTYPE = np.dtype(
 )
 
 
+# astromon_cat_src.celldetect_x_id is a celldetect-scoped anchor: the celldetect
+# source this catalogue row was queried around, and what `separation` is measured
+# from. It is provenance, not a match key -- there is one row per catalogue source
+# per observation and no detect_method column, so it cannot express a per-method
+# pairing. The pairing lives in astromon_xcorr, which does have detect_method.
+# get_cross_matches drops this column before joining for that reason.
 ASTROMON_CAT_SRC_DTYPE = np.dtype(
     [
         ("obsid", np.int32),
         ("id", np.int32),
-        ("x_id", np.int32),
+        ("celldetect_x_id", np.int32),
         ("catalog", "S16"),
         ("name", "S32"),
         ("ra", np.float64),
@@ -243,16 +252,32 @@ def conform_to_dtype(data: table.Table, table_name: str) -> table.Table:
     """
     dtype = DTYPES[table_name]
     for name in dtype.names:
-        if name not in data.colnames:
-            fill = missing_column_fill(dtype, name)
-            data[name] = np.full(len(data), fill, dtype=dtype[name])
+        if name in data.colnames:
+            continue
+        former = RENAMED_COLUMNS.get(name)
+        if former is not None and former in data.colnames:
+            data[name] = data[former].astype(dtype[name])
+            continue
+        fill = missing_column_fill(dtype, name)
+        data[name] = np.full(len(data), fill, dtype=dtype[name])
     return data
+
+
+#: Columns that have been renamed, as {new name: former name}. _cast_to_dtype
+#: matches fields by name and fills anything absent via missing_column_fill --
+#: which returns 0 for integers -- so without this a file written before a rename
+#: would read the new column as a silent zero rather than its stored value. Kept
+#: permanently: backups and older copies of the database stay readable, and the
+#: next rename gets the same protection for free.
+RENAMED_COLUMNS = {"celldetect_x_id": "x_id"}
 
 
 def _cast_to_dtype(arr: np.ndarray, dtype: np.dtype) -> np.ndarray:
     """Cast a structured numpy array to *dtype*.
 
-    Fields missing from `arr` are filled per :func:`missing_column_fill`.
+    Fields missing from `arr` are taken from their former name if they have one
+    (see :data:`RENAMED_COLUMNS`), and otherwise filled per
+    :func:`missing_column_fill`.
     """
     if arr.dtype == dtype:
         return arr
@@ -260,8 +285,12 @@ def _cast_to_dtype(arr: np.ndarray, dtype: np.dtype) -> np.ndarray:
     for name in dtype.names:
         if name in arr.dtype.names:
             result[name] = arr[name]
-        else:
-            result[name] = missing_column_fill(dtype, name)
+            continue
+        former = RENAMED_COLUMNS.get(name)
+        if former is not None and former in arr.dtype.names:
+            result[name] = arr[former]
+            continue
+        result[name] = missing_column_fill(dtype, name)
     return result
 
 
@@ -445,16 +474,30 @@ def save(  # noqa: PLR0912
 
         if table_name in DTYPES:
             dtype = DTYPES[table_name]
-            names = [n for n in dtype.names if n in data.dtype.names]
+            # A column under its former name is present, not missing: resolve it
+            # rather than rejecting the write. Fixtures and external dumps predate
+            # the rename, and the values are the right ones either way.
+            source_of = {
+                name: (
+                    name
+                    if name in data.dtype.names
+                    else RENAMED_COLUMNS.get(name, name)
+                )
+                for name in dtype.names
+            }
+            names = [n for n in dtype.names if source_of[n] in data.dtype.names]
             if len(names) == 0:
                 raise Exception("Input data has no columns in common with table in DB")
-            missing = [name for name in dtype.names if name not in data.dtype.names]
+            missing = [
+                name for name in dtype.names if source_of[name] not in data.dtype.names
+            ]
             if missing:
                 raise Exception(
                     f"Saving table {table_name} with missing columns: {', '.join(missing)}"
                 )
             b = np.zeros(len(data), dtype=dtype)
-            b[names] = data[names].as_array().astype(dtype[names])
+            for name in names:
+                b[name] = data[source_of[name]].data.astype(dtype[name])
             data = b
         else:
             data = data.as_array()
@@ -895,7 +938,11 @@ def get_cross_matches(name="astromon_21", dbfile=None, **kwargs):
         observation.ID_CATEGORY_MAP[cat] for cat in astromon_obs["category_id"]
     ]
 
-    astromon_cat_src.remove_column("x_id")
+    # The anchor is celldetect-scoped provenance, not the match key: xcorr already
+    # carries (x_id, detect_method), which is the per-method pairing. Dropping it
+    # here keeps it from colliding with the xray_src x_id below, and keeps callers
+    # from mistaking it for the matched source.
+    astromon_cat_src.remove_column("celldetect_x_id")
     astromon_cat_src.rename_columns(
         ["id", "ra", "dec", "y_angle", "z_angle"],
         ["c_id", "c_ra", "c_dec", "c_y_angle", "c_z_angle"],
