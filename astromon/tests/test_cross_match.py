@@ -9,7 +9,7 @@ import pytest
 import requests
 from astropy import coordinates as coords
 from astropy import units as u
-from astropy.table import Table
+from astropy.table import Table, vstack
 from cxotime import CxoTime
 from ska_helpers.retry import retry
 from testr.test_helper import has_internet
@@ -1421,6 +1421,57 @@ def test_cache_is_stale_none_max_age_never_refreshes(tmp_path):
     old_time = time.time() - 10_000 * 86400
     os.utime(cache_path, (old_time, old_time))
     assert not cross_match._cache_is_stale(cache_path, max_age_days=None)
+
+
+# ---- per-method selection grouping ----
+
+
+def _two_method_xray_src(obsid=99900, ra=83.82, dec=-5.39):
+    """The same source id detected by both methods, as the pipeline stores it."""
+    both = vstack([_minimal_xray_src(obsid, ra=ra, dec=dec)] * 2)
+    both["detect_method"] = ["celldetect", "gaussian_detect"]
+    return both
+
+
+def test_selection_keeps_one_row_per_method():
+    """A selection without detect_method_filter must not collapse the two methods.
+
+    The grouping that picks the best catalogue match per X-ray source keyed on
+    (obsid, x_id) alone. Handed a table holding both methods it kept whichever
+    happened to fit better and silently dropped the other -- so the surviving
+    detect_method varied per source, and dr was biased low by being the minimum of
+    two measurements. Every caller today passes one method at a time, which is the
+    only reason this was not visible; rebuild_xcorr did not, and hit it.
+    """
+    matches = cross_match.compute_cross_matches(
+        "tycho2",
+        astromon_obs=_minimal_obs(99900),
+        astromon_xray_src=_two_method_xray_src(99900),
+        astromon_cat_src=_minimal_cat_src(99900),
+    )
+
+    assert sorted(matches["detect_method"]) == ["celldetect", "gaussian_detect"]
+
+
+def test_selection_still_picks_one_match_per_source_within_a_method():
+    """The grouping itself is unchanged: still one best catalogue match per source."""
+    cat = vstack(
+        [
+            _minimal_cat_src(99900, name="near", ra=83.82028),
+            _minimal_cat_src(99900, name="far", ra=83.8206),
+        ]
+    )
+    cat["id"] = [0, 1]
+
+    matches = cross_match.compute_cross_matches(
+        "tycho2",
+        astromon_obs=_minimal_obs(99900),
+        astromon_xray_src=_minimal_xray_src(99900),
+        astromon_cat_src=cat,
+    )
+
+    assert len(matches) == 1, "one X-ray source, one method -> one row"
+    assert matches["name"][0] == "near"
 
 
 # ---- rough_match deduplication ----
