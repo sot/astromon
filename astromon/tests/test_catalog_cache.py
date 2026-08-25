@@ -2,15 +2,20 @@
 
 get_rfc checks astrogeo.org for a newer release at most once per `max_age_days`,
 so that a pipeline run does not re-check once per obsid.  These tests cover the
-case the interval originally missed -- a check or download that *fails* -- which
-matters as soon as anything loops over thousands of obsids in one process.
+location, refresh, and fallback behavior that would otherwise be spread across
+the catalogue-query tests. Keeping them together makes it easier to review the
+cache contract without paging through matching logic.
 """
 
 import inspect
+import json
 import os
+import subprocess
+import sys
 import time
 import urllib.error
-from unittest.mock import patch
+from pathlib import Path
+from unittest.mock import Mock, patch
 
 import numpy as np
 import pytest
@@ -29,6 +34,35 @@ RFC J1229+0203  3C273B    12 29 06.699755 +02 03 08.59833    0.09   0.17   -0.01
 """
 
 
+def _resolved_cache_paths(env_overrides):
+    """Import cross_match in a subprocess and report where its caches resolve."""
+    script = (
+        "import json\n"
+        "from astromon import cross_match\n"
+        "from astromon import observation, utils\n"
+        "print(json.dumps({\n"
+        "    'dir': str(utils.ASTROMON_DATA_DIR),\n"
+        "    'archive': str(observation.ARCHIVE_DIR),\n"
+        "    'rfc': str(cross_match._RFC_CACHE_PATH),\n"
+        "    'quaia': str(cross_match._QUAIA_CACHE_PATH),\n"
+        "    'all': {n: str(getattr(cross_match, n))\n"
+        "            for n in dir(cross_match) if n.endswith('_CACHE_PATH')},\n"
+        "}))\n"
+    )
+    repo_root = Path(__file__).resolve().parents[2]
+    child_env = {k: v for k, v in os.environ.items() if k != "ASTROMON_DATA_DIR"}
+    child_env["PYTHONPATH"] = str(repo_root)
+    child_env.update(env_overrides)
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=child_env,
+    )
+    return json.loads(completed.stdout)
+
+
 def _stale_cache(tmp_path, age_days=10):
     """An RFC cache old enough that the release check is due."""
     cache = tmp_path / "rfc_catalog.txt"
@@ -44,6 +78,278 @@ def _failing_urlretrieve(calls):
         raise urllib.error.HTTPError(url, 404, "Not Found", None, None)
 
     return urlretrieve
+
+
+def test_cache_is_stale_absent_file(tmp_path):
+    """A cache_path that does not exist is always stale."""
+    assert cross_match._cache_is_stale(tmp_path / "missing.txt", max_age_days=30)
+
+
+def test_cache_is_stale_respects_max_age(tmp_path):
+    """An existing file is stale only once it exceeds max_age_days."""
+    cache_path = tmp_path / "cached.txt"
+    cache_path.write_text("data")
+
+    assert not cross_match._cache_is_stale(cache_path, max_age_days=30)
+
+    old_time = time.time() - 31 * 86400
+    os.utime(cache_path, (old_time, old_time))
+    assert cross_match._cache_is_stale(cache_path, max_age_days=30)
+
+
+def test_cache_is_stale_none_max_age_never_refreshes(tmp_path):
+    """max_age_days=None means only absence makes the cache stale."""
+    cache_path = tmp_path / "cached.txt"
+    cache_path.write_text("data")
+
+    old_time = time.time() - 10_000 * 86400
+    os.utime(cache_path, (old_time, old_time))
+    assert not cross_match._cache_is_stale(cache_path, max_age_days=None)
+
+
+def test_cache_dir_defaults_under_ska():
+    """Without an override the caches stay where they have always been."""
+    resolved = _resolved_cache_paths({"SKA": "/tmp/fake-ska"})
+
+    assert resolved["dir"] == "/tmp/fake-ska/data/astromon"
+    assert resolved["rfc"] == "/tmp/fake-ska/data/astromon/rfc_catalog.txt"
+
+
+def test_astromon_data_dir_overrides_the_cache_location():
+    """ASTROMON_DATA_DIR isolates the catalog caches the way ASTROMON_FILE does the DB."""
+    resolved = _resolved_cache_paths(
+        {"SKA": "/tmp/fake-ska", "ASTROMON_DATA_DIR": "/tmp/isolated-catalogs"}
+    )
+
+    assert resolved["dir"] == "/tmp/isolated-catalogs"
+    assert resolved["rfc"] == "/tmp/isolated-catalogs/rfc_catalog.txt"
+    assert resolved["quaia"] == "/tmp/isolated-catalogs/quaia_catalog.fits"
+
+
+def test_archive_dir_defaults_under_the_shared_data_dir():
+    """The observation archive lives under the same root as the catalogs."""
+    resolved = _resolved_cache_paths({"SKA": "/tmp/fake-ska"})
+
+    assert resolved["archive"] == "/tmp/fake-ska/data/astromon/xray_observations"
+
+
+def test_astromon_data_dir_moves_the_archive_too():
+    """ARCHIVE_DIR follows ASTROMON_DATA_DIR, so one variable isolates a run."""
+    resolved = _resolved_cache_paths(
+        {"SKA": "/tmp/fake-ska", "ASTROMON_DATA_DIR": "/tmp/isolated-catalogs"}
+    )
+
+    assert resolved["archive"] == "/tmp/isolated-catalogs/xray_observations"
+
+
+def test_astromon_data_dir_moves_every_catalog_cache():
+    """No cache may be left behind pointing at the default location."""
+    resolved = _resolved_cache_paths(
+        {"SKA": "/tmp/fake-ska", "ASTROMON_DATA_DIR": "/tmp/isolated-catalogs"}
+    )
+
+    assert resolved["all"], "no cache constants found to check"
+    stragglers = {
+        name: path
+        for name, path in resolved["all"].items()
+        if not path.startswith("/tmp/isolated-catalogs/")
+    }
+    assert not stragglers, f"still under the default location: {stragglers}"
+
+
+_RFC_LANDING_HTML = """
+<html><body>
+<B><A HREF="/sol/rfc/rfc_2026b"> rfc_2026b catalogue of compact radio sources</A></B>.
+Please cite data release rfc_2026b and include DOI 10.25966/dhrk-zh08.
+<A HREF="/rfc/rfc_2026a_map.pdf"><IMG SRC="/rfc/rfc_2026a_map.png"></A>
+</body></html>
+"""
+
+
+def test_discover_latest_rfc_release_reads_the_announced_release():
+    """Discovery reports the release astrogeo announces, not the newest directory."""
+    fake_response = Mock(text=_RFC_LANDING_HTML)
+    fake_response.raise_for_status = Mock()
+    with patch.object(cross_match.requests, "get", return_value=fake_response):
+        release = cross_match._discover_latest_rfc_release()
+    assert release == "rfc_2026b"
+
+
+def test_discover_latest_rfc_release_ignores_releases_named_only_as_assets():
+    """A map PDF for another release must not be mistaken for the announcement."""
+    html = (
+        '<A HREF="/sol/rfc/rfc_2025d">rfc_2025d</A>'
+        '<A HREF="/rfc/rfc_2026b_map.pdf">map</A>'
+    )
+    fake_response = Mock(text=html)
+    fake_response.raise_for_status = Mock()
+    with patch.object(cross_match.requests, "get", return_value=fake_response):
+        assert cross_match._discover_latest_rfc_release() == "rfc_2025d"
+
+
+def test_discover_latest_rfc_release_no_releases_found_raises():
+    """A page announcing no release raises rather than returning junk."""
+    fake_response = Mock(text="<html><body>nothing here</body></html>")
+    fake_response.raise_for_status = Mock()
+    with patch.object(cross_match.requests, "get", return_value=fake_response):
+        with pytest.raises(RuntimeError, match="No RFC release"):
+            cross_match._discover_latest_rfc_release()
+
+
+def _write_fake_rfc_file(dest, *_args, **_kwargs):
+    """Write a minimal valid RFC catalog to *dest* directly."""
+    Path(dest).write_text(
+        "RFC J1229+0203  3C273B    12 29 06.699755 +02 03 08.59833    0.09   0.17   -0.013\n"
+    )
+
+
+def _urlretrieve_writes_fake_rfc(_url, dest, *_args, **_kwargs):
+    """Stand-in for urllib.request.urlretrieve(url, dest, ...)."""
+    _write_fake_rfc_file(dest)
+
+
+def test_get_rfc_no_cache_downloads_and_writes_release_marker(tmp_path):
+    """First-ever call with no cache discovers the release, downloads, and records it."""
+    cache = tmp_path / "rfc_catalog.txt"
+    with (
+        patch.object(
+            cross_match, "_discover_latest_rfc_release", return_value="rfc_2026b"
+        ),
+        patch(
+            "astromon.cross_match.urllib.request.urlretrieve",
+            side_effect=_urlretrieve_writes_fake_rfc,
+        ) as mock_urlretrieve,
+    ):
+        rfc = cross_match.get_rfc(cache_path=cache)
+
+    assert len(rfc) == 1
+    assert mock_urlretrieve.call_count == 1
+    assert mock_urlretrieve.call_args[0][0] == (
+        "http://astrogeo.org/sol/rfc/rfc_2026b/rfc_2026b_cat.txt"
+    )
+    marker = cache.with_name(cache.name + ".release")
+    assert marker.read_text() == "rfc_2026b"
+
+
+def test_get_rfc_fresh_cache_skips_network_entirely(tmp_path):
+    """A cache newer than max_age_days never touches the network."""
+    cache = tmp_path / "rfc_catalog.txt"
+    _write_fake_rfc_file(cache)
+    cache.with_name(cache.name + ".release").write_text("rfc_2026b")
+
+    with (
+        patch.object(cross_match, "_discover_latest_rfc_release") as mock_discover,
+        patch("astromon.cross_match.urllib.request.urlretrieve") as mock_urlretrieve,
+    ):
+        rfc = cross_match.get_rfc(cache_path=cache, max_age_days=1)
+
+    assert len(rfc) == 1
+    mock_discover.assert_not_called()
+    mock_urlretrieve.assert_not_called()
+
+
+def test_get_rfc_stale_but_same_release_skips_download(tmp_path):
+    """When the check interval elapses but the release has not changed, no download happens."""
+    cache = tmp_path / "rfc_catalog.txt"
+    _write_fake_rfc_file(cache)
+    cache.with_name(cache.name + ".release").write_text("rfc_2026b")
+    old_time = time.time() - 2 * 86400
+    os.utime(cache, (old_time, old_time))
+
+    with (
+        patch.object(
+            cross_match, "_discover_latest_rfc_release", return_value="rfc_2026b"
+        ),
+        patch("astromon.cross_match.urllib.request.urlretrieve") as mock_urlretrieve,
+    ):
+        rfc = cross_match.get_rfc(cache_path=cache, max_age_days=1)
+
+    assert len(rfc) == 1
+    mock_urlretrieve.assert_not_called()
+    assert cache.stat().st_mtime > old_time
+
+
+def test_get_rfc_new_release_downloads(tmp_path):
+    """A genuinely newer release name triggers a real download and marker update."""
+    cache = tmp_path / "rfc_catalog.txt"
+    _write_fake_rfc_file(cache)
+    cache.with_name(cache.name + ".release").write_text("rfc_2026a")
+    old_time = time.time() - 2 * 86400
+    os.utime(cache, (old_time, old_time))
+
+    with (
+        patch.object(
+            cross_match, "_discover_latest_rfc_release", return_value="rfc_2026b"
+        ),
+        patch(
+            "astromon.cross_match.urllib.request.urlretrieve",
+            side_effect=_urlretrieve_writes_fake_rfc,
+        ) as mock_urlretrieve,
+    ):
+        cross_match.get_rfc(cache_path=cache, max_age_days=1)
+
+    assert mock_urlretrieve.call_count == 1
+    marker = cache.with_name(cache.name + ".release")
+    assert marker.read_text() == "rfc_2026b"
+
+
+def test_get_rfc_download_failure_falls_back_to_stale_cache(tmp_path):
+    """A newly discovered but broken release falls back to the existing cache."""
+    cache = tmp_path / "rfc_catalog.txt"
+    _write_fake_rfc_file(cache)
+    cache.with_name(cache.name + ".release").write_text("rfc_2026b")
+    old_time = time.time() - 2 * 86400
+    os.utime(cache, (old_time, old_time))
+    size_before = cache.stat().st_size
+
+    with (
+        patch.object(
+            cross_match, "_discover_latest_rfc_release", return_value="rfc_2026c"
+        ),
+        patch(
+            "astromon.cross_match.urllib.request.urlretrieve",
+            side_effect=OSError("HTTP Error 404: Not Found"),
+        ),
+        patch.object(cross_match.logger, "warning") as mock_warning,
+    ):
+        rfc = cross_match.get_rfc(cache_path=cache, max_age_days=1)
+
+    assert len(rfc) == 1
+    assert cache.stat().st_size == size_before
+    assert cache.with_name(cache.name + ".release").read_text() == "rfc_2026b"
+    assert "RFC download failed" in mock_warning.call_args[0][0]
+
+
+def test_get_rfc_discovery_failure_no_cache_raises(tmp_path):
+    """With no cache to fall back to, a discovery failure raises."""
+    cache = tmp_path / "rfc_catalog.txt"
+    with patch.object(
+        cross_match, "_discover_latest_rfc_release", side_effect=OSError("network down")
+    ):
+        with pytest.raises(OSError, match="network down"):
+            cross_match.get_rfc(cache_path=cache)
+
+
+def test_get_rfc_discovery_failure_with_cache_falls_back(tmp_path):
+    """A transient failure checking for a new release falls back to the existing cache."""
+    cache = tmp_path / "rfc_catalog.txt"
+    _write_fake_rfc_file(cache)
+    cache.with_name(cache.name + ".release").write_text("rfc_2026b")
+    old_time = time.time() - 2 * 86400
+    os.utime(cache, (old_time, old_time))
+
+    with (
+        patch.object(
+            cross_match,
+            "_discover_latest_rfc_release",
+            side_effect=OSError("network down"),
+        ),
+        patch.object(cross_match.logger, "warning") as mock_warning,
+    ):
+        rfc = cross_match.get_rfc(cache_path=cache, max_age_days=1)
+
+    assert len(rfc) == 1
+    assert "RFC release check failed" in mock_warning.call_args[0][0]
 
 
 def test_get_rfc_download_failure_applies_the_check_interval(tmp_path):
