@@ -986,6 +986,74 @@ def test_dedupe_desi_by_delchi2_same_targetid_keeps_the_better_copy():
     )
 
 
+def test_get_desi_v161_candidates_position_dedup_handles_a_rounding_boundary():
+    """Two positions straddling a rounding boundary must still be grouped.
+
+    obsid 3000's real duplicate pair is exactly this shape: ra=190.544187 and
+    ra=190.544196 are ~0.033" apart -- well inside the ~0.036" tolerance -- but
+    190.544187 rounds to 190.54419 at 5 decimal places while 190.544196 rounds to
+    190.54420, landing in different buckets under naive round-then-group. This
+    is the failure that let 12 of 122 known duplicates survive the first version
+    of the fix.
+    """
+    pos = coords.SkyCoord([_COSMOS_DESI_RA], [_COSMOS_DESI_DEC], unit="deg")
+    fake_rows = Table(
+        {
+            "RAICRS": np.array([190.544187, 190.544196], dtype=float),
+            "DEICRS": np.array([33.284073, 33.284073], dtype=float),
+            "TargetID": np.array(
+                [2305843020496374046, 39632945912218912], dtype=np.int64
+            ),
+            "OType": ["GALAXY", "GALAXY"],
+            "ZWARN": np.array([0, 0], dtype=int),
+            "delChi2": np.array([128268.3, 395323.8], dtype=float),
+        }
+    )
+
+    with patch.object(cross_match, "_query_vizier_region", return_value=[fake_rows]):
+        result = cross_match.get_desi_v161_candidates(pos, radius=3 * u.arcsec)
+
+    assert len(result) == 1, '0.033" apart is the same object, not two'
+    assert result["name"][0] == "DESIV161-39632945912218912"
+
+
+def test_get_desi_v161_candidates_position_dedup_at_desis_own_accuracy_limit():
+    """A genuine duplicate 0.0508" apart must merge -- and a real distinct
+    object 1.6" away in the same anchor group must not.
+
+    obsid 13994's DESIV161-2305843020093724629 and DESIV161-39628438616675080
+    are 0.0508" apart, just over a naive 0.05" cutoff, while
+    DESIV161-1092755086376973 in the same group is a genuinely different
+    object 1.6" away. get_desi_v161_candidates' own docstring states DESI
+    positions are accurate to <~0.1" -- narrower than that overstates the
+    precision of a repeat observation and leaves real duplicates like this one
+    unmerged.
+    """
+    pos = coords.SkyCoord([_COSMOS_DESI_RA], [_COSMOS_DESI_DEC], unit="deg")
+    fake_rows = Table(
+        {
+            "RAICRS": np.array([194.915384, 194.915246, 194.915256], dtype=float),
+            "DEICRS": np.array([27.954351, 27.953920, 27.953909], dtype=float),
+            "TargetID": np.array(
+                [1092755086376973, 2305843020093724629, 39628438616675080],
+                dtype=np.int64,
+            ),
+            "OType": ["QSO", "QSO", "QSO"],
+            "ZWARN": np.array([0, 0, 0], dtype=int),
+            "delChi2": np.array([1000.0, 500.0, 5000.0], dtype=float),
+        }
+    )
+
+    with patch.object(cross_match, "_query_vizier_region", return_value=[fake_rows]):
+        result = cross_match.get_desi_v161_candidates(pos, radius=3 * u.arcsec)
+
+    names = sorted(result["name"])
+    assert names == ["DESIV161-1092755086376973", "DESIV161-39628438616675080"], (
+        "the distant object survives on its own; the close pair merges to its "
+        "higher-delChi2 member"
+    )
+
+
 def test_get_desi_v161_candidates_prefers_higher_delchi2_different_targetid():
     """Two different TargetIDs at the same position: DESI's own repeat targeting
     of one physical object across survey phases, not two real sources.
