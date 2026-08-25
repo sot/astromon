@@ -1,6 +1,4 @@
 import contextlib
-import os
-import time
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -16,6 +14,11 @@ from ska_helpers.retry import retry
 from testr.test_helper import has_internet
 
 from astromon import cross_match, db
+from astromon.tests.utils import (
+    minimal_cat_src as _minimal_cat_src,
+    minimal_obs as _minimal_obs,
+    minimal_xray_src as _minimal_xray_src,
+)
 
 DATA_DIR = Path(__file__).parent / "data"
 
@@ -351,88 +354,6 @@ def test_get_gaia_agn_catalog_failure_returns_empty():
 
     assert len(result) == 0
     assert set(cross_match.CROSS_MATCH_DTYPE.names).issubset(set(result.colnames))
-
-
-def _minimal_obs(
-    obsid: int = 99900,
-    ra: float = 83.82,
-    dec: float = -5.39,
-    target: str = "test",
-    category_id: int = 50,
-) -> Table:
-    """One-row astromon_obs table for use in cross_match tests."""
-    return Table(
-        {
-            "obsid": [obsid],
-            "detector": ["ACIS-S"],
-            "target": [target],
-            "grating": ["NONE"],
-            "sim_z": [-190.143],
-            "date_obs": ["2020-01-01T00:00:00"],
-            "tstart": [0.0],
-            "ascdsver": ["10.0"],
-            "ra": [ra],
-            "dec": [dec],
-            "roll": [0.0],
-            "category_id": [category_id],
-            "version": ["10.0"],
-        }
-    )
-
-
-def _minimal_xray_src(
-    obsid: int = 99900,
-    ra: float = 83.82,
-    dec: float = -5.39,
-    snr: float = 10.0,
-    net_counts: float = 500.0,
-) -> Table:
-    """One celldetect X-ray source for use in cross_match tests."""
-    return Table(
-        {
-            "obsid": [obsid],
-            "id": [1],
-            "ra": [ra],
-            "dec": [dec],
-            "net_counts": [net_counts],
-            "y_angle": [0.0],
-            "z_angle": [0.0],
-            "r_angle": [10.0],
-            "snr": [snr],
-            "near_neighbor_dist": [60.0],
-            "pileup": [0.0],
-            "acis_streak": [False],
-            "caldb_version": ["4.10.0"],
-            "detect_method": ["celldetect"],
-        }
-    )
-
-
-def _minimal_cat_src(
-    obsid: int = 99900,
-    celldetect_x_id: int = 1,
-    catalog: str = "Tycho2",
-    name: str = "test-star",
-    ra: float = 83.82028,
-    dec: float = -5.39,
-    mag: float = 8.0,
-) -> Table:
-    """One catalog source positioned ~1 arcsec from the xray source."""
-    return Table(
-        {
-            "obsid": [obsid],
-            "id": [0],
-            "celldetect_x_id": [celldetect_x_id],
-            "catalog": [catalog],
-            "name": [name],
-            "ra": [ra],
-            "dec": [dec],
-            "mag": [mag],
-            "y_angle": [0.0],
-            "z_angle": [0.0],
-            "separation": [1.0],
-        }
-    )
 
 
 def test_compute_cross_matches_gaia_agn():
@@ -1395,257 +1316,104 @@ def test_local_catalog_near_scalar_pos():
     assert sorted(result["name"]) == ["near-1", "near-2"]
 
 
-def test_cache_is_stale_absent_file(tmp_path):
-    """A cache_path that does not exist is always stale."""
-    assert cross_match._cache_is_stale(tmp_path / "missing.txt", max_age_days=30)
+def _local_catalog(name="SRC", ra=150.0, dec=20.0, mag=None):
+    """Minimal locally-cached catalog table as consumed by _local_catalog_near."""
+    cols = {
+        "name": [name],
+        "ra": np.array([ra], dtype=float),
+        "dec": np.array([dec], dtype=float),
+    }
+    if mag is not None:
+        cols["mag"] = np.array([mag], dtype=np.float32)
+    return Table(cols)
 
 
-def test_cache_is_stale_respects_max_age(tmp_path):
-    """An existing file is stale only once it exceeds max_age_days."""
-    cache_path = tmp_path / "cached.txt"
-    cache_path.write_text("data")
+def test_local_catalog_near_wraps_ra_across_zero_meridian():
+    """A counterpart just across RA=0 is kept, not discarded by unwrapped RA arithmetic.
 
-    assert not cross_match._cache_is_stale(cache_path, max_age_days=30)
-
-    old_time = time.time() - 31 * 86400
-    os.utime(cache_path, (old_time, old_time))
-    assert cross_match._cache_is_stale(cache_path, max_age_days=30)
-
-
-def test_cache_is_stale_none_max_age_never_refreshes(tmp_path):
-    """max_age_days=None means only absence makes the cache stale."""
-    cache_path = tmp_path / "cached.txt"
-    cache_path.write_text("data")
-
-    old_time = time.time() - 10_000 * 86400
-    os.utime(cache_path, (old_time, old_time))
-    assert not cross_match._cache_is_stale(cache_path, max_age_days=None)
-
-
-# ---- the anchor invariant ----
-
-
-def test_the_anchor_always_names_a_celldetect_source():
-    """Every anchor resolves to a celldetect source in the same observation.
-
-    This is what makes the anchor meaningful, and it held with no exceptions across
-    the live database: 99,558 of 99,558. It would have failed the moment a second
-    detection method started being written without giving cat_src a per-method
-    dimension, which is the state that let _remap_x_id exist.
+    The bounding-cone prefilter works in flat (dra, ddec) offsets. Without wrapping,
+    a source at RA=359.99999 looks ~354 deg away from a position at RA=0.00001 rather
+    than 1e-5 deg, so every counterpart across the meridian is silently dropped --
+    losing all RFC/ICRF3/Quaia/GaiaAGN/GaiaQSO matches for fields straddling RA=0.
     """
-    cat_src = Table.read(DATA_DIR / "astromon_cat_src.ecsv")
-    xray_src = Table.read(DATA_DIR / "astromon_xray_src.ecsv")
+    pos = coords.SkyCoord(ra=[0.00001], dec=[10.0], unit="deg")
+    catalog = _local_catalog(name="ACROSS_MERIDIAN", ra=359.99999, dec=10.0)
 
-    if "detect_method" in xray_src.colnames:
-        xray_src = xray_src[xray_src["detect_method"] == "celldetect"]
-    celldetect = set(
-        zip(
-            np.asarray(xray_src["obsid"]).tolist(),
-            np.asarray(xray_src["id"]).tolist(),
-            strict=True,
-        )
-    )
+    true_sep = pos.separation(
+        coords.SkyCoord(catalog["ra"], catalog["dec"], unit="deg")
+    ).arcsec
+    assert true_sep[0] < 1.0, "test fixture must be a genuine sub-arcsec counterpart"
 
-    unresolved = [
-        (int(obsid), int(anchor))
-        for obsid, anchor in zip(
-            cat_src["obsid"], cat_src["celldetect_x_id"], strict=True
-        )
-        if (int(obsid), int(anchor)) not in celldetect
-    ]
-
-    assert not unresolved, f"anchors naming no celldetect source: {unresolved[:5]}"
+    result = cross_match._local_catalog_near(catalog, "TEST", pos, 3 * u.arcsec)
+    assert len(result) == 1
+    assert result["name"][0] == "ACROSS_MERIDIAN"
 
 
-# ---- the celldetect anchor is not a match key ----
-
-
-def test_matches_are_unchanged_when_the_anchor_is_scrambled():
-    """cat_src's anchor must not decide which X-ray source a catalogue row matches.
-
-    This is the contract, not an incidental property: the anchor is celldetect's
-    numbering, and joining on it made it a per-method key in a table that has no
-    per-method dimension. Matching is decided by position and the dr cut, so
-    scrambling the anchor must change nothing. If someone reinstates the join, this
-    fails.
-    """
-    obs = _minimal_obs(99900)
-    xray = _minimal_xray_src(99900)
-    good = _minimal_cat_src(99900)
-
-    scrambled = good.copy()
-    scrambled["celldetect_x_id"] = 4242  # names no source that exists
-
-    from_good = cross_match.compute_cross_matches(
-        "tycho2", astromon_obs=obs, astromon_xray_src=xray, astromon_cat_src=good
-    )
-    from_scrambled = cross_match.compute_cross_matches(
-        "tycho2", astromon_obs=obs, astromon_xray_src=xray, astromon_cat_src=scrambled
-    )
-
-    assert len(from_good) == 1
-    for column in ("obsid", "x_id", "c_id", "dr", "detect_method"):
-        assert list(from_good[column]) == list(from_scrambled[column]), column
-
-
-def test_a_method_missing_the_source_yields_no_match_for_that_method():
-    """gaussian dropping a source means no gaussian match, not a substituted one.
-
-    Gaussian ids are a subset of celldetect ids in 8,445 of 8,445 obsids, so when
-    the anchor names an id gaussian does not have, the source was dropped by the
-    fit. _remap_x_id substituted the nearest gaussian source instead, which
-    manufactured matches against different objects -- obsid 332 got dr=0.09" against
-    a source 2.4" from the real counterpart.
-    """
-    xray = _two_method_xray_src(99900)
-    # celldetect keeps id 1 on the catalogue source; gaussian has only id 2, well
-    # outside the 3" dr cut. dr is measured in the y/z plane, so that is what has
-    # to move -- ra/dec alone would leave dr at zero for both.
-    xray["id"] = [1, 2]
-    xray["y_angle"] = [0.0, 36.0]
-
-    matches = cross_match.compute_cross_matches(
-        "tycho2",
-        astromon_obs=_minimal_obs(99900),
-        astromon_xray_src=xray,
-        astromon_cat_src=_minimal_cat_src(99900),
-    )
-
-    assert list(matches["detect_method"]) == ["celldetect"]
-    assert list(matches["x_id"]) == [1]
-
-
-def test_empty_inputs_still_return_the_joined_dtype():
-    """The empty path must not reference a column the schema no longer has."""
-    empty_cat = _minimal_cat_src(99900)[:0]
-
-    matches = cross_match.compute_cross_matches(
-        "tycho2",
-        astromon_obs=_minimal_obs(99900),
-        astromon_xray_src=_minimal_xray_src(99900),
-        astromon_cat_src=empty_cat,
-    )
-
-    assert len(matches) == 0
-    # dy/dz/dr are computed after the join, so the empty path never carried them.
-    # What matters is that it builds its dtype without naming a column the schema
-    # no longer has, and that the anchor and the match key stay distinct names.
-    for column in ("obsid", "x_id", "c_id", "celldetect_x_id"):
-        assert column in matches.colnames, column
-
-
-# ---- per-method selection grouping ----
-
-
-def _two_method_xray_src(obsid=99900, ra=83.82, dec=-5.39):
-    """The same source id detected by both methods, as the pipeline stores it."""
-    both = vstack([_minimal_xray_src(obsid, ra=ra, dec=dec)] * 2)
-    both["detect_method"] = ["celldetect", "gaussian_detect"]
-    return both
-
-
-def test_selection_keeps_one_row_per_method():
-    """A selection without detect_method_filter must not collapse the two methods.
-
-    The grouping that picks the best catalogue match per X-ray source keyed on
-    (obsid, x_id) alone. Handed a table holding both methods it kept whichever
-    happened to fit better and silently dropped the other -- so the surviving
-    detect_method varied per source, and dr was biased low by being the minimum of
-    two measurements. Every caller today passes one method at a time, which is the
-    only reason this was not visible; rebuild_xcorr did not, and hit it.
-    """
-    matches = cross_match.compute_cross_matches(
-        "tycho2",
-        astromon_obs=_minimal_obs(99900),
-        astromon_xray_src=_two_method_xray_src(99900),
-        astromon_cat_src=_minimal_cat_src(99900),
-    )
-
-    assert sorted(matches["detect_method"]) == ["celldetect", "gaussian_detect"]
-
-
-def test_selection_still_picks_one_match_per_source_within_a_method():
-    """The grouping itself is unchanged: still one best catalogue match per source."""
-    cat = vstack(
-        [
-            _minimal_cat_src(99900, name="near", ra=83.82028),
-            _minimal_cat_src(99900, name="far", ra=83.8206),
-        ]
-    )
-    cat["id"] = [0, 1]
-
-    matches = cross_match.compute_cross_matches(
-        "tycho2",
-        astromon_obs=_minimal_obs(99900),
-        astromon_xray_src=_minimal_xray_src(99900),
-        astromon_cat_src=cat,
-    )
-
-    assert len(matches) == 1, "one X-ray source, one method -> one row"
-    assert matches["name"][0] == "near"
-
-
-# ---- rough_match deduplication ----
-
-
-def test_rough_match_deduplicates_repeated_catalog_rows():
-    """One row per (catalog source, X-ray source) pair, not per returned copy.
-
-    get_vizier is called with every X-ray position at once and returns a catalogue
-    source once per input position that matched it. rough_match then cartesian-joins
-    that against the source list, so each returned copy became its own cat_src row:
-    17,595 rows in the live database sat in exact-duplicate groups, every one of them
-    from a VizieR catalogue.
-    """
-    # Two X-ray sources ~2" apart, and one catalogue source between them -- returned
-    # twice, as VizieR does when both positions match it.
-    sources = Table({"id": [1, 2], "ra": [10.0, 10.0005], "dec": [20.0, 20.0]})
-    returned_twice = Table(
+def test_local_catalog_near_wraps_ra_for_field_straddling_meridian():
+    """Both halves of a field that straddles RA=0 keep their counterparts."""
+    pos = coords.SkyCoord(ra=[359.98, 0.02], dec=[-30.0, -30.0], unit="deg")
+    catalog = Table(
         {
-            "catalog": ["Tycho2", "Tycho2"],
-            "name": ["dup-source", "dup-source"],
-            "ra": [10.00025, 10.00025],
-            "dec": [20.0, 20.0],
-            "mag": [11.0, 11.0],
+            "name": ["west", "east"],
+            "ra": np.array([359.980001, 0.020001]),
+            "dec": np.array([-30.0, -30.0]),
         }
     )
 
-    with patch.object(cross_match, "_get", return_value=returned_twice):
-        result = cross_match.rough_match(
-            sources, VIZIER_QUERY_TIME, radius=5 * u.arcsec, catalogs=["Tycho2"]
-        )
-
-    pairs = sorted(zip(result["name"], result["x_id"], strict=True))
-    assert pairs == [("dup-source", 1), ("dup-source", 2)], (
-        f"expected one row per X-ray source, got {pairs}"
-    )
+    result = cross_match._local_catalog_near(catalog, "TEST", pos, 3 * u.arcsec)
+    assert sorted(result["name"]) == ["east", "west"]
 
 
-def test_rough_match_keeps_same_named_sources_at_different_positions():
-    """Deduplication keys on position too, because SDSS names are not unique.
+def test_local_catalog_near_applies_exact_radius_cut():
+    """Sources beyond `radius` of every input position are excluded.
 
-    613 groups in the live database share (obsid, catalog, name) while holding
-    genuinely different positions, all of them SDSS. Keying on name alone would
-    merge distinct objects.
+    The bounding cone is sized to the whole field, so on its own it admits sources
+    arcminutes away from any X-ray source. get_gaia_agn/get_gaia_qso_candidates/
+    get_quaia_candidates feed straight into astromon_cat_src with no later cut of
+    their own, so the radius has to be enforced here.
     """
-    sources = Table({"id": [1], "ra": [10.0], "dec": [20.0]})
-    two_objects_one_name = Table(
+    pos = coords.SkyCoord(ra=[150.0, 150.1], dec=[20.0, 20.05], unit="deg")
+    # Midway between the two X-ray sources: ~3.2 arcmin from the nearer one.
+    catalog = _local_catalog(name="FAR", ra=150.05, dec=20.025)
+
+    nearest = pos.separation(
+        coords.SkyCoord(catalog["ra"], catalog["dec"], unit="deg")
+    ).arcsec.min()
+    assert nearest > 3.0, "test fixture must lie outside the search radius"
+
+    result = cross_match._local_catalog_near(catalog, "TEST", pos, 3 * u.arcsec)
+    assert len(result) == 0
+
+
+def test_local_catalog_near_keeps_source_near_any_position():
+    """The radius cut is per-position, not relative to the field centroid."""
+    pos = coords.SkyCoord(ra=[150.0, 150.1], dec=[20.0, 20.05], unit="deg")
+    catalog = Table(
         {
-            "catalog": ["SDSS", "SDSS"],
-            "name": ["shared-name", "shared-name"],
-            "ra": [10.0002, 10.0004],
-            "dec": [20.0, 20.0],
-            "mag": [19.0, 20.0],
+            "name": ["near_second", "far"],
+            # 1 arcsec from the second position, and far from both.
+            "ra": np.array([150.1 + 1.0 / 3600.0 / np.cos(np.radians(20.05)), 150.05]),
+            "dec": np.array([20.05, 20.025]),
         }
     )
 
-    with patch.object(cross_match, "_get", return_value=two_objects_one_name):
-        result = cross_match.rough_match(
-            sources, VIZIER_QUERY_TIME, radius=5 * u.arcsec, catalogs=["SDSS"]
-        )
+    result = cross_match._local_catalog_near(catalog, "TEST", pos, 3 * u.arcsec)
+    assert list(result["name"]) == ["near_second"]
 
-    assert len(result) == 2, "distinct positions must survive as distinct rows"
-    assert sorted(round(float(r), 4) for r in result["ra"]) == [10.0002, 10.0004]
+
+def test_local_catalog_near_scalar_pos_applies_radius_cut():
+    """A scalar SkyCoord is handled and still gets the exact radius cut."""
+    pos = coords.SkyCoord(ra=150.0, dec=20.0, unit="deg")
+    catalog = Table(
+        {
+            "name": ["close", "far"],
+            "ra": np.array([150.0 + 1.0 / 3600.0 / np.cos(np.radians(20.0)), 150.02]),
+            "dec": np.array([20.0, 20.0]),
+        }
+    )
+
+    result = cross_match._local_catalog_near(catalog, "TEST", pos, 3 * u.arcsec)
+    assert list(result["name"]) == ["close"]
 
 
 def _xray_sources_for_cat_src_ids(
@@ -1763,422 +1531,6 @@ def test_assign_cat_src_ids_handles_empty_candidates():
     assert len(candidates) == 0
     for name in ("obsid", "id", "celldetect_x_id", "y_angle", "z_angle"):
         assert name in candidates.colnames
-
-
-# ---- catalog cache location ----
-
-
-def _resolved_cache_paths(env_overrides):
-    """Import cross_match in a subprocess and report where its caches resolve.
-
-    A subprocess because the paths are module-level constants built at import;
-    setting the environment variable inside this process is too late.
-    """
-    import json
-    import os
-    import subprocess
-    import sys
-
-    script = (
-        "import json\n"
-        "from astromon import cross_match\n"
-        "from astromon import observation, utils\n"
-        "print(json.dumps({\n"
-        "    'dir': str(utils.ASTROMON_DATA_DIR),\n"
-        "    'archive': str(observation.ARCHIVE_DIR),\n"
-        "    'rfc': str(cross_match._RFC_CACHE_PATH),\n"
-        "    'quaia': str(cross_match._QUAIA_CACHE_PATH),\n"
-        # Enumerated by introspection rather than from CATALOG_CACHE_PATHS, which
-        # does not exist on every branch, and so that a cache constant added later
-        # is covered without anyone remembering to list it.
-        "    'all': {n: str(getattr(cross_match, n))\n"
-        "            for n in dir(cross_match) if n.endswith('_CACHE_PATH')},\n"
-        "}))\n"
-    )
-    repo_root = Path(__file__).resolve().parents[2]
-    # Start from a copy with the override cleared, so a value in the ambient
-    # environment cannot decide the result -- running the suite itself under
-    # ASTROMON_DATA_DIR would otherwise make the default case untestable.
-    child_env = {k: v for k, v in os.environ.items() if k != "ASTROMON_DATA_DIR"}
-    child_env["PYTHONPATH"] = str(repo_root)
-    child_env.update(env_overrides)
-    completed = subprocess.run(
-        [sys.executable, "-c", script],
-        capture_output=True,
-        text=True,
-        check=True,
-        env=child_env,
-    )
-    return json.loads(completed.stdout)
-
-
-def test_cache_dir_defaults_under_ska():
-    """Without an override the caches stay where they have always been."""
-    resolved = _resolved_cache_paths({"SKA": "/tmp/fake-ska"})
-
-    assert resolved["dir"] == "/tmp/fake-ska/data/astromon"
-    assert resolved["rfc"] == "/tmp/fake-ska/data/astromon/rfc_catalog.txt"
-
-
-def test_astromon_data_dir_overrides_the_cache_location():
-    """ASTROMON_DATA_DIR isolates the catalog caches the way ASTROMON_FILE does the DB.
-
-    Without this the only way to move the caches was to move SKA itself, which
-    drags mica, CALDB and everything else along with it -- so a dev run could
-    isolate its database but never its catalogs.
-    """
-    resolved = _resolved_cache_paths(
-        {"SKA": "/tmp/fake-ska", "ASTROMON_DATA_DIR": "/tmp/isolated-catalogs"}
-    )
-
-    assert resolved["dir"] == "/tmp/isolated-catalogs"
-    assert resolved["rfc"] == "/tmp/isolated-catalogs/rfc_catalog.txt"
-    assert resolved["quaia"] == "/tmp/isolated-catalogs/quaia_catalog.fits"
-
-
-def test_archive_dir_defaults_under_the_shared_data_dir():
-    """The observation archive lives under the same root as the catalogs."""
-    resolved = _resolved_cache_paths({"SKA": "/tmp/fake-ska"})
-
-    assert resolved["archive"] == "/tmp/fake-ska/data/astromon/xray_observations"
-
-
-def test_astromon_data_dir_moves_the_archive_too():
-    """ARCHIVE_DIR follows ASTROMON_DATA_DIR, so one variable isolates a run.
-
-    Before this it was pinned to $SKA regardless, so a run could redirect its
-    database and its catalogs and still archive observations into the shared
-    tree.
-    """
-    resolved = _resolved_cache_paths(
-        {"SKA": "/tmp/fake-ska", "ASTROMON_DATA_DIR": "/tmp/isolated-catalogs"}
-    )
-
-    assert resolved["archive"] == "/tmp/isolated-catalogs/xray_observations"
-
-
-def test_astromon_data_dir_moves_every_catalog_cache():
-    """No cache may be left behind pointing at the default location."""
-    resolved = _resolved_cache_paths(
-        {"SKA": "/tmp/fake-ska", "ASTROMON_DATA_DIR": "/tmp/isolated-catalogs"}
-    )
-
-    assert resolved["all"], "no cache constants found to check"
-    stragglers = {
-        name: path
-        for name, path in resolved["all"].items()
-        if not path.startswith("/tmp/isolated-catalogs/")
-    }
-    assert not stragglers, f"still under the default location: {stragglers}"
-
-
-# ---- RFC release discovery and fail-soft caching tests ----
-
-# The announcement page as astrogeo.org actually serves it: the current release
-# is stated in a link to /sol/rfc/<release>, and the same release is named again
-# in the citation text. Other releases appear only as image/PDF paths under /rfc/.
-_RFC_LANDING_HTML = """
-<html><body>
-<B><A HREF="/sol/rfc/rfc_2026b"> rfc_2026b catalogue of compact radio sources</A></B>.
-Please cite data release rfc_2026b and include DOI 10.25966/dhrk-zh08.
-<A HREF="/rfc/rfc_2026a_map.pdf"><IMG SRC="/rfc/rfc_2026a_map.png"></A>
-</body></html>
-"""
-
-
-def test_discover_latest_rfc_release_reads_the_announced_release():
-    """Discovery reports the release astrogeo announces, not the newest directory.
-
-    The quarterly directory for a release appears under /sol/rfc/ before its data
-    files do -- rfc_2026c had a landing page and no catalogue for weeks -- so
-    taking the lexicographically-largest directory name adopts a release that has
-    not been published and every download from it 404s.
-    """
-    fake_response = Mock(text=_RFC_LANDING_HTML)
-    fake_response.raise_for_status = Mock()
-    with patch.object(cross_match.requests, "get", return_value=fake_response):
-        release = cross_match._discover_latest_rfc_release()
-    assert release == "rfc_2026b"
-
-
-def test_discover_latest_rfc_release_ignores_releases_named_only_as_assets():
-    """A map PDF for another release must not be mistaken for the announcement."""
-    html = (
-        '<A HREF="/sol/rfc/rfc_2025d">rfc_2025d</A>'
-        '<A HREF="/rfc/rfc_2026b_map.pdf">map</A>'
-    )
-    fake_response = Mock(text=html)
-    fake_response.raise_for_status = Mock()
-    with patch.object(cross_match.requests, "get", return_value=fake_response):
-        assert cross_match._discover_latest_rfc_release() == "rfc_2025d"
-
-
-def test_discover_latest_rfc_release_no_releases_found_raises():
-    """A page announcing no release raises rather than returning junk."""
-    fake_response = Mock(text="<html><body>nothing here</body></html>")
-    fake_response.raise_for_status = Mock()
-    with patch.object(cross_match.requests, "get", return_value=fake_response):
-        with pytest.raises(RuntimeError, match="No RFC release"):
-            cross_match._discover_latest_rfc_release()
-
-
-def _write_fake_rfc_file(dest, *_args, **_kwargs):
-    """Write a minimal valid RFC catalog to *dest* directly (not a urlretrieve stand-in)."""
-    Path(dest).write_text(
-        "RFC J1229+0203  3C273B    12 29 06.699755 +02 03 08.59833    0.09   0.17   -0.013\n"
-    )
-
-
-def _urlretrieve_writes_fake_rfc(_url, dest, *_args, **_kwargs):
-    """Stand-in for urllib.request.urlretrieve(url, dest, ...): write to *dest*."""
-    _write_fake_rfc_file(dest)
-
-
-def test_get_rfc_no_cache_downloads_and_writes_release_marker(tmp_path):
-    """First-ever call with no cache: discovers the release, downloads, records it."""
-    cache = tmp_path / "rfc_catalog.txt"
-    with (
-        patch.object(
-            cross_match, "_discover_latest_rfc_release", return_value="rfc_2026b"
-        ),
-        patch(
-            "astromon.cross_match.urllib.request.urlretrieve",
-            side_effect=_urlretrieve_writes_fake_rfc,
-        ) as mock_urlretrieve,
-    ):
-        rfc = cross_match.get_rfc(cache_path=cache)
-
-    assert len(rfc) == 1
-    assert mock_urlretrieve.call_count == 1
-    assert mock_urlretrieve.call_args[0][0] == (
-        "http://astrogeo.org/sol/rfc/rfc_2026b/rfc_2026b_cat.txt"
-    )
-    marker = cache.with_name(cache.name + ".release")
-    assert marker.read_text() == "rfc_2026b"
-
-
-def test_get_rfc_fresh_cache_skips_network_entirely(tmp_path):
-    """A cache newer than max_age_days never touches the network, not even discovery."""
-    cache = tmp_path / "rfc_catalog.txt"
-    _write_fake_rfc_file(cache)
-    cache.with_name(cache.name + ".release").write_text("rfc_2026b")
-
-    with (
-        patch.object(cross_match, "_discover_latest_rfc_release") as mock_discover,
-        patch("astromon.cross_match.urllib.request.urlretrieve") as mock_urlretrieve,
-    ):
-        rfc = cross_match.get_rfc(cache_path=cache, max_age_days=1)
-
-    assert len(rfc) == 1
-    mock_discover.assert_not_called()
-    mock_urlretrieve.assert_not_called()
-
-
-def test_get_rfc_stale_but_same_release_skips_download(tmp_path):
-    """When the check interval elapses but the release hasn't changed, no download happens."""
-    cache = tmp_path / "rfc_catalog.txt"
-    _write_fake_rfc_file(cache)
-    cache.with_name(cache.name + ".release").write_text("rfc_2026b")
-    old_time = time.time() - 2 * 86400
-    os.utime(cache, (old_time, old_time))
-
-    with (
-        patch.object(
-            cross_match, "_discover_latest_rfc_release", return_value="rfc_2026b"
-        ),
-        patch("astromon.cross_match.urllib.request.urlretrieve") as mock_urlretrieve,
-    ):
-        rfc = cross_match.get_rfc(cache_path=cache, max_age_days=1)
-
-    assert len(rfc) == 1
-    mock_urlretrieve.assert_not_called()
-    # the check-interval clock is reset even though nothing downloaded
-    assert cache.stat().st_mtime > old_time
-
-
-def test_get_rfc_new_release_downloads(tmp_path):
-    """A genuinely newer release name triggers a real download and marker update."""
-    cache = tmp_path / "rfc_catalog.txt"
-    _write_fake_rfc_file(cache)
-    cache.with_name(cache.name + ".release").write_text("rfc_2026a")
-    old_time = time.time() - 2 * 86400
-    os.utime(cache, (old_time, old_time))
-
-    with (
-        patch.object(
-            cross_match, "_discover_latest_rfc_release", return_value="rfc_2026b"
-        ),
-        patch(
-            "astromon.cross_match.urllib.request.urlretrieve",
-            side_effect=_urlretrieve_writes_fake_rfc,
-        ) as mock_urlretrieve,
-    ):
-        cross_match.get_rfc(cache_path=cache, max_age_days=1)
-
-    assert mock_urlretrieve.call_count == 1
-    marker = cache.with_name(cache.name + ".release")
-    assert marker.read_text() == "rfc_2026b"
-
-
-def test_get_rfc_download_failure_falls_back_to_stale_cache(tmp_path):
-    """A download failure for a newly-discovered release (e.g. astrogeo publishing the
-    release directory before the data file itself is live) falls back to the existing
-    cache with a warning, rather than crashing the whole cross-match run."""
-    cache = tmp_path / "rfc_catalog.txt"
-    _write_fake_rfc_file(cache)
-    cache.with_name(cache.name + ".release").write_text("rfc_2026b")
-    old_time = time.time() - 2 * 86400
-    os.utime(cache, (old_time, old_time))
-    size_before = cache.stat().st_size
-
-    with (
-        patch.object(
-            cross_match, "_discover_latest_rfc_release", return_value="rfc_2026c"
-        ),
-        patch(
-            "astromon.cross_match.urllib.request.urlretrieve",
-            side_effect=OSError("HTTP Error 404: Not Found"),
-        ),
-        patch.object(cross_match.logger, "warning") as mock_warning,
-    ):
-        rfc = cross_match.get_rfc(cache_path=cache, max_age_days=1)
-
-    assert len(rfc) == 1  # stale data still served, not an empty/broken table
-    assert cache.stat().st_size == size_before  # cache file untouched
-    assert cache.with_name(cache.name + ".release").read_text() == "rfc_2026b"
-    assert "RFC download failed" in mock_warning.call_args[0][0]
-
-
-def test_get_rfc_discovery_failure_no_cache_raises(tmp_path):
-    """With no cache to fall back to, a discovery failure has nothing to serve and raises."""
-    cache = tmp_path / "rfc_catalog.txt"
-    with patch.object(
-        cross_match, "_discover_latest_rfc_release", side_effect=OSError("network down")
-    ):
-        with pytest.raises(OSError, match="network down"):
-            cross_match.get_rfc(cache_path=cache)
-
-
-def test_get_rfc_discovery_failure_with_cache_falls_back(tmp_path):
-    """A transient failure checking for a new release falls back to the existing cache."""
-    cache = tmp_path / "rfc_catalog.txt"
-    _write_fake_rfc_file(cache)
-    cache.with_name(cache.name + ".release").write_text("rfc_2026b")
-    old_time = time.time() - 2 * 86400
-    os.utime(cache, (old_time, old_time))
-
-    with (
-        patch.object(
-            cross_match,
-            "_discover_latest_rfc_release",
-            side_effect=OSError("network down"),
-        ),
-        patch.object(cross_match.logger, "warning") as mock_warning,
-    ):
-        rfc = cross_match.get_rfc(cache_path=cache, max_age_days=1)
-
-    assert len(rfc) == 1
-    assert "RFC release check failed" in mock_warning.call_args[0][0]
-
-
-def _local_catalog(name="SRC", ra=150.0, dec=20.0, mag=None):
-    """Minimal locally-cached catalog table as consumed by _local_catalog_near."""
-    cols = {
-        "name": [name],
-        "ra": np.array([ra], dtype=float),
-        "dec": np.array([dec], dtype=float),
-    }
-    if mag is not None:
-        cols["mag"] = np.array([mag], dtype=np.float32)
-    return Table(cols)
-
-
-def test_local_catalog_near_wraps_ra_across_zero_meridian():
-    """A counterpart just across RA=0 is kept, not discarded by unwrapped RA arithmetic.
-
-    The bounding-cone prefilter works in flat (dra, ddec) offsets. Without wrapping,
-    a source at RA=359.99999 looks ~354 deg away from a position at RA=0.00001 rather
-    than 1e-5 deg, so every counterpart across the meridian is silently dropped --
-    losing all RFC/ICRF3/Quaia/GaiaAGN/GaiaQSO matches for fields straddling RA=0.
-    """
-    pos = coords.SkyCoord(ra=[0.00001], dec=[10.0], unit="deg")
-    catalog = _local_catalog(name="ACROSS_MERIDIAN", ra=359.99999, dec=10.0)
-
-    true_sep = pos.separation(
-        coords.SkyCoord(catalog["ra"], catalog["dec"], unit="deg")
-    ).arcsec
-    assert true_sep[0] < 1.0, "test fixture must be a genuine sub-arcsec counterpart"
-
-    result = cross_match._local_catalog_near(catalog, "TEST", pos, 3 * u.arcsec)
-    assert len(result) == 1
-    assert result["name"][0] == "ACROSS_MERIDIAN"
-
-
-def test_local_catalog_near_wraps_ra_for_field_straddling_meridian():
-    """Both halves of a field that straddles RA=0 keep their counterparts."""
-    pos = coords.SkyCoord(ra=[359.98, 0.02], dec=[-30.0, -30.0], unit="deg")
-    catalog = Table(
-        {
-            "name": ["west", "east"],
-            "ra": np.array([359.980001, 0.020001]),
-            "dec": np.array([-30.0, -30.0]),
-        }
-    )
-
-    result = cross_match._local_catalog_near(catalog, "TEST", pos, 3 * u.arcsec)
-    assert sorted(result["name"]) == ["east", "west"]
-
-
-def test_local_catalog_near_applies_exact_radius_cut():
-    """Sources beyond `radius` of every input position are excluded.
-
-    The bounding cone is sized to the whole field, so on its own it admits sources
-    arcminutes away from any X-ray source. get_gaia_agn/get_gaia_qso_candidates/
-    get_quaia_candidates feed straight into astromon_cat_src with no later cut of
-    their own, so the radius has to be enforced here.
-    """
-    pos = coords.SkyCoord(ra=[150.0, 150.1], dec=[20.0, 20.05], unit="deg")
-    # Midway between the two X-ray sources: ~3.2 arcmin from the nearer one.
-    catalog = _local_catalog(name="FAR", ra=150.05, dec=20.025)
-
-    nearest = pos.separation(
-        coords.SkyCoord(catalog["ra"], catalog["dec"], unit="deg")
-    ).arcsec.min()
-    assert nearest > 3.0, "test fixture must lie outside the search radius"
-
-    result = cross_match._local_catalog_near(catalog, "TEST", pos, 3 * u.arcsec)
-    assert len(result) == 0
-
-
-def test_local_catalog_near_keeps_source_near_any_position():
-    """The radius cut is per-position, not relative to the field centroid."""
-    pos = coords.SkyCoord(ra=[150.0, 150.1], dec=[20.0, 20.05], unit="deg")
-    catalog = Table(
-        {
-            "name": ["near_second", "far"],
-            # 1 arcsec from the second position, and far from both.
-            "ra": np.array([150.1 + 1.0 / 3600.0 / np.cos(np.radians(20.05)), 150.05]),
-            "dec": np.array([20.05, 20.025]),
-        }
-    )
-
-    result = cross_match._local_catalog_near(catalog, "TEST", pos, 3 * u.arcsec)
-    assert list(result["name"]) == ["near_second"]
-
-
-def test_local_catalog_near_scalar_pos_applies_radius_cut():
-    """A scalar SkyCoord is handled and still gets the exact radius cut."""
-    pos = coords.SkyCoord(ra=150.0, dec=20.0, unit="deg")
-    catalog = Table(
-        {
-            "name": ["close", "far"],
-            "ra": np.array([150.0 + 1.0 / 3600.0 / np.cos(np.radians(20.0)), 150.02]),
-            "dec": np.array([20.0, 20.0]),
-        }
-    )
-
-    result = cross_match._local_catalog_near(catalog, "TEST", pos, 3 * u.arcsec)
-    assert list(result["name"]) == ["close"]
 
 
 def test_get_gaia_agn_excludes_source_outside_radius():
