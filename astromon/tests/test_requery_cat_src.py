@@ -300,6 +300,8 @@ def test_requery_records_the_catalog_releases_it_queried_against(tmp_path):
     summary = requery_cat_src.requery(dbfile, [], catalogs=("RFC",))
 
     assert set(summary["catalog_versions"]) == set(cross_match.CATALOG_CACHE_PATHS)
+
+
 # ─── catalog classification ──────────────────────────────────────────────────
 
 
@@ -385,6 +387,8 @@ def test_requery_obsid_does_not_demand_a_getter_for_a_precomputed_catalog():
     )
 
     assert len(candidates) == 1
+
+
 # ─── resuming a long run ─────────────────────────────────────────────────────
 
 
