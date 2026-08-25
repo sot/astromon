@@ -1561,16 +1561,57 @@ def _dedupe_desi_by_delchi2(desi: table.Table) -> table.Table:
         return t[sorted(order[best_in_group])]
 
     desi = _keep_best(desi, np.asarray(desi["TargetID"]))
-
-    # Position key: DESI's repeat targetings of one object share the identical
-    # Legacy Survey DR9 imaging position (same brick/objid feeding both spectral
-    # catalog entries), so rounding to 5 decimal degrees (~0.036") groups them
-    # without disturbing genuinely distinct, merely-nearby sources.
-    position_key = np.round(np.asarray(desi["RAICRS"]), 5) + 1j * np.round(
-        np.asarray(desi["DEICRS"]), 5
-    )
-    desi = _keep_best(desi, position_key)
+    desi = _keep_best(desi, _group_by_position(desi["RAICRS"], desi["DEICRS"]))
     return desi
+
+
+# DESI's own documented positional accuracy (see get_desi_v161_candidates'
+# docstring): repeat observations of one object can differ by this much even
+# though they share the same underlying imaging source, so anything closer
+# than this is the same object, not two coincidentally close ones.
+_DESI_POSITION_DUPLICATE_ARCSEC = 0.1
+
+
+def _group_by_position(
+    ra: np.ndarray,
+    dec: np.ndarray,
+    tolerance_arcsec: float = _DESI_POSITION_DUPLICATE_ARCSEC,
+) -> np.ndarray:
+    """A group id per row: connected components of "within tolerance of".
+
+    Not round-then-group: DESI's repeat targetings of one object share the
+    identical Legacy Survey DR9 imaging position to a fraction of an arcsec, but
+    a fraction of an arcsec is exactly small enough to straddle a rounding
+    boundary -- 190.544187 and 190.544196 are 0.033" apart, inside a 0.05"
+    tolerance, but round to different values at 5 decimal places (...4419 vs
+    ...4420) and so land in different buckets under naive rounding. This
+    happened for real: 12 of 122 known duplicates survived the first version of
+    this fix for exactly that reason.
+
+    Union-find on pairwise separation has no boundary to straddle. Quadratic in
+    the number of rows, which is fine here -- one query's candidate list is a
+    handful to a few hundred rows, not the whole database.
+    """
+    ra, dec = np.asarray(ra), np.asarray(dec)
+    n = len(ra)
+    parent = list(range(n))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for i in range(n):
+        dra = (ra - ra[i]) * np.cos(np.radians(dec[i]))
+        ddec = dec - dec[i]
+        close = np.flatnonzero(np.hypot(dra, ddec) * 3600 < tolerance_arcsec)
+        for j in close:
+            ri, rj = find(i), find(int(j))
+            if ri != rj:
+                parent[ri] = rj
+
+    return np.array([find(i) for i in range(n)])
 
 
 def get_desi_v161_candidates(
