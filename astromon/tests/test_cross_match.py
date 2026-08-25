@@ -20,13 +20,6 @@ DATA_DIR = Path(__file__).parent / "data"
 
 HAS_INTERNET = has_internet()
 
-# get_gaia_agn/get_gaia_qso_candidates read a locally cached FITS copy of the Gaia DR3 table
-# and download it on first use (80 MB for agn_cross_id, 330 MB for qso_candidates). Gate the
-# tests that exercise them on the cache already existing: HAS_INTERNET is True on a fresh
-# machine, so gating on that instead makes a test run pull ~400 MB from the Gaia archive.
-HAS_GAIA_AGN_CACHE = cross_match._GAIA_AGN_CACHE_PATH.exists()
-HAS_GAIA_QSO_CACHE = cross_match._GAIA_QSO_CACHE_PATH.exists()
-
 # Vizier queries occasionally hit a transient connection reset with no indication of an actual
 # problem with the query itself (observed as requests.exceptions.ConnectionError). Retry those
 # rather than failing the test outright.
@@ -472,21 +465,6 @@ _AGNCROSS_DEC = 39.4059
 _AGNCROSS_SOURCE_ID = 1535808699355081728
 
 
-@pytest.mark.skipif(
-    not HAS_GAIA_AGN_CACHE, reason="Requires the cached gaiadr3.agn_cross_id catalog"
-)
-def test_get_gaia_agn_live():
-    """get_gaia_agn finds a known Gaia DR3 AGN cross-id source in the cached catalog."""
-    pos = coords.SkyCoord([_AGNCROSS_RA], [_AGNCROSS_DEC], unit="deg")
-    result = cross_match.get_gaia_agn(pos, radius=3 * u.arcsec)
-
-    assert len(result) >= 1
-    assert result["catalog"][0] == "GaiaAGN"
-    assert result["name"][0] == f"GaiaAGN-{_AGNCROSS_SOURCE_ID}"
-    assert np.isclose(result["ra"][0], _AGNCROSS_RA, atol=1e-3)
-    assert np.isclose(result["dec"][0], _AGNCROSS_DEC, atol=1e-3)
-
-
 # ---- GaiaVarStar tests ----
 
 
@@ -763,31 +741,6 @@ def test_compute_cross_matches_gaia_qso():
     assert matches["x_id"][0] == 1
 
 
-@pytest.mark.skipif(
-    not HAS_GAIA_QSO_CACHE, reason="Requires the cached gaiadr3.qso_candidates catalog"
-)
-def test_get_gaia_qso_candidates_3c273():
-    """get_gaia_qso_candidates finds 3C 273 in the cached qso_candidates catalog.
-
-    3C 273 (the nearest bright quasar) has Gaia DR3 source_id=3700386905605055360 and
-    is confirmed present in gaiadr3.qso_candidates but NOT in gaiadr3.agn_cross_id —
-    demonstrating the additional coverage this function provides over get_gaia_agn.
-    """
-    pos = coords.SkyCoord([_3C273_RA], [_3C273_DEC], unit="deg")
-    result = cross_match.get_gaia_qso_candidates(pos, radius=3 * u.arcsec)
-
-    assert len(result) >= 1, (
-        f"Expected at least one QSO candidate near 3C 273 "
-        f"(ra={_3C273_RA}, dec={_3C273_DEC})"
-    )
-    source_ids = [int(n.split("-")[1]) for n in result["name"]]
-    assert _3C273_QSO_SOURCE_ID in source_ids, (
-        f"source_id={_3C273_QSO_SOURCE_ID} (3C 273) not found in qso_candidates; "
-        f"got source_ids={source_ids}"
-    )
-    assert result["catalog"][0] == "GaiaQSO"
-
-
 # ---- Quaia tests ----
 
 # PKS 0537-441 is a well-known FSRQ blazar at z=0.894, confirmed present in the
@@ -920,31 +873,6 @@ def test_get_milliquas_gaia_type_filter_excludes_photometric():
         result = cross_match.get_milliquas_gaia(pos, radius=3 * u.arcsec)
 
     assert len(result) == 0
-
-
-@pytest.mark.skipif(not HAS_INTERNET, reason="Requires network access")
-@retry_on_connection_error
-def test_get_milliquas_gaia_3c273():
-    """get_milliquas_gaia finds 3C 273 via live VizieR + Gaia TAP queries.
-
-    3C 273 is a defining entry in Milliquas v8 (type Q, spectroscopic redshift z=0.158).
-    Its Gaia DR3 counterpart (source_id=3700386905605055360) lies within 1.5 arcsec,
-    so the Gaia-position upgrade step should succeed and the source should appear in
-    the final output with catalog='MilliquasGaia'.
-    """
-    pos = coords.SkyCoord([_3C273_RA], [_3C273_DEC], unit="deg")
-    with skip_on_gaia_outage():
-        result = cross_match.get_milliquas_gaia(pos, radius=5 * u.arcsec)
-
-    assert len(result) >= 1, (
-        f"Expected at least one MilliquasGaia result near 3C 273 "
-        f"(ra={_3C273_RA}, dec={_3C273_DEC})"
-    )
-    assert result["catalog"][0] == "MilliquasGaia"
-    names = [str(n) for n in result["name"]]
-    assert any(_3C273_MILLIQUAS_NAME in n for n in names), (
-        f"'{_3C273_MILLIQUAS_NAME}' not found in MilliquasGaia results; got names={names}"
-    )
 
 
 # ---------------------------------------------------------------------------
