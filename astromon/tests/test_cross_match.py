@@ -912,6 +912,7 @@ def test_get_desi_v161_candidates_mocked_vizier():
             ),
             "OType": ["QSO", "STAR"],  # STAR should be filtered out
             "ZWARN": np.array([0, 0], dtype=int),
+            "delChi2": np.array([500.0, 500.0], dtype=float),
         }
     )
 
@@ -937,6 +938,7 @@ def test_get_desi_v161_candidates_zwarn_filter():
             ),
             "OType": ["QSO", "GALAXY"],
             "ZWARN": np.array([0, 4], dtype=int),  # second has SMALL_DELTA_CHI2 bit set
+            "delChi2": np.array([500.0, 900.0], dtype=float),
         }
     )
 
@@ -944,6 +946,127 @@ def test_get_desi_v161_candidates_zwarn_filter():
         result = cross_match.get_desi_v161_candidates(pos, radius=3 * u.arcsec)
 
     assert len(result) == 1, "ZWARN=4 row should be excluded"
+    assert result["name"][0] == f"DESIV161-{_COSMOS_DESI_TARGET_ID}"
+
+
+def test_dedupe_desi_by_delchi2_same_targetid_keeps_the_better_copy():
+    """The same TargetID re-observed in two DESI programs: keep the better one.
+
+    obsid 5722's DESIV161-39633335797940469 is DESI's own repeat targeting of
+    one object across programs (e.g. "bright" then "dark"), and both copies pass
+    ZWARN=0. Picking by array order (the old np.unique(TargetID) behaviour) can
+    keep whichever happens to sort first, discarding a materially better fit --
+    delChi2 (redrock's own redshift-confidence margin) reliably tells them apart:
+    measured pairs in the live database differ by 3x-20x, never a close call.
+
+    Tested against the helper directly: the two rows differ only in delChi2, so
+    nothing in get_desi_v161_candidates' own output (name, ra, dec) could tell
+    the winner apart from the loser.
+
+    The worse copy is listed FIRST here, so a test that merely kept "the first
+    row per TargetID" would pass by accident; this only passes if delChi2 is
+    actually compared.
+    """
+    desi = Table(
+        {
+            "RAICRS": np.array([_COSMOS_DESI_RA, _COSMOS_DESI_RA], dtype=float),
+            "DEICRS": np.array([_COSMOS_DESI_DEC, _COSMOS_DESI_DEC], dtype=float),
+            "TargetID": np.array(
+                [_COSMOS_DESI_TARGET_ID, _COSMOS_DESI_TARGET_ID], dtype=np.int64
+            ),
+            "delChi2": np.array([916.1, 6228.3], dtype=float),  # worse one first
+        }
+    )
+
+    result = cross_match._dedupe_desi_by_delchi2(desi)
+
+    assert len(result) == 1, "one physical target, one row"
+    assert float(result["delChi2"][0]) == pytest.approx(6228.3), (
+        "the higher-delChi2 copy must be the one kept"
+    )
+
+
+def test_get_desi_v161_candidates_prefers_higher_delchi2_different_targetid():
+    """Two different TargetIDs at the same position: DESI's own repeat targeting
+    of one physical object across survey phases, not two real sources.
+
+    This is the obsid 5722 shape: DESIV161-2305843020869671679 (Prog=backup) and
+    DESIV161-39633335797940469 (Prog=dark) at an identical position, both
+    ZWARN=0. The prior code deduplicated only by TargetID, so both survived as
+    separate cat_src rows -- an exact dr tie downstream whose winner depended on
+    table order. Position is not exposed as a query column here, so the
+    dedup keys on (ra, dec) directly.
+    """
+    pos = coords.SkyCoord([_COSMOS_DESI_RA], [_COSMOS_DESI_DEC], unit="deg")
+    fake_rows = Table(
+        {
+            "RAICRS": np.array([_COSMOS_DESI_RA, _COSMOS_DESI_RA], dtype=float),
+            "DEICRS": np.array([_COSMOS_DESI_DEC, _COSMOS_DESI_DEC], dtype=float),
+            "TargetID": np.array(
+                [2305843020869671679, 39633335797940469], dtype=np.int64
+            ),
+            "OType": ["QSO", "QSO"],
+            "ZWARN": np.array([0, 0], dtype=int),
+            "delChi2": np.array([3517.9, 35610.5], dtype=float),
+        }
+    )
+
+    with patch.object(cross_match, "_query_vizier_region", return_value=[fake_rows]):
+        result = cross_match.get_desi_v161_candidates(pos, radius=3 * u.arcsec)
+
+    assert len(result) == 1, "same physical position, one row"
+    assert result["name"][0] == "DESIV161-39633335797940469", (
+        "the higher-delChi2 TargetID must be the one kept"
+    )
+
+
+def test_get_desi_v161_candidates_position_dedup_leaves_real_pairs_alone():
+    """Two genuinely different, well-separated sources must both survive."""
+    pos = coords.SkyCoord([_COSMOS_DESI_RA], [_COSMOS_DESI_DEC], unit="deg")
+    fake_rows = Table(
+        {
+            "RAICRS": np.array([_COSMOS_DESI_RA, _COSMOS_DESI_RA + 0.001], dtype=float),
+            "DEICRS": np.array([_COSMOS_DESI_DEC, _COSMOS_DESI_DEC], dtype=float),
+            "TargetID": np.array([111, 222], dtype=np.int64),
+            "OType": ["QSO", "GALAXY"],
+            "ZWARN": np.array([0, 0], dtype=int),
+            "delChi2": np.array([500.0, 500.0], dtype=float),
+        }
+    )
+
+    with patch.object(cross_match, "_query_vizier_region", return_value=[fake_rows]):
+        result = cross_match.get_desi_v161_candidates(pos, radius=5 * u.arcsec)
+
+    assert len(result) == 2, '0.001 deg (3.6") apart is not a duplicate position'
+
+
+def test_get_desi_v161_candidates_filters_before_deduping_by_targetid():
+    """A ZWARN failure on one repeat observation must not sink the whole TargetID.
+
+    obsid 234.948429/43.228229 in the live database is exactly this: the same
+    TargetID's "dark"-program row has ZWARN=2048 (excluded) while its
+    "bright"-program row has ZWARN=0 and the far higher delChi2 (kept). Filtering
+    after deduplication could pick the ZWARN=2048 row by table order, discard it,
+    and lose the TargetID entirely even though a good observation exists.
+    """
+    pos = coords.SkyCoord([_COSMOS_DESI_RA], [_COSMOS_DESI_DEC], unit="deg")
+    fake_rows = Table(
+        {
+            "RAICRS": np.array([_COSMOS_DESI_RA, _COSMOS_DESI_RA], dtype=float),
+            "DEICRS": np.array([_COSMOS_DESI_DEC, _COSMOS_DESI_DEC], dtype=float),
+            "TargetID": np.array(
+                [_COSMOS_DESI_TARGET_ID, _COSMOS_DESI_TARGET_ID], dtype=np.int64
+            ),
+            "OType": ["QSO", "QSO"],
+            "ZWARN": np.array([2048, 0], dtype=int),  # bad row listed first
+            "delChi2": np.array([109260.6, 287295.6], dtype=float),
+        }
+    )
+
+    with patch.object(cross_match, "_query_vizier_region", return_value=[fake_rows]):
+        result = cross_match.get_desi_v161_candidates(pos, radius=3 * u.arcsec)
+
+    assert len(result) == 1, "the ZWARN=0 observation must survive"
     assert result["name"][0] == f"DESIV161-{_COSMOS_DESI_TARGET_ID}"
 
 

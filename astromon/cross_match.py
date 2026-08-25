@@ -1521,6 +1521,58 @@ def get_milliquas_gaia(pos, radius=3 * u.arcsec, logging_tag=""):
     return output
 
 
+def _dedupe_desi_by_delchi2(desi: table.Table) -> table.Table:
+    """One row per physical object, keeping the highest-delChi2 observation.
+
+    DESI's V/161 spectroscopic catalog spans multiple survey programs
+    (backup/bright/dark), and the same physical target is often observed more
+    than once across them -- sometimes under the *same* TargetID (a repeat
+    observation in a different program), sometimes under a *different* TargetID
+    entirely (the same Legacy Survey DR9 imaging position re-targeted in a later
+    survey phase). Neither case is a second real source.
+
+    delChi2 -- redrock's own margin between the best-fit redshift and the
+    runner-up -- separates them cleanly: measured duplicate pairs in the live
+    database differ by 3x-20x, never a close call, and the higher-delChi2
+    observation always has the longer exposure time too, so it is not a noisy
+    proxy. Applied twice: first within a TargetID's own repeat observations,
+    then across different TargetIDs that land on the same position.
+
+    Must run after the OType/ZWARN filter, not before: a TargetID's better
+    observation can have ZWARN=0 while a worse one for the *same* TargetID has
+    ZWARN != 0, and deduplicating first risked keeping the bad one by table
+    order and then filtering out the TargetID entirely.
+    """
+    if len(desi) == 0:
+        return desi
+
+    def _keep_best(t: table.Table, key: np.ndarray) -> table.Table:
+        order = np.argsort(key, kind="stable")
+        sorted_key = key[order]
+        group_start = np.concatenate(
+            ([0], np.flatnonzero(np.diff(sorted_key) != 0) + 1)
+        )
+        group_end = np.concatenate((group_start[1:], [len(order)]))
+        delchi2 = np.asarray(t["delChi2"])[order]
+        best_in_group = [
+            start + np.argmax(delchi2[start:end])
+            for start, end in zip(group_start, group_end, strict=True)
+        ]
+        return t[sorted(order[best_in_group])]
+
+    desi = _keep_best(desi, np.asarray(desi["TargetID"]))
+
+    # Position key: DESI's repeat targetings of one object share the identical
+    # Legacy Survey DR9 imaging position (same brick/objid feeding both spectral
+    # catalog entries), so rounding to 5 decimal degrees (~0.036") groups them
+    # without disturbing genuinely distinct, merely-nearby sources.
+    position_key = np.round(np.asarray(desi["RAICRS"]), 5) + 1j * np.round(
+        np.asarray(desi["DEICRS"]), 5
+    )
+    desi = _keep_best(desi, position_key)
+    return desi
+
+
 def get_desi_v161_candidates(
     pos: coords.SkyCoord,
     radius: u.Quantity = 3 * u.arcsec,
@@ -1574,7 +1626,7 @@ def get_desi_v161_candidates(
         return table.Table(dtype=CROSS_MATCH_DTYPE)
 
     vizier = Vizier(
-        columns=["RAICRS", "DEICRS", "TargetID", "OType", "ZWARN"],
+        columns=["RAICRS", "DEICRS", "TargetID", "OType", "ZWARN", "delChi2"],
         row_limit=-1,
     )
 
@@ -1591,11 +1643,8 @@ def get_desi_v161_candidates(
 
     desi = table.vstack(tables, metadata_conflicts="silent")
 
-    # Deduplicate by TargetID (same target can appear in multiple tiles).
-    _, unique_idx = np.unique(np.array(desi["TargetID"]), return_index=True)
-    desi = desi[sorted(unique_idx)]
-
-    # Filter: spectroscopic type QSO or GALAXY, reliable redshift.
+    # Filter first: spectroscopic type QSO or GALAXY, reliable redshift. Must
+    # happen before deduplication -- see _dedupe_desi_by_delchi2.
     type_arr = np.array([str(t).strip() for t in desi["OType"]])
     zwarn_arr = np.array(desi["ZWARN"], dtype=int)
     keep = np.isin(type_arr, ["QSO", "GALAXY"]) & (zwarn_arr == 0)
@@ -1604,6 +1653,11 @@ def get_desi_v161_candidates(
     if len(desi) == 0:
         logger.debug(f"{logging_tag} DESIV161 has no QSO/GALAXY results with ZWARN=0")
         return table.Table(dtype=CROSS_MATCH_DTYPE)
+
+    # Collapse DESI's own repeat targeting of one physical object -- both within
+    # a TargetID's repeat observations and across different TargetIDs at the
+    # same position -- to the single best (highest-delChi2) row.
+    desi = _dedupe_desi_by_delchi2(desi)
 
     output = table.Table(data=np.zeros(len(desi), dtype=CROSS_MATCH_DTYPE))
     output["ra"] = np.array(desi["RAICRS"], dtype=float)
