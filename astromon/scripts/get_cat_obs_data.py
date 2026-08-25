@@ -66,7 +66,7 @@ def get_obsids(tstart, tstop):
         return [re.search("axaff([0-9]+)_", name).group(1) for name in names]
 
 
-def save(data, db_file):
+def save(data, db_file):  # noqa: PLR0912
     logger = logging.getLogger(name="astromon")
 
     errors = {}
