@@ -207,6 +207,7 @@ def _desi_tablelist():
                 "TargetID": np.array([111, 222], dtype=np.int64),
                 "OType": np.array(["QSO", "GALAXY"]),
                 "ZWARN": np.array([0, 0]),
+                "delChi2": np.array([500.0, 500.0]),
             }
         )
     ]
@@ -250,6 +251,7 @@ def test_desi_by_obsid_agrees_with_the_per_obsid_function():
                 "TargetID": np.array([111], dtype=np.int64),
                 "OType": np.array(["QSO"]),
                 "ZWARN": np.array([0]),
+                "delChi2": np.array([500.0]),
             }
         )
     ]
