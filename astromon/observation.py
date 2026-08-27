@@ -1887,6 +1887,56 @@ def _drop_crowded_seeds(input_sources):
     return input_sources[nnd > utils.NEAR_NEIGHBOR_DIST_ARCSEC]
 
 
+def _drop_grating_arm_seeds(input_sources, obs):
+    """Remove celldetect sources that fall on a grating observation's dispersed arm.
+
+    Each arm knot is celldetect sampling one point of a continuous dispersed
+    structure, not an independent source: at obsid 23308 (MKN421, LETG), all 87
+    celldetect sources in the field land on the same two arms. A gaussian fit
+    seeded there fits one knot as if it were isolated, which is exactly the
+    kind of situation a large ``peak_offset`` already flags after the fact --
+    this drops the ones celldetect itself can already tell are on the arm,
+    before a fit is spent on them.
+
+    A no-op on observations with no ``grating_arm_mask.fits`` (not a grating
+    observation, or the mask step was skipped) -- see
+    :meth:`Observation._on_grating_arm`, which this reuses directly.
+
+    Parameters
+    ----------
+    input_sources : astropy.table.Table
+        Celldetect sources with ``X`` and ``Y`` columns, as read from the
+        ``.src`` file.
+    obs : Observation
+        Used to locate this obsid's ``grating_arm_mask.fits``.
+    """
+    if len(input_sources) == 0:
+        return input_sources
+    return input_sources[~obs._on_grating_arm(input_sources)]
+
+
+def _drop_acis_streak_seeds(input_sources, obs):
+    """Remove celldetect sources that fall on an ACIS readout streak.
+
+    A readout streak is instrumental, not astrophysical: a fit seeded on one
+    is fitting a CCD artifact, not a source. A no-op on observations with no
+    ``acis_streaks.fits`` (not ACIS, or no source bright enough to produce
+    one) -- see :meth:`Observation._on_acis_streak`, which this reuses
+    directly.
+
+    Parameters
+    ----------
+    input_sources : astropy.table.Table
+        Celldetect sources with ``X`` and ``Y`` columns, as read from the
+        ``.src`` file.
+    obs : Observation
+        Used to locate this obsid's ``acis_streaks.fits``.
+    """
+    if len(input_sources) == 0:
+        return input_sources
+    return input_sources[~obs._on_acis_streak(input_sources)]
+
+
 def _seed_and_select_events(events_yag, events_zag, source, box_size, seed_from_peak):
     """Return ``(fit_source, event_mask)`` for one source.
 
@@ -2014,6 +2064,8 @@ def _fit_gaussian_sources(obs, inputs, outputs, seed_from_peak):
         # coverage -- exactly the coverage that made it possible to check, for a
         # crowded pair, whether re-seeding from the peak recovers a usable fit.
         input_sources = _drop_crowded_seeds(input_sources)
+        input_sources = _drop_grating_arm_seeds(input_sources, obs)
+        input_sources = _drop_acis_streak_seeds(input_sources, obs)
         if len(input_sources) == 0:
             results = table.Table(dtype=dtype)
             results.write(outputs["src"], format="fits", overwrite=True)
