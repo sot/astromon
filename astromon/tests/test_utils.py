@@ -75,17 +75,17 @@ def test_ciao_env_cache_avoids_repeat_getenv_call(tmp_path, clean_ciao_env_cache
 
 
 def _fake_calalign_table():
-    """A single-version calalign table, as calalign_from_files would return."""
-    aca_misalign = np.tile(np.eye(3), (1, 1, 1))
-    fts_misalign = np.tile(np.eye(3), (1, 1, 1))
+    """A minimal two-version calalign table, as calalign_from_files would return."""
+    aca_misalign = np.tile(np.eye(3), (2, 1, 1))
+    fts_misalign = np.tile(np.eye(3), (2, 1, 1))
     dy, dz = utils.get_offsets(aca_misalign)
     return Table(
         {
-            "start": CxoTime(["1999:001:00:00:00"]),
-            "stop": CxoTime(["2050:001:00:00:00"]),
-            "detector": ["ACIS-S"],
-            "caldb_version": ["4.10.0"],
-            "since": CxoTime(["1999:001:00:00:00"]),
+            "start": CxoTime(["1999:001:00:00:00", "2010:001:00:00:00"]),
+            "stop": CxoTime(["2010:001:00:00:00", "2050:001:00:00:00"]),
+            "detector": ["ACIS-S", "ACIS-S"],
+            "caldb_version": ["4.0.0", "4.10.0"],
+            "since": CxoTime(["1999:001:00:00:00", "2010:001:00:00:00"]),
             "aca_misalign": aca_misalign,
             "fts_misalign": fts_misalign,
             "dy": dy,
@@ -95,17 +95,15 @@ def _fake_calalign_table():
 
 
 def test_get_calalign_offsets_row_order():
-    """A shuffled input order must not silently misalign the output rows.
+    """A shuffled input row order must come back out in that same order.
 
-    get_calalign_offsets joins per-source rows against the CALALIGN table and then
-    checks that the join preserved row order relative to the input. That check used
-    ``np.all(a != b)``, which only fires when *every* row disagrees -- it misses a
-    partial reorder where at least one row coincidentally lands back in its original
-    position. With obsids given out of order ([2, 1, 3]), astropy's join() re-sorts
-    by the join keys (producing [1, 2, 3]); the last position happens to match (3 ==
-    3), so the old check's ``np.all(!=)`` was False and the misalignment slipped
-    through silently. The fix uses ``not np.all(a == b)`` instead, which raises
-    whenever any row -- not just every row -- is out of place.
+    join() sorts by the join keys internally and gives no guarantee that the
+    input row order survives. get_calalign_offsets used to raise whenever the
+    join's output order didn't already match all_matches' input order -- an
+    unnecessary restriction on a valid, arbitrarily-ordered input table, since
+    match_id_keys (obsid, x_id[, detect_method]) already uniquely identify
+    each row. It must instead restore all_matches' own order rather than
+    reject it.
     """
     all_matches = Table(
         {
@@ -123,8 +121,9 @@ def test_get_calalign_offsets_row_order():
     with patch.object(
         utils, "calalign_from_files", return_value=_fake_calalign_table()
     ):
-        with pytest.raises(RuntimeError, match="all_matches.obsid != result.obsid"):
-            utils.get_calalign_offsets(all_matches)
+        result = utils.get_calalign_offsets(all_matches)
+
+    assert list(result["obsid"]) == [2, 1, 3]
 
 
 def test_get_calalign_offsets_raises_on_malformed_version_string():
@@ -152,3 +151,53 @@ def test_get_calalign_offsets_raises_on_malformed_version_string():
     ):
         with pytest.raises(ValueError):
             utils.get_calalign_offsets(all_matches)
+
+
+def test_get_calalign_offsets_disambiguates_x_id_by_detect_method():
+    """x_id numbering restarts per detect_method, so obsid+x_id alone can collide.
+
+    celldetect and gaussian_detect each number their sources from 1 for a given
+    obsid, so a matches table spanning both methods can have two physically
+    different sources sharing (obsid, x_id). Without 'detect_method' in the
+    grouping key, get_calalign_offsets collapses/mismatches those rows and used
+    to raise RuntimeError("len(all_matches) != len(actual)").
+    """
+    all_matches = Table(
+        {
+            "obsid": [1, 1],
+            "x_id": [1, 1],
+            "detect_method": ["celldetect", "gaussian_detect"],
+            "detector": ["ACIS-S", "ACIS-S"],
+            "time": CxoTime(["2015:001:00:00:00", "2015:001:00:00:00"]),
+            "caldb_version": ["4.10.0", "4.10.0"],
+        }
+    )
+
+    with patch.object(
+        utils, "calalign_from_files", return_value=_fake_calalign_table()
+    ):
+        result = utils.get_calalign_offsets(all_matches)
+
+    assert len(result) == 2
+    assert list(result["detect_method"]) == ["celldetect", "gaussian_detect"]
+
+
+def test_get_calalign_offsets_without_detect_method_column():
+    """Tables without a 'detect_method' column (e.g. from older DBs) still work."""
+    all_matches = Table(
+        {
+            "obsid": [1, 2],
+            "x_id": [1, 1],
+            "detector": ["ACIS-S", "ACIS-S"],
+            "time": CxoTime(["2015:001:00:00:00", "2015:001:00:00:00"]),
+            "caldb_version": ["4.10.0", "4.10.0"],
+        }
+    )
+
+    with patch.object(
+        utils, "calalign_from_files", return_value=_fake_calalign_table()
+    ):
+        result = utils.get_calalign_offsets(all_matches)
+
+    assert list(result["obsid"]) == [1, 2]
+    assert "detect_method" not in result.colnames
