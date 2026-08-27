@@ -2,7 +2,10 @@
 
 from unittest.mock import patch
 
+import numpy as np
 import pytest
+from astropy.table import Table
+from cxotime import CxoTime
 
 from astromon import utils
 
@@ -47,3 +50,73 @@ def test_ciao_env_cache_not_polluted_by_workdir(tmp_path, clean_ciao_env_cache):
 
     assert "ASCDS_WORK_PATH" not in ciao_b.env
     assert "PFILES" not in ciao_b.env
+
+
+def _fake_calalign_table():
+    """A minimal two-version calalign table, as calalign_from_files would return."""
+    aca_misalign = np.tile(np.eye(3), (2, 1, 1))
+    fts_misalign = np.tile(np.eye(3), (2, 1, 1))
+    dy, dz = utils.get_offsets(aca_misalign)
+    return Table(
+        {
+            "start": CxoTime(["1999:001:00:00:00", "2010:001:00:00:00"]),
+            "stop": CxoTime(["2010:001:00:00:00", "2050:001:00:00:00"]),
+            "detector": ["ACIS-S", "ACIS-S"],
+            "caldb_version": ["4.0.0", "4.10.0"],
+            "since": CxoTime(["1999:001:00:00:00", "2010:001:00:00:00"]),
+            "aca_misalign": aca_misalign,
+            "fts_misalign": fts_misalign,
+            "dy": dy,
+            "dz": dz,
+        }
+    )
+
+
+def test_get_calalign_offsets_disambiguates_x_id_by_detect_method():
+    """x_id numbering restarts per detect_method, so obsid+x_id alone can collide.
+
+    celldetect and gaussian_detect each number their sources from 1 for a given
+    obsid, so a matches table spanning both methods can have two physically
+    different sources sharing (obsid, x_id). Without 'detect_method' in the
+    grouping key, get_calalign_offsets collapses/mismatches those rows and used
+    to raise RuntimeError("len(all_matches) != len(actual)").
+    """
+    all_matches = Table(
+        {
+            "obsid": [1, 1],
+            "x_id": [1, 1],
+            "detect_method": ["celldetect", "gaussian_detect"],
+            "detector": ["ACIS-S", "ACIS-S"],
+            "time": CxoTime(["2015:001:00:00:00", "2015:001:00:00:00"]),
+            "caldb_version": ["4.10.0", "4.10.0"],
+        }
+    )
+
+    with patch.object(
+        utils, "calalign_from_files", return_value=_fake_calalign_table()
+    ):
+        result = utils.get_calalign_offsets(all_matches)
+
+    assert len(result) == 2
+    assert list(result["detect_method"]) == ["celldetect", "gaussian_detect"]
+
+
+def test_get_calalign_offsets_without_detect_method_column():
+    """Tables without a 'detect_method' column (e.g. from older DBs) still work."""
+    all_matches = Table(
+        {
+            "obsid": [1, 2],
+            "x_id": [1, 1],
+            "detector": ["ACIS-S", "ACIS-S"],
+            "time": CxoTime(["2015:001:00:00:00", "2015:001:00:00:00"]),
+            "caldb_version": ["4.10.0", "4.10.0"],
+        }
+    )
+
+    with patch.object(
+        utils, "calalign_from_files", return_value=_fake_calalign_table()
+    ):
+        result = utils.get_calalign_offsets(all_matches)
+
+    assert list(result["obsid"]) == [1, 2]
+    assert "detect_method" not in result.colnames
