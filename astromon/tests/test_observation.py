@@ -501,3 +501,162 @@ def test_drop_crowded_seeds_three_sources_only_the_close_pair_goes():
     result = observation._drop_crowded_seeds(sources)
 
     assert sorted(result["COMPONENT"].tolist()) == [3]
+
+
+# --- _drop_grating_arm_seeds / _drop_acis_streak_seeds -----------------------
+#
+# Both mask files use sky pixel (X, Y), not y_angle/z_angle, matching what
+# celldetect.src itself carries and what _on_grating_arm/_on_acis_streak
+# already read.
+
+
+def _xy_sources(x_values, y_values):
+    """Minimal celldetect sources carrying only what the mask checks need."""
+    n = len(x_values)
+    return table.Table(
+        {
+            "COMPONENT": np.arange(1, n + 1, dtype=np.int32),
+            "X": np.array(x_values, dtype=float),
+            "Y": np.array(y_values, dtype=float),
+        }
+    )
+
+
+def _make_observation(tmp_path, obsid=1234):
+    return observation.Observation(obsid, workdir=tmp_path, use_ciao=False)
+
+
+def _write_grating_arm_mask(obs, *, zero_order, arms):
+    """zero_order: (x, y, r). arms: list of (x, y, half_width, half_height, rotang_deg)."""
+    rows = [
+        {
+            "TG_PART": 0,
+            "X": zero_order[0],
+            "Y": zero_order[1],
+            "R": [zero_order[2], zero_order[2]],
+            "ROTANG": 0.0,
+        }
+    ]
+    for tg_part, (x, y, half_w, half_h, rotang) in enumerate(arms, start=1):
+        rows.append(
+            {
+                "TG_PART": tg_part,
+                "X": x,
+                "Y": y,
+                "R": [half_w, half_h],
+                "ROTANG": rotang,
+            }
+        )
+    mask_path = obs.file_path(f"images/{obs.obsid}_grating_arm_mask.fits")
+    mask_path.parent.mkdir(parents=True, exist_ok=True)
+    table.Table(rows=rows).write(mask_path, format="fits", overwrite=True)
+
+
+def _write_acis_streaks(obs, polygons):
+    """polygons: list of vertex lists, each [(x1, y1), (x2, y2), ...]."""
+    rows = [{"X": [p[0] for p in poly], "Y": [p[1] for p in poly]} for poly in polygons]
+    streaks_path = obs.file_path(f"images/{obs.obsid}_acis_streaks.fits")
+    streaks_path.parent.mkdir(parents=True, exist_ok=True)
+    table.Table(rows=rows).write(streaks_path, format="fits", overwrite=True)
+
+
+def test_drop_grating_arm_seeds_removes_a_source_on_the_arm(tmp_path):
+    obs = _make_observation(tmp_path)
+    _write_grating_arm_mask(
+        obs, zero_order=(100.0, 100.0, 5.0), arms=[(100.0, 100.0, 3.0, 200.0, 0.0)]
+    )
+    sources = _xy_sources([100.0], [150.0])  # inside the vertical arm rotbox
+
+    result = observation._drop_grating_arm_seeds(sources, obs)
+
+    assert len(result) == 0
+
+
+def test_drop_grating_arm_seeds_keeps_a_source_off_the_arm(tmp_path):
+    obs = _make_observation(tmp_path)
+    _write_grating_arm_mask(
+        obs, zero_order=(100.0, 100.0, 5.0), arms=[(100.0, 100.0, 3.0, 200.0, 0.0)]
+    )
+    sources = _xy_sources([150.0], [150.0])  # well outside the narrow vertical arm
+
+    result = observation._drop_grating_arm_seeds(sources, obs)
+
+    assert len(result) == 1
+
+
+def test_drop_grating_arm_seeds_keeps_the_zero_order_itself(tmp_path):
+    """A source at the zero-order sits inside the arm rotbox geometrically too,
+    but _on_grating_arm carves that circle back out -- it is not arm
+    contamination, it is the actual source the arms disperse from."""
+    obs = _make_observation(tmp_path)
+    _write_grating_arm_mask(
+        obs, zero_order=(100.0, 100.0, 5.0), arms=[(100.0, 100.0, 3.0, 200.0, 0.0)]
+    )
+    sources = _xy_sources([100.0], [100.0])
+
+    result = observation._drop_grating_arm_seeds(sources, obs)
+
+    assert len(result) == 1
+
+
+def test_drop_grating_arm_seeds_is_a_noop_without_a_mask_file(tmp_path):
+    """Non-grating observations never get a grating_arm_mask.fits at all."""
+    obs = _make_observation(tmp_path)
+    sources = _xy_sources([100.0, 200.0], [100.0, 200.0])
+
+    result = observation._drop_grating_arm_seeds(sources, obs)
+
+    assert len(result) == 2
+
+
+def test_drop_grating_arm_seeds_handles_empty_input(tmp_path):
+    obs = _make_observation(tmp_path)
+    sources = _xy_sources([], [])
+
+    result = observation._drop_grating_arm_seeds(sources, obs)
+
+    assert len(result) == 0
+
+
+def test_drop_acis_streak_seeds_removes_a_source_on_a_streak(tmp_path):
+    obs = _make_observation(tmp_path)
+    _write_acis_streaks(
+        obs, [[(90.0, 95.0), (110.0, 95.0), (110.0, 105.0), (90.0, 105.0)]]
+    )
+    sources = _xy_sources([100.0], [100.0])  # inside the streak polygon
+
+    result = observation._drop_acis_streak_seeds(sources, obs)
+
+    assert len(result) == 0
+
+
+def test_drop_acis_streak_seeds_keeps_a_source_off_a_streak(tmp_path):
+    obs = _make_observation(tmp_path)
+    _write_acis_streaks(
+        obs, [[(90.0, 95.0), (110.0, 95.0), (110.0, 105.0), (90.0, 105.0)]]
+    )
+    sources = _xy_sources([300.0], [300.0])  # nowhere near the streak
+
+    result = observation._drop_acis_streak_seeds(sources, obs)
+
+    assert len(result) == 1
+
+
+def test_drop_acis_streak_seeds_is_a_noop_without_a_mask_file(tmp_path):
+    """Non-ACIS observations, or ones with no bright enough source, never get
+    an acis_streaks.fits at all."""
+    obs = _make_observation(tmp_path)
+    sources = _xy_sources([100.0, 200.0], [100.0, 200.0])
+
+    result = observation._drop_acis_streak_seeds(sources, obs)
+
+    assert len(result) == 2
+
+
+def test_drop_acis_streak_seeds_handles_empty_input(tmp_path):
+    obs = _make_observation(tmp_path)
+    sources = _xy_sources([], [])
+
+    result = observation._drop_acis_streak_seeds(sources, obs)
+
+    assert len(result) == 0
