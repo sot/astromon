@@ -557,6 +557,85 @@ def _get_icrf3(
     return _local_catalog_near(get_icrf3(), "ICRF3", pos, radius, logging_tag)
 
 
+# ---------------------------------------------------------------------------
+# ICRF2 — International Celestial Reference Frame 2nd realisation
+# Ma et al. 2009, IERS Technical Note 35  (VizieR: I/323)
+# 3414 radio sources with VLBI-measured positions. Superseded by ICRF3, but kept
+# available (not in any standard CROSS_MATCHES_ARGS hierarchy) as a reference
+# baseline for comparing against the pre-ICRF3/RFC catalog set. Cached locally
+# like RFC/ICRF3.
+# ---------------------------------------------------------------------------
+
+_ICRF2_VIZIER_ID = "I/323"
+_ICRF2_CACHE_PATH = _ASTROMON_DATA_DIR / "icrf2_catalog.ecsv"
+_ICRF2_MAX_AGE_DAYS = 365  # ICRF2 is superseded and will not be updated again
+
+
+def get_icrf2(
+    cache_path: Path | None = None,
+    max_age_days: int | None = _ICRF2_MAX_AGE_DAYS,
+) -> table.Table:
+    """Return the ICRF2 catalog, downloading/caching from VizieR as needed.
+
+    The catalog (3414 sources) is cached at `cache_path` and refreshed when
+    absent or older than `max_age_days`.
+
+    Parameters
+    ----------
+    cache_path
+        Override the default cache location (default: ``$ASTROMON_DATA_DIR/icrf2_catalog.ecsv``).
+    max_age_days
+        Refresh threshold in days.  Default 365.  Pass ``None`` to download
+        only when the file is absent.
+
+    Returns
+    -------
+    table.Table
+        Table with columns ``name`` (str), ``ra`` (deg), ``dec`` (deg).
+
+    Examples
+    --------
+    >>> t = get_icrf2()
+    >>> len(t) > 3000
+    True
+    """
+    if cache_path is None:
+        cache_path = _ICRF2_CACHE_PATH
+    cache_path = Path(cache_path)
+    if _cache_is_stale(cache_path, max_age_days):
+        logger.info(f"Downloading ICRF2 from VizieR {_ICRF2_VIZIER_ID} → {cache_path}")
+        vizier = Vizier(row_limit=-1, columns=["ICRF", "_RAJ2000", "_DEJ2000"])
+        result = vizier.get_catalogs(_ICRF2_VIZIER_ID)
+        if not result:
+            raise RuntimeError(
+                f"VizieR returned no data for ICRF2 catalog {_ICRF2_VIZIER_ID}"
+            )
+        raw = result[0]
+        icrf2 = table.Table(
+            {
+                "name": np.asarray(raw["ICRF"], dtype="U32"),
+                "ra": np.asarray(raw["_RAJ2000"], dtype=float),
+                "dec": np.asarray(raw["_DEJ2000"], dtype=float),
+            }
+        )
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        icrf2.write(cache_path, format="ascii.ecsv", overwrite=True)
+        logger.info(f"  Saved {len(icrf2)} ICRF2 sources to {cache_path}")
+    else:
+        logger.debug(f"Loading cached ICRF2 from {cache_path}")
+        icrf2 = _read_catalog_cached(
+            cache_path, lambda p: table.Table.read(p, format="ascii.ecsv")
+        )
+    return icrf2
+
+
+def _get_icrf2(
+    pos: coords.SkyCoord, radius: u.Quantity, logging_tag: str = ""
+) -> table.Table:
+    """Return ICRF2 sources near *pos* within *radius*, formatted like VizieR results."""
+    return _local_catalog_near(get_icrf2(), "ICRF2", pos, radius, logging_tag)
+
+
 _MILLIQUAS_CACHE_PATH = _ASTROMON_DATA_DIR / "milliquas_catalog.fits"
 _MILLIQUAS_MAX_AGE_DAYS = 180  # update twice a year; v8 released 2023-07-30
 
@@ -1547,6 +1626,7 @@ def get_desi_v161_candidates(
 LOCAL_CATALOG_GETTERS = {
     "RFC": _get_rfc,
     "ICRF3": _get_icrf3,
+    "ICRF2": _get_icrf2,
 }
 
 
@@ -2354,6 +2434,10 @@ CROSS_MATCHES_ARGS = {
         _simple_match_args("rfc", ["RFC"]),
         _simple_match_args("tycho2", ["Tycho2"]),
         _simple_match_args("icrf3", ["ICRF3"]),
+        # Not part of any combined hierarchy (astromon_23-27): ICRF2 is superseded by
+        # ICRF3/RFC and kept only as a reference baseline for the pre-ICRF3/RFC
+        # catalog set, so no reprocessing of the hierarchical selections is needed.
+        _simple_match_args("icrf2", ["ICRF2"]),
         _simple_match_args("astromon_23", _MATCH_HIERARCHY_23),
         _simple_match_args(
             "astromon_24", _MATCH_HIERARCHY, detect_method_filter="celldetect"
