@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 import Ska.Shell
 from astropy.io import fits
-from astropy.table import Table, hstack, join
+from astropy.table import Table, hstack, join, vstack
 from astropy.wcs import WCS, FITSFixedWarning
 from cxotime import CxoTime
 from Quaternion import Quat
@@ -24,6 +24,8 @@ __all__ = [
     "logging_call_decorator",
     "calalign_from_files",
     "get_calalign_offsets",
+    "get_latest_calalign_matrix",
+    "get_rebased_offsets",
     "get_wcs_from_fits_header",
     "get_near_neighbor_dist",
     "NEAR_NEIGHBOR_DIST_ARCSEC",
@@ -616,6 +618,104 @@ def get_calalign_offsets(all_matches, ref_calalign=None, calalign_dir=None):
     result["after_caldb"] = result["since"] < all_matches["time"]
 
     return result
+
+
+def get_latest_calalign_matrix(calalign_dir=None):
+    """
+    Get the single most-recently-dated CALALIGN alignment matrix for each detector.
+
+    CALDB packages many distinct alignment solutions -- issued periodically to track
+    slow periscope drift -- under the same version label (e.g. every file from
+    2013-01-19 through 2021-07-02 in a typical CALDB checkout is labeled "N0010"), so
+    "the latest CalDB version" and "the latest matrix" are not the same thing: see
+    :any:`get_calalign_offsets`'s ``ref_calalign_dy``/``ref_calalign_dz``, which pick
+    a reference by version label and can land on a much older matrix than the most
+    recent one as a result. This instead picks the single most-recently-dated file per
+    detector, by its CVSD0001 start time, ignoring the version label entirely.
+
+    Parameters
+    ----------
+    calalign_dir: :any:`pathlib.Path`
+        Directory where to find the calalign files. Passed straight through to
+        :any:`calalign_from_files`.
+
+    Returns
+    -------
+    dict
+        {detector: (dy, dz)} for the most-recently-dated matrix per detector.
+    """
+    calalign_files = calalign_from_files(calalign_dir=calalign_dir)
+    latest = {}
+    for detector in np.unique(calalign_files["detector"]):
+        rows = calalign_files[calalign_files["detector"] == detector]
+        row = rows[np.argmax(rows["start"])]
+        latest[detector] = (row["dy"], row["dz"])
+    return latest
+
+
+def get_rebased_offsets(all_matches, ref_matrix=None, calalign_dir=None):
+    """
+    Rebase dy/dz to a single fixed CALALIGN alignment matrix.
+
+    Each observation's dy/dz has whatever CALALIGN alignment was in effect when it
+    was processed baked in, so a dy/dz time series mixes real signal with step
+    changes purely from CALALIGN updates. This moves every match onto one fixed
+    reference matrix instead, so the whole mission reads as one continuous signal:
+    ``dy_rebased = dy - (calalign_dy - ref_dy)``, per detector.
+
+    This is the rebase method used throughout the ``absolute_astrometry`` project
+    (e.g. ``celmon-story-1-source-rebase.ipynb``, independently checked there against
+    real ASCDS pipeline reprocessing). It is deliberately *not* built on
+    :any:`get_calalign_offsets`'s ``ref_calalign_dy``/``ref_calalign_dz`` columns
+    (used by ``scripts/calc_astrometry_rms.py``'s ``--use-latest-calalign`` and
+    ``web/celmon.py``'s ``use_reference_calalign``): those pick a reference by CalDB
+    *version* label, which can be a much older matrix than the most recent one --
+    see :any:`get_latest_calalign_matrix`, this function's default reference when
+    `ref_matrix` is not given. Pass your own `ref_matrix` to pin a specific epoch
+    instead of always tracking the newest one.
+
+    Parameters
+    ----------
+    all_matches: :any:`astropy.table.Table`
+        Table of x-ray/catalog matches. Required columns: 'obsid', 'x_id', 'detector',
+        'time', 'dy', 'dz', 'caldb_version'. Include 'detect_method' if `all_matches`
+        spans more than one detection method (celldetect and gaussian_detect each
+        number 'x_id' independently per obsid) -- see :any:`get_calalign_offsets`.
+    ref_matrix: dict
+        {detector: (dy, dz)}, e.g. from :any:`get_latest_calalign_matrix`. Computed
+        automatically from `calalign_dir` if not given.
+    calalign_dir: :any:`pathlib.Path`
+        Directory where to find the calalign files.
+
+    Returns
+    -------
+    :any:`astropy.table.Table`
+        A copy of `all_matches` with two extra columns, 'dy_rebased'/'dz_rebased'.
+        Rows with `caldb_version == "0.0"` (no real CalDB version recorded, so there
+        is no calalign entry to rebase from) get NaN instead of being dropped.
+    """
+    if ref_matrix is None:
+        ref_matrix = get_latest_calalign_matrix(calalign_dir=calalign_dir)
+
+    # caldb_version "0.0" means no real CalDB version was recorded for that
+    # observation -- get_calalign_offsets has no calalign entry to match it against.
+    has_caldb = all_matches["caldb_version"] != "0.0"
+
+    no_caldb = all_matches[~has_caldb].copy()
+    no_caldb["dy_rebased"] = np.nan
+    no_caldb["dz_rebased"] = np.nan
+
+    sub = all_matches[has_caldb].copy()
+    if len(sub) == 0:
+        return no_caldb
+
+    cal = get_calalign_offsets(sub, calalign_dir=calalign_dir)
+    ref_dy = np.array([ref_matrix[d][0] for d in sub["detector"]])
+    ref_dz = np.array([ref_matrix[d][1] for d in sub["detector"]])
+    sub["dy_rebased"] = sub["dy"] - (cal["calalign_dy"] - ref_dy)
+    sub["dz_rebased"] = sub["dz"] - (cal["calalign_dz"] - ref_dz)
+
+    return vstack([sub, no_caldb]) if len(no_caldb) > 0 else sub
 
 
 def get_wcs_from_fits_header(filename=None, hdu=0, header=None):
