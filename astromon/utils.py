@@ -499,7 +499,12 @@ def get_calalign_offsets(all_matches, ref_calalign=None, calalign_dir=None):
     Parameters
     ----------
     all_matches: :any:`astropy.table.Table`
-        The table of x-ray sources. The only required columns are 'obsid' and 'x_id'
+        The table of x-ray sources. The required columns are 'obsid' and 'x_id'.
+        If a 'detect_method' column is present, it is included in the match
+        identifier: 'x_id' is only unique within a given (obsid, detect_method)
+        pair (celldetect and gaussian_detect each number their own sources
+        starting from scratch for a given obsid), so a table that mixes
+        detect methods needs 'detect_method' to tell those sources apart.
 
     Returns
     -------
@@ -517,6 +522,12 @@ def get_calalign_offsets(all_matches, ref_calalign=None, calalign_dir=None):
         - ref_fts_misalign
         - ref_calalign_version
     """
+    # obsid and x_id identify a match, unless detect_method is present, in which
+    # case x_id is only unique within a given (obsid, detect_method) pair.
+    match_id_keys = ["obsid", "x_id"]
+    if "detect_method" in all_matches.colnames:
+        match_id_keys = match_id_keys + ["detect_method"]
+
     # this is a table of all calalign matrices
     calalign = calalign_from_files(calalign_dir=calalign_dir)
     calalign.rename_columns(
@@ -528,7 +539,7 @@ def get_calalign_offsets(all_matches, ref_calalign=None, calalign_dir=None):
     # - join on detector
     # - filter out calaligns that do not correspond to the time of the match
     # - filter out calalign versions after the desired one
-    # - group by match (obsid and x_id are unique identifiers)
+    # - group by match (match_id_keys identify a match uniquely)
     # - take the row corresponding to the latest calibration
     match_w_cal = join(all_matches, calalign, keys=["detector"])
     match_w_cal = match_w_cal[
@@ -546,7 +557,7 @@ def get_calalign_offsets(all_matches, ref_calalign=None, calalign_dir=None):
 
     # I actually would prefer to not sort the whole table
     # what I want is to sort the groups, which are small
-    match_w_cal.sort(keys=["obsid", "x_id", "cav", "start"], reverse=True)
+    match_w_cal.sort(keys=match_id_keys + ["cav", "start"], reverse=True)
 
     if ref_calalign is None:
         ref_calalign = max(
@@ -562,14 +573,14 @@ def get_calalign_offsets(all_matches, ref_calalign=None, calalign_dir=None):
     # Use tuple() for both sides so the comparison is lexicographic (returns a scalar bool),
     # not element-wise (which would return a numpy bool array and break the list comprehension).
     actual = match_w_cal[[tuple(r["cdbv"]) >= tuple(r["cav"]) for r in match_w_cal]]
-    actual = actual.group_by(["obsid", "x_id"])
+    actual = actual.group_by(match_id_keys)
     actual = actual[actual.groups.indices[:-1]]
 
     # the reference calalign must be a CalDB version no later than the given CalDB reference
     reference = match_w_cal[
         [tuple(ref_calalign) >= tuple(r["cav"]) for r in match_w_cal]
     ]
-    reference = reference.group_by(["obsid", "x_id"])
+    reference = reference.group_by(match_id_keys)
     reference = reference[reference.groups.indices[:-1]]
 
     cols = [
@@ -587,21 +598,19 @@ def get_calalign_offsets(all_matches, ref_calalign=None, calalign_dir=None):
         raise RuntimeError("len(all_matches) != len(actual)")
     if len(all_matches) != len(reference):
         raise RuntimeError("len(all_matches) != len(reference)")
-    if np.all(reference["obsid"] != actual["obsid"]):
-        raise RuntimeError("reference.obsid != actual.obsid")
-    if np.all(reference["x_id"] != actual["x_id"]):
-        raise RuntimeError("reference.x_id != actual.x_id")
+    for key in match_id_keys:
+        if np.all(reference[key] != actual[key]):
+            raise RuntimeError(f"reference.{key} != actual.{key}")
 
     result = join(
-        all_matches[["obsid", "x_id"]],
-        hstack([actual[["obsid", "x_id"] + cols], reference[ref_cols + ["since"]]]),
-        keys=["obsid", "x_id"],
+        all_matches[match_id_keys],
+        hstack([actual[match_id_keys + cols], reference[ref_cols + ["since"]]]),
+        keys=match_id_keys,
     )
 
-    if np.all(all_matches["obsid"] != result["obsid"]):
-        raise RuntimeError("all_matches.obsid != result.obsid")
-    if np.all(all_matches["x_id"] != result["x_id"]):
-        raise RuntimeError("all_matches.x_id != result.x_id")
+    for key in match_id_keys:
+        if np.all(all_matches[key] != result[key]):
+            raise RuntimeError(f"all_matches.{key} != result.{key}")
 
     # these are observations that happened after the reference calalign was added
     result["after_caldb"] = result["since"] < all_matches["time"]
