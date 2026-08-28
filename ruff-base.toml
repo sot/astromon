@@ -58,7 +58,6 @@ max-line-length = 100 # E501 reports lines that exceed the length of 100.
 
 [lint.extend-per-file-ignores]
 "__init__.py" = ["E402", "F401", "F403"]
-# For tests:
 "**/tests/test_*.py" = [
     "D205", # 1 blank line required between summary line and description
     "ARG001", # Unused function argument (false positives for some fixtures)
