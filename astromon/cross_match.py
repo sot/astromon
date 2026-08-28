@@ -1754,6 +1754,57 @@ def _get(
     return get_vizier(pos, radius=radius, logging_tag=logging_tag, **params, raw=raw)
 
 
+def assign_cat_src_ids(candidates, obsid, xray_sources, quat, id_offset=0):
+    """Stamp astromon_cat_src bookkeeping columns onto catalog candidates.
+
+    Sets ``obsid``, a per-obsid sequential ``id`` starting at `id_offset`, and each
+    candidate's ``y_angle``/``z_angle`` in the observation frame. If the anchor
+    column is not already present, also set ``celldetect_x_id`` and ``separation``
+    from the nearest x-ray source.
+
+    `candidates` is modified in place and also returned.
+    """
+    from chandra_aca.transform import radec_to_yagzag  # noqa: PLC0415
+
+    n_candidates = len(candidates)
+    candidates["obsid"] = np.full(n_candidates, obsid, dtype=np.int32)
+    candidates["id"] = np.arange(n_candidates, dtype=np.int32) + id_offset
+
+    if n_candidates:
+        candidates["y_angle"], candidates["z_angle"] = radec_to_yagzag(
+            candidates["ra"], candidates["dec"], quat
+        )
+    else:
+        candidates["y_angle"] = np.zeros(0, dtype=np.float32)
+        candidates["z_angle"] = np.zeros(0, dtype=np.float32)
+
+    if "celldetect_x_id" not in candidates.colnames:
+        if n_candidates == 0:
+            candidates["celldetect_x_id"] = np.zeros(0, dtype=np.int32)
+        elif len(xray_sources) == 0:
+            raise ValueError(
+                f"OBSID={obsid} cannot assign celldetect_x_id: "
+                "no x-ray sources were given"
+            )
+        else:
+            candidate_pos = coords.SkyCoord(
+                candidates["ra"], candidates["dec"], unit="deg"
+            )
+            source_pos = coords.SkyCoord(
+                xray_sources["ra"], xray_sources["dec"], unit="deg"
+            )
+            nearest, separation, _ = candidate_pos.match_to_catalog_sky(source_pos)
+            candidates["celldetect_x_id"] = np.asarray(xray_sources["id"])[
+                nearest
+            ].astype(np.int32)
+            if "separation" not in candidates.colnames:
+                candidates["separation"] = separation.to_value(u.arcsec).astype(
+                    np.float32
+                )
+
+    return candidates
+
+
 def rough_match(
     sources,
     time,
