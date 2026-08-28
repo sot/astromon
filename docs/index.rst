@@ -10,4 +10,5 @@ Astromon is a package to monitor the astrometric accuracy of the Chandra X-ray o
 
    quick
    astromon
+   promotion
    api

@@ -118,7 +118,7 @@ def plot_offsets_q_history(
     # plt.legend(loc='upper left')
     plt.title("dY")
     plt.ylabel("offset (arcsec)")
-    plt.ylim((-1.1, 1.1))
+    plt.ylim((-1.5, 1.5))
     plt.grid()
 
     plt.sca(ax1)
@@ -158,7 +158,7 @@ def plot_offsets_q_history(
     # plt.legend(loc='upper left')
     plt.title("dZ")
     plt.ylabel("offset (arcsec)")
-    plt.ylim((-1.1, 1.1))
+    plt.ylim((-1.5, 1.5))
     plt.grid()
     if filename:
         filename = Path(filename)
@@ -401,7 +401,16 @@ def create_figures_mta(outdir, calalign_dir=None, use_reference_calalign=False):
     outdir = Path(outdir)
 
     n_years = 5
-    snr = 3
+    # astromon_25 (gaussian_detect, ICRF3/RFC/GaiaAGN/Quaia/DESIV161/MilliquasGaia/
+    # GaiaQSO/GaiaVarStar/Tycho2 hierarchy) already bakes in snr=9.5 as its own
+    # default. That value is the documented quantile-equivalent of celldetect's
+    # snr=3 (see the CROSS_MATCHES_ARGS notes in cross_match.py): gaussian_detect
+    # SNR runs ~13x celldetect SNR for the same source, but that ratio is not
+    # constant across sources, so the two are not interchangeable by a fixed
+    # multiplier -- the cut has to be chosen to match quantiles instead. Passed
+    # explicitly here (matching astromon_25's own default) so mta's SNR choice is
+    # visible next to cal's, not just inherited silently.
+    snr = 9.5
     sim_z = 4  # max sim-z
     draw_median = True
 
@@ -409,11 +418,13 @@ def create_figures_mta(outdir, calalign_dir=None, use_reference_calalign=False):
     end = CxoTime()
     start = end - n_years * u.year
     result = {
+        "snr": snr,
         "start_date": start.iso.split()[0],
         "end_date": end.iso.split()[0],
     }
 
     all_matches = db.get_cross_matches(
+        name="astromon_25",
         snr=snr,
         exclude_bad_targets=True,
         sim_z=sim_z,
@@ -532,12 +543,29 @@ def create_figures_mta(outdir, calalign_dir=None, use_reference_calalign=False):
 
 def create_figures_cal(
     outdir,
-    snr=5,
+    snr=43.8,
     n_years=5,
     draw_median=True,
     calalign_dir=None,
     use_reference_calalign=False,
 ):
+    """Build the "cal" celmon page's figures and summary stats.
+
+    Parameters
+    ----------
+    snr : float
+        Minimum gaussian_detect SNR (astromon_25's own default is 9.5 -- see
+        create_figures_mta -- so this is deliberately stricter for cal). Default
+        43.8: checked empirically against the live DB (2026-08) as the
+        gaussian_detect threshold that keeps the same fraction of sources
+        (~46%) as celldetect's historical cal cut of snr=5. Not derived by
+        multiplying 5 by the ~13x median gaussian/celldetect SNR ratio: that
+        ratio is not constant across sources (see the CROSS_MATCHES_ARGS notes
+        in cross_match.py), so a fixed multiplier does not preserve the same
+        selection -- the empirical 5<->43.8 correspondence gives an ~8.8x
+        factor here, not ~13x. Re-check this value if the SNR relationship
+        between the two methods changes materially.
+    """
     outdir = Path(outdir)
 
     sim_z = 4  # max sim-z
@@ -545,6 +573,7 @@ def create_figures_cal(
     end = CxoTime()
     start = end - n_years * u.year
     matches = db.get_cross_matches(
+        name="astromon_25",
         snr=snr,
         exclude_bad_targets=True,
         sim_z=sim_z,

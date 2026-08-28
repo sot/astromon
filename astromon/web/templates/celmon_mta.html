@@ -236,18 +236,21 @@
 		</p>
 	
 		<p>
-			During the source detection process, the detected sources fulfill the following requirements:
+			Sources are detected with <tt>gaussian_detect</tt>, and fulfill the following requirements:
 			<ul>
-				<li> <code> SNR > {{ data.cal.snr }} </code> </li>
-				<li> For grating observations, sources must be within 0.4 arcmin from the optical axis. </li>
-				<li> For imaging observations, sources must be within 3 arcmin from the optical axis. </li>
+				<li> <code> SNR > {{ data.mta.snr }} </code> (on the gaussian_detect SNR scale --
+					see the code comments on <code>create_figures_mta</code>'s <code>snr</code>
+					default for how this value was chosen) </li>
+				<li> Sources must be within 2 arcmin of the optical axis, for both grating and
+					imaging observations. </li>
 			</ul>
 		</p>
 
 		<p>
 			An X-ray source matches an optical/radio source if the offset is less than 3
 			arcsec. If a source is matched in more than one catalog, the most accurate
-			catalog is used, in the following order of preference: ICRF2, Tycho2.
+			catalog is used, in the following order of preference: ICRF3, RFC, GaiaAGN, Quaia,
+			DESIV161, MilliquasGaia, GaiaQSO, GaiaVarStar, Tycho2.
 		</p>
 
 		<a id="offset_definition" />
@@ -297,12 +300,63 @@
 
 		<ul>
 			<li>
-				<a href="https://ui.adsabs.harvard.edu/abs/2009ITN....35....1M/abstract"> ICRF2 </a>
-				- Sources from The Second Realization of the International Celestial Reference Frame by Very
-				Long Baseline Interferometry <a
-				href="http://cdsarc.u-strasbg.fr/ftp/cats/I/323/tn35.pdf"> Ma et al. 2009, IERS
-				Technical Note No. 35 (pdf) </a>.
-				<a href="https://vizier.u-strasbg.fr/viz-bin/VizieR?-source=I/323">VizieR</a>.
+				<b>ICRF3</b> (radio, VLBI, S/X band) -
+				4536 defining/candidate/other sources of the celestial reference frame, a formally-
+				vetted subset of RFC. Own VLBI position.
+				<a href="https://doi.org/10.1051/0004-6361/202038368">Charlot et al. 2020, A&amp;A 644,
+				A159</a>.
+				<a href="https://vizier.u-strasbg.fr/viz-bin/VizieR?-source=J/A+A/644/A159">VizieR</a>.
+			</li>
+			<li>
+				<b>RFC</b> (radio, VLBI, S/X band) -
+				~22,800 compact radio sources, mostly AGN cores. Own VLBI position (typically &lt; 1 mas).
+				<a href="https://doi.org/10.3847/1538-4365/ad8c36">Petrov &amp; Kovalev 2025, ApJS 276,
+				38</a>; data from <a href="https://astrogeo.org/sol/rfc/">astrogeo.org</a>.
+			</li>
+			<li>
+				<b>GaiaAGN</b> (optical, Gaia DR3) -
+				~2.2M confirmed AGN (<tt>gaiadr3.agn_cross_id</tt>), the sample underlying the Gaia
+				celestial reference frame. Gaia DR3 position, used as-is (no proper-motion correction).
+				See the <a href="https://gea.esac.esa.int/archive/documentation/GDR3/">Gaia DR3 archive
+				documentation</a>.
+			</li>
+			<li>
+				<b>Quaia</b> (optical + mid-IR, Gaia DR3 + unWISE) -
+				755,850 quasars, G &lt; 20.0, built from Gaia DR3 quasar candidates refined with unWISE
+				infrared photometry. Gaia DR3 position, as provided in the Quaia catalog.
+				<a href="https://doi.org/10.3847/1538-4357/ad1328">Storey-Fisher et al. 2024, ApJ 964,
+				69</a>; data at <a href="https://zenodo.org/records/10403370">Zenodo</a>.
+			</li>
+			<li>
+				<b>DESIV161</b> (optical spectroscopy + imaging) -
+				DESI Early Data Release spectra with <tt>OType</tt> QSO or GALAXY and
+				<tt>ZWARN == 0</tt> (reliable redshift), ~4100 sq deg EDR footprint. Position from Legacy
+				Survey DR9 imaging (not Gaia), &lt;~0.1 arcsec accuracy.
+				DESI Collaboration 2023;
+				<a href="https://vizier.u-strasbg.fr/viz-bin/VizieR?-source=V/161">VizieR</a>.
+			</li>
+			<li>
+				<b>MilliquasGaia</b> (compiled multi-wavelength, position from Gaia) -
+				Milliquas v8, restricted to spectroscopically-confirmed types Q/A/B/N, further required
+				to have a Gaia DR3 match within 1.5 arcsec (which supplies the position).
+				Flesch 2023, Million Quasars (Milliquas) Catalog v8;
+				<a href="https://vizier.u-strasbg.fr/viz-bin/VizieR?-source=VII/294">VizieR</a>.
+			</li>
+			<li>
+				<b>GaiaQSO</b> (optical, Gaia DR3) -
+				~6.6M quasar candidates (<tt>gaiadr3.qso_candidates</tt>) classified from Gaia
+				astrometry, photometry and colour; extends GaiaAGN fainter (G &gt; 20). Gaia DR3
+				position, as-is. See the
+				<a href="https://gea.esac.esa.int/archive/documentation/GDR3/">Gaia DR3 archive
+				documentation</a>.
+			</li>
+			<li>
+				<b>GaiaVarStar</b> (optical, Gaia DR3) -
+				Rotation-modulation variable stars (<tt>gaiadr3.vari_rotation_modulation</tt>),
+				RUWE &lt; 1.4. Gaia DR3 position, propagated from the DR3 reference epoch (J2016.0) to
+				the observation epoch using the source's proper motion. See the
+				<a href="https://gea.esac.esa.int/archive/documentation/GDR3/">Gaia DR3 archive
+				documentation</a>.
 			</li>
 			<li>
 				<a href="https://ui.adsabs.harvard.edu/abs/2000A%26A...355L..27H/abstract">Tycho2</a> -
@@ -314,6 +368,10 @@
 				<a href="https://vizier.u-strasbg.fr/viz-bin/VizieR-3?-source=I/259/tyc2">VizieR</a>.
 			</li>
 		</ul>
+
+		<p>
+			ICRF2, the reference set used before ICRF3 superseded it, is no longer used.
+		</p>
 
 		<a name="notes" />
 		<h4> Notes </h4>
