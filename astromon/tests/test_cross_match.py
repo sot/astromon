@@ -11,6 +11,7 @@ from astropy import coordinates as coords
 from astropy import units as u
 from astropy.table import Table, vstack
 from cxotime import CxoTime
+from Quaternion import Quat
 from ska_helpers.retry import retry
 from testr.test_helper import has_internet
 
@@ -208,6 +209,7 @@ KNOWN_VIZIER_SOURCES = {
 }
 
 VIZIER_QUERY_TIME = CxoTime("2013-02-11T07:39:09")
+QUAT = Quat(equatorial=(150.0, 2.0, 30.0))
 
 
 @pytest.mark.skipif(not HAS_INTERNET, reason="Requires network access")
@@ -1647,6 +1649,105 @@ def test_rough_match_keeps_same_named_sources_at_different_positions():
 
     assert len(result) == 2, "distinct positions must survive as distinct rows"
     assert sorted(round(float(r), 4) for r in result["ra"]) == [10.0002, 10.0004]
+
+
+def _xray_sources_for_cat_src_ids(
+    obsid=7001, ids=(3, 7), ras=(150.0, 150.01), decs=(2.0, 2.01)
+):
+    return Table(
+        {
+            "obsid": np.full(len(ids), obsid, dtype=np.int32),
+            "id": np.array(ids, dtype=np.int32),
+            "ra": np.array(ras, dtype=np.float64),
+            "dec": np.array(decs, dtype=np.float64),
+        }
+    )
+
+
+def _candidates_for_cat_src_ids(ras, decs, names=None, catalog="RFC"):
+    names = names if names is not None else [f"c{i}" for i in range(len(ras))]
+    return Table(
+        {
+            "ra": np.array(ras, dtype=np.float64),
+            "dec": np.array(decs, dtype=np.float64),
+            "name": np.array(names),
+            "catalog": np.array([catalog] * len(ras)),
+            "separation": np.zeros(len(ras), dtype=np.float32),
+            "mag": np.full(len(ras), np.nan, dtype=np.float32),
+        }
+    )
+
+
+def test_assign_cat_src_ids_stamps_obsid_ids_and_angles():
+    candidates = _candidates_for_cat_src_ids([150.0, 150.01], [2.0, 2.01])
+
+    cross_match.assign_cat_src_ids(candidates, 7001, _xray_sources_for_cat_src_ids(), QUAT)
+
+    assert list(candidates["obsid"]) == [7001, 7001]
+    assert list(candidates["id"]) == [0, 1]
+    assert np.all(np.isfinite(candidates["y_angle"]))
+    assert np.all(np.isfinite(candidates["z_angle"]))
+
+
+def test_assign_cat_src_ids_anchors_to_the_nearest_source():
+    candidates = _candidates_for_cat_src_ids([150.0, 150.01], [2.0, 2.01])
+
+    cross_match.assign_cat_src_ids(
+        candidates, 7001, _xray_sources_for_cat_src_ids(ids=(3, 7)), QUAT
+    )
+
+    assert list(candidates["celldetect_x_id"]) == [3, 7]
+
+
+def test_assign_cat_src_ids_offsets_ids():
+    candidates = _candidates_for_cat_src_ids([150.0, 150.01], [2.0, 2.01])
+
+    cross_match.assign_cat_src_ids(
+        candidates, 7001, _xray_sources_for_cat_src_ids(), QUAT, id_offset=42
+    )
+
+    assert list(candidates["id"]) == [42, 43]
+
+
+def test_assign_cat_src_ids_keeps_an_existing_anchor():
+    candidates = _candidates_for_cat_src_ids([150.0, 150.0], [2.0, 2.0])
+    candidates["celldetect_x_id"] = np.array([3, 7], dtype=np.int32)
+
+    cross_match.assign_cat_src_ids(
+        candidates, 7001, _xray_sources_for_cat_src_ids(ids=(3, 7)), QUAT
+    )
+
+    assert list(candidates["celldetect_x_id"]) == [3, 7]
+
+
+def test_assign_cat_src_ids_fills_separation_from_the_matched_source():
+    candidates = _candidates_for_cat_src_ids([150.0], [2.01])
+    candidates.remove_column("separation")
+
+    cross_match.assign_cat_src_ids(
+        candidates, 7001, _xray_sources_for_cat_src_ids(ids=(3, 7)), QUAT
+    )
+
+    assert candidates["separation"][0] == pytest.approx(36.0, abs=0.1)
+
+
+def test_assign_cat_src_ids_keeps_a_separation_that_is_already_there():
+    candidates = _candidates_for_cat_src_ids([150.0], [2.01])
+    candidates["separation"] = np.array([1.25], dtype=np.float32)
+
+    cross_match.assign_cat_src_ids(candidates, 7001, _xray_sources_for_cat_src_ids(), QUAT)
+
+    assert candidates["separation"][0] == pytest.approx(1.25)
+
+
+def test_assign_cat_src_ids_handles_empty_candidates():
+    candidates = _candidates_for_cat_src_ids([], [])
+
+    cross_match.assign_cat_src_ids(candidates, 7001, _xray_sources_for_cat_src_ids(), QUAT)
+
+    assert len(candidates) == 0
+    for name in ("obsid", "id", "celldetect_x_id", "y_angle", "z_angle"):
+        assert name in candidates.colnames
 
 
 # ---- catalog cache location ----

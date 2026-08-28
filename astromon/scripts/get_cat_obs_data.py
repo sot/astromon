@@ -17,8 +17,7 @@ from pathlib import Path
 import numpy as np
 import stk
 from astropy import coordinates as coords
-from astropy.table import Column, Table, vstack
-from chandra_aca.transform import radec_to_yagzag
+from astropy.table import Table, vstack
 from cxotime import CxoTime
 from cxotime import units as u
 from Quaternion import Quat
@@ -27,6 +26,7 @@ from ska_helpers.logging import basic_logger
 
 from astromon import db, utils
 from astromon.cross_match import (
+    assign_cat_src_ids,
     compute_cross_matches,
     get_desi_v161_candidates,
     get_gaia_agn,
@@ -261,17 +261,9 @@ def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
         obs_time,
         catalogs=("RFC", "ICRF3", "Tycho2", "USNO-B1.0", "2MASS", "SDSS"),
     )
-    if len(match_candidates):
-        match_candidates["obsid"] = obsid
-        match_candidates["id"] = np.arange(len(match_candidates))
-        match_candidates["y_angle"], match_candidates["z_angle"] = radec_to_yagzag(
-            match_candidates["ra"], match_candidates["dec"], q
-        )
-    else:
-        match_candidates["obsid"] = Column(dtype=int)
-        match_candidates["id"] = Column(dtype=int)
-        match_candidates["y_angle"] = Column(dtype=np.float32)
-        match_candidates["z_angle"] = Column(dtype=np.float32)
+    # rough_match already sets one row per (source, candidate) pair, so
+    # assign_cat_src_ids only stamps the remaining bookkeeping fields.
+    assign_cat_src_ids(match_candidates, obsid, celldetect_sources, q)
 
     # Build a time-stamped SkyCoord for all Gaia catalog queries.
     # obstime is required by get_gaia_var_stars for proper motion correction.
@@ -283,21 +275,14 @@ def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
     )
 
     def _add_obsid_and_anchor(candidates, id_offset):
-        """Stamp obsid, assign sequential IDs, compute y/z angles, set the anchor.
+        """Stamp obsid, sequential ids, y/z angles and the celldetect anchor.
 
         The anchor is the nearest celldetect source: provenance for why this
-        catalogue row was fetched, and what `separation` is measured from. It is
-        not a match key -- the pairing is decided per method by position and the
-        dr cut in simple_cross_match.
+        catalogue row was fetched, and what `separation` measures from. It is not a
+        match key -- the pairing is decided per method by position and the dr cut in
+        simple_cross_match.
         """
-        candidates["obsid"] = obsid
-        candidates["id"] = np.arange(len(candidates)) + id_offset
-        candidates["y_angle"], candidates["z_angle"] = radec_to_yagzag(
-            candidates["ra"], candidates["dec"], q
-        )
-        cat_sc = coords.SkyCoord(candidates["ra"], candidates["dec"], unit="deg")
-        xray_match_idx, _, _ = cat_sc.match_to_catalog_sky(xray_pos)
-        candidates["celldetect_x_id"] = celldetect_sources["id"][xray_match_idx]
+        assign_cat_src_ids(candidates, obsid, celldetect_sources, q, id_offset)
 
     gaia_agn_candidates = get_gaia_agn(
         xray_pos, radius=3 * u.arcsec, logging_tag=f"OBSID={obsid}"
