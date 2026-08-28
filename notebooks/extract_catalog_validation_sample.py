@@ -203,15 +203,32 @@ def extract_sample(n_per_catalog: int, calalign_dir, dbfile=None) -> table.Table
     return table.vstack(samples)
 
 
+# The 8 catalogs added in this branch, each as its own independent single-catalog
+# selection -- deliberately not astromon_23 (the combined, priority-ordered
+# hierarchy): a plain union across independent selections says "does this source
+# have a counterpart in any new catalog" without needing to reason about which
+# catalog wins when several would match the same source.
+NEW_CATALOG_SELECT_NAMES = [
+    "icrf3",
+    "rfc",
+    "gaia_agn",
+    "quaia",
+    "desi_v161",
+    "milliquas_gaia",
+    "gaia_qso",
+    "gaia_var_star",
+]
+
+
 def compute_match_gains_summary(dbfile=None) -> table.Table:
     """How many X-ray sources gain a counterpart that had none under the old baseline.
 
     "Old baseline" is the pre-this-branch reference catalog set: ICRF2 union Tycho2
     (matches the historical astromon_21 catalogs=["ICRS", "Tycho2"] -- see
     docs/quick.rst's pre-branch example -- with "ICRS" being what ICRF2 was called
-    there). "New" is astromon_23, the combined hierarchy across all catalogs added in
-    this branch (RFC, ICRF3, GaiaAGN, Quaia, DESIV161, MilliquasGaia, GaiaQSO,
-    GaiaVarStar) plus Tycho2.
+    there). "New" is the union of the 8 independent single-catalog selections for
+    the catalogs added in this branch (NEW_CATALOG_SELECT_NAMES) -- not astromon_23,
+    so this doesn't depend on the combined hierarchy's catalog priority order at all.
 
     A source counts as "gained" only if it has *no* counterpart at all under the old
     baseline -- not merely a different one -- so this measures new astrometric
@@ -222,12 +239,14 @@ def compute_match_gains_summary(dbfile=None) -> table.Table:
     Returns
     -------
     table.Table
-        One row per catalog responsible for a gained match, plus a "TOTAL" row, with
-        columns catalog, n_gained, n_new_total, pct_of_new.
+        One row per new catalog plus a "TOTAL" row, with columns catalog, n_gained,
+        n_new_total, pct_of_new. Per-catalog rows can double-count: a source with no
+        old-baseline counterpart that matches two new catalogs at once (e.g. both
+        GaiaAGN and Quaia independently) is counted in both those rows, so they need
+        not sum to TOTAL -- TOTAL is the distinct count, not a per-catalog sum.
     """
     icrf2 = astromon.get_cross_matches(name="icrf2", dbfile=dbfile)
     tycho2 = astromon.get_cross_matches(name="tycho2", dbfile=dbfile)
-    astromon_23 = astromon.get_cross_matches(name="astromon_23", dbfile=dbfile)
 
     def _match_keys(matches):
         return set(
@@ -237,23 +256,25 @@ def compute_match_gains_summary(dbfile=None) -> table.Table:
         )
 
     old_ids = _match_keys(icrf2) | _match_keys(tycho2)
-    new_ids = _match_keys(astromon_23)
+
+    new_matches_by_catalog = {
+        name: astromon.get_cross_matches(name=name, dbfile=dbfile)
+        for name in NEW_CATALOG_SELECT_NAMES
+    }
+    new_ids_by_catalog = {
+        name: _match_keys(m) for name, m in new_matches_by_catalog.items()
+    }
+    new_ids = set().union(*new_ids_by_catalog.values())
     gained_ids = new_ids - old_ids
 
-    match_keys = list(
-        zip(
-            astromon_23["obsid"],
-            astromon_23["x_id"],
-            astromon_23["detect_method"],
-            strict=True,
-        )
-    )
-    gained_mask = np.array([k in gained_ids for k in match_keys])
-    gained_rows = astromon_23[gained_mask]
-
-    catalogs, counts = np.unique(gained_rows["catalog"], return_counts=True)
-    rows = sorted(zip(catalogs, counts, strict=True), key=lambda ck: -ck[1])
-    rows.append(("TOTAL", len(gained_ids)))
+    rows = [
+        (m["catalog"][0], len(ids - old_ids))
+        for name, ids in new_ids_by_catalog.items()
+        if len(ids) > 0
+        for m in [new_matches_by_catalog[name]]
+    ]
+    rows.sort(key=lambda cn: -cn[1])
+    rows.append(("TOTAL (distinct sources)", len(gained_ids)))
 
     summary = table.Table(
         rows=[(c, n, len(new_ids), 100 * n / len(new_ids)) for c, n in rows],
@@ -262,9 +283,9 @@ def compute_match_gains_summary(dbfile=None) -> table.Table:
     summary["pct_of_new"].format = "%.1f"
     print(
         f"Old baseline (ICRF2 union Tycho2): {len(old_ids):,} matched sources\n"
-        f"New combined (astromon_23): {len(new_ids):,} matched sources\n"
+        f"New (union of the 8 new-catalog selections): {len(new_ids):,} matched sources\n"
         f"Genuinely new (no old-baseline counterpart at all): {len(gained_ids):,}"
-        f" ({100 * len(gained_ids) / len(new_ids):.1f}% of astromon_23)"
+        f" ({100 * len(gained_ids) / len(new_ids):.1f}% of the new-catalog union)"
     )
     return summary
 
