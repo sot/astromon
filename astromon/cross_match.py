@@ -1779,7 +1779,9 @@ def assign_cat_src_ids(candidates, obsid, xray_sources, quat, id_offset=0):
         candidates["z_angle"] = np.zeros(0, dtype=np.float32)
 
     if "celldetect_x_id" not in candidates.colnames:
-        if n_candidates == 0:
+        if "x_id" in candidates.colnames:
+            candidates.rename_column("x_id", "celldetect_x_id")
+        elif n_candidates == 0:
             candidates["celldetect_x_id"] = np.zeros(0, dtype=np.int32)
         elif len(xray_sources) == 0:
             raise ValueError(

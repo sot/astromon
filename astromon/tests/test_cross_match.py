@@ -1720,6 +1720,18 @@ def test_assign_cat_src_ids_keeps_an_existing_anchor():
     assert list(candidates["celldetect_x_id"]) == [3, 7]
 
 
+def test_assign_cat_src_ids_renames_existing_x_id_anchor():
+    candidates = _candidates_for_cat_src_ids([150.0, 150.0], [2.0, 2.0])
+    candidates["x_id"] = np.array([3, 7], dtype=np.int32)
+
+    cross_match.assign_cat_src_ids(
+        candidates, 7001, _xray_sources_for_cat_src_ids(ids=(3, 7)), QUAT
+    )
+
+    assert "x_id" not in candidates.colnames
+    assert list(candidates["celldetect_x_id"]) == [3, 7]
+
+
 def test_assign_cat_src_ids_fills_separation_from_the_matched_source():
     candidates = _candidates_for_cat_src_ids([150.0], [2.01])
     candidates.remove_column("separation")
