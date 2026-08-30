@@ -172,6 +172,14 @@ ASTROMON_STATUS_DTYPE = np.dtype(
         ("status", "S24"),
         ("note", "S200"),
         ("timestamp", "S32"),
+        # The archive's processing version for this obsid at the time of this
+        # attempt (e.g. "10.8.3"), same string as astromon_obs.ascdsver. Empty
+        # when unknown -- a skip/failure that happened before obspar was
+        # available (e.g. the obsid could not be downloaded) has none. This is
+        # what lets a rerun tell "the archive reprocessed this obsid since we
+        # last skipped it, worth retrying" apart from "same version as before,
+        # retrying would just fail the same way again".
+        ("ascdsver", "S32"),
     ]
 )
 
@@ -585,7 +593,7 @@ def save(  # noqa: PLR0912
             h5.create_table("/", table_name, data)
 
 
-def save_status(dbfile, obsid, status, note=""):
+def save_status(dbfile, obsid, status, note="", ascdsver=""):
     """Record the outcome of processing `obsid` in astromon_status.
 
     One row per obsid: `save`'s default obsid-keyed replace means a later call for
@@ -612,6 +620,10 @@ def save_status(dbfile, obsid, status, note=""):
     note: str
         Free-text detail, e.g. the skip reason or exception message. Truncated to
         fit the column if longer.
+    ascdsver: str
+        The archive's processing version for this obsid at the time of this
+        attempt (same string as astromon_obs.ascdsver), if known. Empty when the
+        outcome happened before obspar was available.
     """
     if status not in ASTROMON_STATUS_VALUES:
         raise ValueError(
@@ -624,8 +636,9 @@ def save_status(dbfile, obsid, status, note=""):
             "status": [status],
             "note": [note],
             "timestamp": [CxoTime.now().isot],
+            "ascdsver": [ascdsver],
         },
-        dtype=[np.int32, "S24", "S200", "S32"],
+        dtype=[np.int32, "S24", "S200", "S32", "S32"],
     )
     save("astromon_status", row, dbfile, expect_existing=True)
 

@@ -765,14 +765,32 @@ def test_save_status_creates_table_on_a_fresh_file():
     with tempfile.TemporaryDirectory() as tmpdir:
         dbfile = Path(tmpdir) / "fresh.h5"
 
-        db.save_status(dbfile, 12345, "success", note="10 sources, 4 matches")
+        db.save_status(
+            dbfile,
+            12345,
+            "success",
+            note="10 sources, 4 matches",
+            ascdsver="10.8.3",
+        )
 
         result = db.get_table("astromon_status", dbfile)
         assert len(result) == 1
         assert result["obsid"][0] == 12345
         assert result["status"][0] == "success"
         assert result["note"][0] == "10 sources, 4 matches"
+        assert result["ascdsver"][0] == "10.8.3"
         assert result["timestamp"][0]  # non-empty
+
+
+def test_save_status_defaults_to_an_unknown_ascdsver():
+    """A skip/failure before obspar exists has no ascdsver to report."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dbfile = Path(tmpdir) / "fresh.h5"
+
+        db.save_status(dbfile, 12345, "skipped_not_public")
+
+        result = db.get_table("astromon_status", dbfile)
+        assert result["ascdsver"][0] == ""
 
 
 def test_save_status_leaves_other_tables_untouched():

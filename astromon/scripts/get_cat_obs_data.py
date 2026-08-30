@@ -43,13 +43,31 @@ from astromon.task import run_tasks
 class Skipped(Exception):
     """
     Exception class used to abort and silently skip processing an observation.
+
+    `ascdsver`, when known, is the archive's processing version for this obsid at
+    the time of the attempt (e.g. "10.8.3") -- carried through to astromon_status
+    so a later rerun can tell whether the archive has reprocessed this obsid since
+    the last (skipped) attempt and is therefore worth retrying, versus retrying an
+    obsid that has not changed and will just fail the same way again. Empty when
+    the skip happened before obspar was available (e.g. before the observation's
+    files were even downloaded).
     """
+
+    def __init__(self, msg, ascdsver=""):
+        super().__init__(msg)
+        self.ascdsver = ascdsver
 
 
 class SkippedWithWarning(Exception):
     """
     Exception class used to abort, issue a warning, and skip processing an observation.
+
+    See :class:`Skipped` for what `ascdsver` means and why it matters.
     """
+
+    def __init__(self, msg, ascdsver=""):
+        super().__init__(msg)
+        self.ascdsver = ascdsver
 
 
 def get_obsids(tstart, tstop):
@@ -65,19 +83,30 @@ def get_obsids(tstart, tstop):
         return [re.search("axaff([0-9]+)_", name).group(1) for name in names]
 
 
-def _status_for_result(d: dict) -> tuple[str, str]:
-    """Map one process() result dict to an (status, note) pair for astromon_status.
+def _status_for_result(d: dict) -> tuple[str, str, str]:
+    """Map one process() result dict to an (status, note, ascdsver) triple.
 
     process() reports outcomes as {"ok": bool, "msg": str}, with `msg` empty on
     success and prefixed with "skipped: "/"error: " otherwise (see process()
     above). This just re-derives the astromon_status vocabulary from that.
+
+    `ascdsver` comes from the Skipped/SkippedWithWarning exception for a skip, or
+    from the saved astromon_obs row for a success; a failure carries none (the
+    exception that produced it is not one of those two classes, so it has no
+    ascdsver attribute to read).
     """
     msg = d.get("msg", "")
     if not msg:
-        return "success", ""
+        astromon_obs = d.get("astromon_obs")
+        ascdsver = (
+            astromon_obs["ascdsver"][0]
+            if astromon_obs is not None and len(astromon_obs)
+            else ""
+        )
+        return "success", "", ascdsver
     if d["ok"]:
-        return "skipped", msg.removeprefix("skipped: ")
-    return "failure", msg.removeprefix("error: ")
+        return "skipped", msg.removeprefix("skipped: "), d.get("ascdsver", "")
+    return "failure", msg.removeprefix("error: "), ""
 def save(data, db_file):  # noqa: PLR0912
     logger = logging.getLogger(name="astromon")
     # Captured before `data` gets filtered/reassigned below: every obsid gets an
@@ -150,8 +179,8 @@ def save(data, db_file):  # noqa: PLR0912
                 if len(data[name]):
                     db.save(name, data[name], con)
         for d in all_results:
-            status, note = _status_for_result(d)
-            db.save_status(con, d["obsid"], status, note=note)
+            status, note, ascdsver = _status_for_result(d)
+            db.save_status(con, d["obsid"], status, note=note, ascdsver=ascdsver)
 
 
 # Detection versions that are run for a side effect rather than saved as their own
@@ -269,7 +298,9 @@ def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
     # detection methods so this candidate set is valid for all of them.
     celldetect_sources = observation.get_sources(version="celldetect")
     if len(celldetect_sources) == 0:
-        raise SkippedWithWarning("No x-ray sources found")
+        raise SkippedWithWarning(
+            "No x-ray sources found", ascdsver=obspar["ascdsver"][0]
+        )
 
     q = Quat(
         equatorial=(
@@ -572,7 +603,10 @@ def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
                     all_xcorr.append(combined_matches[xcorr_cols])
 
     if not all_sources:
-        raise SkippedWithWarning("No x-ray sources found for any detection version")
+        raise SkippedWithWarning(
+            "No x-ray sources found for any detection version",
+            ascdsver=obspar["ascdsver"][0],
+        )
 
     sources = vstack(all_sources)
     matches = vstack(all_xcorr) if all_xcorr else Table(names=xcorr_cols)
@@ -671,6 +705,7 @@ def process(  # noqa: PLR0917
             "ok": True,
             "msg": f"skipped: {e}",
             "obsid": obsid,
+            "ascdsver": e.ascdsver,
             "astromon_obs": [],
             "astromon_xray_src": [],
             "astromon_cat_src": [],
@@ -682,6 +717,7 @@ def process(  # noqa: PLR0917
             "ok": True,
             "msg": f"skipped: {e}",
             "obsid": obsid,
+            "ascdsver": e.ascdsver,
             "astromon_obs": [],
             "astromon_xray_src": [],
             "astromon_cat_src": [],
