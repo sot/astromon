@@ -102,6 +102,7 @@ def run_one(  # noqa: PLR0917
     ciao_prefix: str | None = None,
     cleanup: bool = False,
     skip_catalog_match: bool = False,
+    mirror: str | None = None,
     worker_timeout: int = _WORKER_TIMEOUT_SEC,
 ) -> dict:
     cmd = [
@@ -125,6 +126,8 @@ def run_one(  # noqa: PLR0917
         cmd += ["--cleanup"]
     if skip_catalog_match:
         cmd += ["--skip-catalog-match"]
+    if mirror:
+        cmd += ["--mirror", mirror]
 
     start = time.time()
     stdout = ""
@@ -268,6 +271,15 @@ def main():  # noqa: PLR0915
         "afterward, in batches, by requery_cat_src.py.",
     )
     parser.add_argument(
+        "--mirror",
+        default=None,
+        help="CDA mirror site to pass to download_chandra_obsid --mirror (only "
+        "used with --source archive). download_chandra_obsid does not fall "
+        "back to the primary CDA site if the mirror does not have the obsid "
+        '-- it is skipped, same as a genuine "not found". Default: use the '
+        "primary CDA site directly (no mirror).",
+    )
+    parser.add_argument(
         "--timeout",
         default=_WORKER_TIMEOUT_SEC,
         type=int,
@@ -336,6 +348,7 @@ def main():  # noqa: PLR0915
             ciao_prefix=args.ciao_prefix,
             cleanup=args.cleanup,
             skip_catalog_match=args.skip_catalog_match,
+            mirror=args.mirror,
             worker_timeout=args.worker_timeout,
         )
         with write_lock:

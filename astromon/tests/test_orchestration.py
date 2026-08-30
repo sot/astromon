@@ -110,6 +110,56 @@ def test_run_one_omits_skip_catalog_match_flag_by_default(tmp_path, monkeypatch)
     assert "--skip-catalog-match" not in captured["cmd"]
 
 
+def test_run_one_passes_mirror_through(tmp_path, monkeypatch):
+    """--mirror threads from run_one() into the worker subprocess cmd."""
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    captured = {}
+
+    real_popen = run_all.subprocess.Popen
+
+    def fake_popen(cmd, **kwargs):
+        captured["cmd"] = cmd
+        return real_popen([sys.executable, "-c", _FAKE_SUCCESS_WORKER], **kwargs)
+
+    monkeypatch.setattr(run_all.subprocess, "Popen", fake_popen)
+
+    result = run_all.run_one(
+        obsid=7001,
+        db_file=tmp_path / "astromon.h5",
+        workdir=tmp_path / "work",
+        log_dir=log_dir,
+        mirror="https://heasarc.gsfc.nasa.gov/FTP/chandra/data/",
+    )
+
+    assert result["status"] == "success"
+    idx = captured["cmd"].index("--mirror")
+    assert captured["cmd"][idx + 1] == "https://heasarc.gsfc.nasa.gov/FTP/chandra/data/"
+
+
+def test_run_one_omits_mirror_by_default(tmp_path, monkeypatch):
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    captured = {}
+
+    real_popen = run_all.subprocess.Popen
+
+    def fake_popen(cmd, **kwargs):
+        captured["cmd"] = cmd
+        return real_popen([sys.executable, "-c", _FAKE_SUCCESS_WORKER], **kwargs)
+
+    monkeypatch.setattr(run_all.subprocess, "Popen", fake_popen)
+
+    run_all.run_one(
+        obsid=7001,
+        db_file=tmp_path / "astromon.h5",
+        workdir=tmp_path / "work",
+        log_dir=log_dir,
+    )
+
+    assert "--mirror" not in captured["cmd"]
+
+
 def _make_tree(root: Path, marker: str) -> Path:
     """Create an obs14/14321 subtree containing a file with `marker` as its content."""
     obsid_dir = root / "obs14" / "14321"

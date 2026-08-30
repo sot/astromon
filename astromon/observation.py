@@ -211,6 +211,12 @@ class Observation:
         Files matching any regex in the list are archived.
     use_ciao: bool
         If this is False, there will be no calls to CIAO tools (and some methods will just fail).
+    mirror: str or None.
+        A CDA mirror site to pass to ``download_chandra_obsid --mirror`` (only used
+        when ``source="archive"``). ``download_chandra_obsid`` does not fall back to
+        the primary CDA site if the mirror does not have the obsid -- it is skipped,
+        same as a genuine "not found". None (the default) uses the primary CDA site
+        directly, with no mirror argument.
     """
 
     def __init__(
@@ -222,9 +228,11 @@ class Observation:
         archive_dir=None,
         archive_regex=None,
         use_ciao=True,
+        mirror=None,
     ):
         self.use_ciao = use_ciao or ciao_prefix
         self.ciao_prefix = ciao_prefix
+        self.mirror = mirror
         self._clear = workdir is None
         self.tmp = tempfile.TemporaryDirectory() if workdir is None else None
         self.obsid = str(obsid)
@@ -801,7 +809,7 @@ class Observation:
                     shutil.copyfileobj(f_in, f_out)
 
     @logging_call_decorator
-    def _download_archive(self, ftypes):  # noqa: PLR0912
+    def _download_archive(self, ftypes):  # noqa: PLR0912, PLR0915
         """
         Download pipeline-required files for this obsid from the Chandra public archive.
 
@@ -873,9 +881,14 @@ class Observation:
         # is almost certainly hung (broken TCP with no data flowing).
         _DOWNLOAD_TIMEOUT_SEC = 7200
 
+        cmd = ["download_chandra_obsid"]
+        if self.mirror:
+            cmd += ["--mirror", self.mirror]
+        cmd += [self.obsid, self._ARCHIVE_FILETYPES]
+
         with chdir(self.workdir.parent):
             process = subprocess.Popen(
-                ["download_chandra_obsid", self.obsid, self._ARCHIVE_FILETYPES],
+                cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 env=self.ciao.env,

@@ -235,6 +235,7 @@ def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
     ciao_prefix: str | None = None,
     cleanup: bool = False,
     skip_catalog_match: bool = False,
+    mirror: str | None = None,
 ):
     """
     Core processing logic for a single obsid. Raises on failure.
@@ -280,6 +281,12 @@ def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
         astromon_xray_src plus the local mica obspar archive, so it does not
         need CIAO or the event files and does not care that this step was
         skipped rather than having simply found nothing. Default False.
+    mirror : str or None
+        A CDA mirror site to pass through to ``download_chandra_obsid --mirror``
+        (only relevant when ``source="archive"``). ``download_chandra_obsid``
+        does not fall back to the primary CDA site if the mirror does not have
+        the obsid -- it is skipped, same as a genuine "not found". None (the
+        default) uses the primary CDA site directly.
     """
     logger = logging.getLogger("astromon")
 
@@ -296,6 +303,7 @@ def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
         archive_dir=archive_dir,
         source=source,
         ciao_prefix=ciao_prefix,
+        mirror=mirror,
     )
 
     if archive_dir:
