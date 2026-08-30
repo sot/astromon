@@ -272,6 +272,15 @@ def main():
         "detection-only bulk pass whose catalog candidates get filled in "
         "afterward, in batches, by requery_cat_src.py.",
     )
+    parser.add_argument(
+        "--mirror",
+        default=None,
+        help="CDA mirror site to pass to download_chandra_obsid --mirror (only "
+        "used with --source archive). download_chandra_obsid does not fall "
+        "back to the primary CDA site if the mirror does not have the obsid "
+        '-- it is skipped, same as a genuine "not found". Default: use the '
+        "primary CDA site directly (no mirror).",
+    )
     args = parser.parse_args()
 
     _start_parent_watchdog()
@@ -304,6 +313,7 @@ def main():
             source=args.source,
             ciao_prefix=args.ciao_prefix,
             cleanup=args.cleanup,
+            mirror=args.mirror,
             skip_catalog_match=args.skip_catalog_match,
         )
         save_with_lock(
