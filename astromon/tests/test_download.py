@@ -133,6 +133,48 @@ def test_past_release_date_proceeds_to_download(tmp_path, monkeypatch):
     assert seen["cmd"][2] == observation.Observation._ARCHIVE_FILETYPES
 
 
+# --- mirror ------------------------------------------------------------------
+#
+# download_chandra_obsid does not fall back to the primary CDA site if the
+# mirror does not have the obsid -- it is skipped, same as a genuine "not
+# found". So mirror=None (the default) has to mean "use the primary CDA site",
+# not "use some hardcoded mirror" -- these confirm --mirror is only added to
+# the command when actually requested.
+
+
+def test_mirror_is_passed_to_download_chandra_obsid_when_set(tmp_path, monkeypatch):
+    past = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d %H:%M:%S")
+    _stub_ocat(monkeypatch, past)
+    _stub_ciao(monkeypatch)
+    obs = observation.Observation(
+        8007,
+        workdir=tmp_path / "work",
+        archive_dir=tmp_path / "archive",
+        source="archive",
+        use_ciao=False,
+        mirror="https://heasarc.gsfc.nasa.gov/FTP/chandra/data/",
+    )
+    seen = _stub_popen(monkeypatch, FakeProcess(stdout=b"done\n", returncode=0))
+    obs._download_archive(["evt2"])
+    assert seen["cmd"][0] == "download_chandra_obsid"
+    assert seen["cmd"][1] == "--mirror"
+    assert seen["cmd"][2] == "https://heasarc.gsfc.nasa.gov/FTP/chandra/data/"
+    assert seen["cmd"][3] == "8007"
+
+
+def test_no_mirror_by_default(tmp_path, monkeypatch):
+    """The default (mirror=None) uses the primary CDA site, not some fixed mirror."""
+    past = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d %H:%M:%S")
+    _stub_ocat(monkeypatch, past)
+    _stub_ciao(monkeypatch)
+    obs = _obs(tmp_path)
+    seen = _stub_popen(monkeypatch, FakeProcess(stdout=b"done\n", returncode=0))
+    obs._download_archive(["evt2"])
+    assert "--mirror" not in seen["cmd"]
+    assert seen["cmd"][0] == "download_chandra_obsid"
+    assert seen["cmd"][1] == "8007"
+
+
 def test_ocat_lookup_failure_is_a_warning_not_a_skip(tmp_path, monkeypatch):
     """If the ocat cannot be consulted at all, the download still goes ahead.
 
