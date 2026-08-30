@@ -667,7 +667,6 @@ def test_replace_cat_src_with_rows_present_behaves_as_before():
         assert len(db.get_table("astromon_xcorr", dbfile)) == 0
 
 
-<<<<<<< HEAD
 def test_self_kill_process_group_swallows_expected_errors(monkeypatch):
     """ProcessLookupError and PermissionError are still treated as "already gone"."""
     from astromon.scripts.maintenance import process_one_obsid
@@ -711,7 +710,8 @@ def test_self_kill_process_group_logs_an_unexpected_failure(monkeypatch):
     process_one_obsid._self_kill_process_group()  # must not raise
 
     assert any("killpg failed unexpectedly" in msg for msg in logged)
-=======
+
+
 def test_skip_catalog_match_run_does_not_wipe_an_obsids_existing_matches(
     tmp_path, monkeypatch
 ):
@@ -766,4 +766,3 @@ def test_skip_catalog_match_run_does_not_wipe_an_obsids_existing_matches(
     assert len(xcorr[np.asarray(xcorr["obsid"]) == 7001]) == 1, (
         "the pre-existing xcorr row must survive a --skip-catalog-match run"
     )
->>>>>>> 703353b (Add safe detection-only reruns)
