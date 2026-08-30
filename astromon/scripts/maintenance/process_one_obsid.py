@@ -12,6 +12,14 @@ single source of truth. This script adds:
   - File-locked DB writes: safe for --parallel runs.
   - Per-obsid logging: all output captured in logs/<obsid>.log by
     run_all.py.
+  - Persisted per-obsid status: every outcome (success/skipped/
+    skipped_not_public/failure) is recorded in the astromon_status table
+    (see db.save_status), not just in run_all.py's --tracking-csv or the
+    log files. This is what lets a query against the DB itself tell "never
+    attempted" (no astromon_status row) apart from "attempted, skipped, no
+    x-ray sources found" (a row with status="skipped") -- both currently
+    look identical from astromon_obs alone, since a skipped obsid never
+    gets one of those rows either.
 
 Usage::
 
@@ -118,6 +126,8 @@ def save_with_lock(
     tables: dict,
     obsid: int | None = None,
     replace_cat_src: bool = False,
+    status: str | None = None,
+    note: str = "",
 ):
     """Serialize DB writes across concurrently-running worker processes.
 
@@ -153,6 +163,11 @@ def save_with_lock(
     did not redo would keep its old c_id and then join to the wrong catalog source
     in db.get_cross_matches. The consequence is deliberate: a rerun with a subset
     of --versions leaves xcorr only for the versions it actually ran.
+
+    `status`/`note`, when given, additionally record this obsid's outcome in
+    astromon_status under the same lock -- see db.save_status. Passing `tables={}`
+    with only `status` set (no obsid-keyed tables to write) is expected for the
+    skip/failure paths, which have nothing else to save.
     """
     lock_path = Path(str(db_file) + ".lock")
     lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -191,6 +206,9 @@ def save_with_lock(
                     if name in db.DTYPES:
                         db.conform_to_dtype(data, name)
                     db.save(name, data, con, expect_existing=True)
+
+                if status is not None and obsid is not None:
+                    db.save_status(con, obsid, status, note=note)
         finally:
             fcntl.flock(lockfile, fcntl.LOCK_UN)
 
@@ -278,6 +296,9 @@ def main():
             # behave the same instead of being the one exception that silently
             # keeps the previous run's rows.
             replace_cat_src=True,
+            status="success",
+            note=f"{len(result['astromon_xray_src'])} sources, "
+            f"{len(result['astromon_xcorr'])} xcorr",
         )
         emit_result(
             obsid=obsid,
@@ -287,13 +308,18 @@ def main():
         )
     except ObsidNotPubliclyAvailable as e:
         logger.info(f"OBSID={obsid} not publicly available, skipping: {e}")
+        save_with_lock(
+            db_file, {}, obsid=obsid, status="skipped_not_public", note=str(e)
+        )
         emit_result(obsid=obsid, status="skipped_not_public", note=str(e))
     except (Skipped, SkippedWithWarning) as e:
         logger.info(f"OBSID={obsid} skipped: {e}")
+        save_with_lock(db_file, {}, obsid=obsid, status="skipped", note=str(e))
         emit_result(obsid=obsid, status="skipped", note=str(e))
     except Exception as e:
         logger.error(f"OBSID={obsid} failed: {e}")
         logger.error(traceback.format_exc())
+        save_with_lock(db_file, {}, obsid=obsid, status="failure", note=str(e))
         emit_result(obsid=obsid, status="failure", stage="exception", error=str(e))
 
 

@@ -65,8 +65,27 @@ def get_obsids(tstart, tstop):
         return [re.search("axaff([0-9]+)_", name).group(1) for name in names]
 
 
+def _status_for_result(d: dict) -> tuple[str, str]:
+    """Map one process() result dict to an (status, note) pair for astromon_status.
+
+    process() reports outcomes as {"ok": bool, "msg": str}, with `msg` empty on
+    success and prefixed with "skipped: "/"error: " otherwise (see process()
+    above). This just re-derives the astromon_status vocabulary from that.
+    """
+    msg = d.get("msg", "")
+    if not msg:
+        return "success", ""
+    if d["ok"]:
+        return "skipped", msg.removeprefix("skipped: ")
+    return "failure", msg.removeprefix("error: ")
 def save(data, db_file):  # noqa: PLR0912
     logger = logging.getLogger(name="astromon")
+    # Captured before `data` gets filtered/reassigned below: every obsid gets an
+    # astromon_status row, including the skipped and failed ones, which have
+    # nothing to write to the other tables and would otherwise be dropped
+    # entirely -- the same gap that makes "never attempted" and "attempted, no
+    # x-ray sources found" indistinguishable from astromon_obs alone.
+    all_results = list(data)
 
     errors = {}
     skipped = {}
@@ -101,31 +120,38 @@ def save(data, db_file):  # noqa: PLR0912
         failures_file.unlink()
 
     data = [d for d in data if "astromon_obs" in d and len(d["astromon_obs"]) > 0]
-    if len(data) == 0:
-        logger.info("Nothing to save")
-        return
 
     names = ["astromon_obs", "astromon_xray_src", "astromon_cat_src", "astromon_xcorr"]
-    # these following baroque lines are here because there are some columns we cannot vstack
-    # so I decided to only vstack the columns that are in the dtype,
-    # but it turns out that not all columns in the dtype are actually in the data...
-    # and the data itself could be an empty array...
-    data = {name: [d[name] for d in data if len(d[name])] for name in names}
-    for name in names:
-        if len(data[name]):
-            cols = [
-                col for col in db.DTYPES[name].names if col in data[name][0].colnames
-            ]
-            data[name] = [d[cols] for d in data[name]]
-            data[name] = vstack(data[name], metadata_conflicts="silent")
-
-    logger.debug(
-        f"About to write {len(data['astromon_obs'])} observations to {db_file}"
-    )
-    with db.connect(db_file, mode="r+") as con:
+    if len(data) == 0:
+        logger.info("Nothing to save")
+    else:
+        # these following baroque lines are here because there are some columns we cannot
+        # vstack so I decided to only vstack the columns that are in the dtype,
+        # but it turns out that not all columns in the dtype are actually in the data...
+        # and the data itself could be an empty array...
+        data = {name: [d[name] for d in data if len(d[name])] for name in names}
         for name in names:
             if len(data[name]):
-                db.save(name, data[name], con)
+                cols = [
+                    col
+                    for col in db.DTYPES[name].names
+                    if col in data[name][0].colnames
+                ]
+                data[name] = [d[cols] for d in data[name]]
+                data[name] = vstack(data[name], metadata_conflicts="silent")
+
+        logger.debug(
+            f"About to write {len(data['astromon_obs'])} observations to {db_file}"
+        )
+
+    with db.connect(db_file, mode="r+") as con:
+        if isinstance(data, dict):
+            for name in names:
+                if len(data[name]):
+                    db.save(name, data[name], con)
+        for d in all_results:
+            status, note = _status_for_result(d)
+            db.save_status(con, d["obsid"], status, note=note)
 
 
 # Detection versions that are run for a side effect rather than saved as their own
