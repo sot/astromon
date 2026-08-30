@@ -212,6 +212,7 @@ def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
     source: str = "arc5gl",
     ciao_prefix: str | None = None,
     cleanup: bool = False,
+    skip_catalog_match: bool = False,
 ):
     """
     Core processing logic for a single obsid. Raises on failure.
@@ -245,6 +246,18 @@ def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
         If True, delete downloaded files that are not needed after source
         detection (e.g. level-1 events, VV report, preview JPEGs).  See
         ``Observation.cleanup_downloads`` for the full list.  Default False.
+    skip_catalog_match : bool
+        If True, skip the catalog rough_match/candidate-query step entirely
+        (RFC/ICRF3/Tycho2/USNO-B1.0/2MASS/SDSS rough_match, plus the GaiaAGN/
+        GaiaQSO/MilliquasGaia/Quaia/DESIV161/GaiaVarStar queries) and the
+        cross-match computation that depends on it. Detection still runs and
+        astromon_xray_src is still saved; astromon_cat_src/astromon_xcorr come
+        back empty. Meant for a detection-only bulk pass whose catalog
+        candidates get filled in afterward, in batches, by
+        requery_cat_src.py -- that script works entirely from
+        astromon_xray_src plus the local mica obspar archive, so it does not
+        need CIAO or the event files and does not care that this step was
+        skipped rather than having simply found nothing. Default False.
     """
     logger = logging.getLogger("astromon")
 
@@ -302,132 +315,151 @@ def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
             "No x-ray sources found", ascdsver=obspar["ascdsver"][0]
         )
 
-    q = Quat(
-        equatorial=(
-            obspar["ra_pnt"][0],
-            obspar["dec_pnt"][0],
-            obspar["roll_pnt"][0],
+    if not skip_catalog_match:
+        q = Quat(
+            equatorial=(
+                obspar["ra_pnt"][0],
+                obspar["dec_pnt"][0],
+                obspar["roll_pnt"][0],
+            )
         )
-    )
-    obs_time = CxoTime(obspar["date_obs"][0])
-    # Include RFC and ICRF3 (both local-cache, no network) so astromon_23 can match
-    # against radio sources and icrf3 can label ICRF3-specific matches separately.
-    # Tycho2/USNO-B1.0/2MASS/SDSS are VizieR queries.
-    match_candidates = rough_match(
-        celldetect_sources,
-        obs_time,
-        catalogs=("RFC", "ICRF3", "Tycho2", "USNO-B1.0", "2MASS", "SDSS"),
-    )
-    # rough_match already sets one row per (source, candidate) pair, so
-    # assign_cat_src_ids only stamps the remaining bookkeeping fields.
-    assign_cat_src_ids(match_candidates, obsid, celldetect_sources, q)
-
-    # Build a time-stamped SkyCoord for all Gaia catalog queries.
-    # obstime is required by get_gaia_var_stars for proper motion correction.
-    xray_pos = coords.SkyCoord(
-        celldetect_sources["ra"],
-        celldetect_sources["dec"],
-        unit="deg",
-        obstime=obs_time,
-    )
-
-    def _add_obsid_and_anchor(candidates, id_offset):
-        """Stamp obsid, sequential ids, y/z angles and the celldetect anchor.
-
-        The anchor is the nearest celldetect source: provenance for why this
-        catalogue row was fetched, and what `separation` measures from. It is not a
-        match key -- the pairing is decided per method by position and the dr cut in
-        simple_cross_match.
-        """
-        assign_cat_src_ids(candidates, obsid, celldetect_sources, q, id_offset)
-
-    gaia_agn_candidates = get_gaia_agn(
-        xray_pos, radius=3 * u.arcsec, logging_tag=f"OBSID={obsid}"
-    )
-    if len(gaia_agn_candidates):
-        _add_obsid_and_anchor(gaia_agn_candidates, id_offset=len(match_candidates))
-        logger.info(f"OBSID={obsid} GaiaAGN: {len(gaia_agn_candidates)} candidate(s)")
-    else:
-        logger.debug(f"OBSID={obsid} GaiaAGN: no candidates")
-
-    # Gaia DR3 qso_candidates -- extends agn_cross_id to ~6.6M sources (G up to ~21.5).
-    gaia_qso_candidates = get_gaia_qso_candidates(
-        xray_pos, radius=3 * u.arcsec, logging_tag=f"OBSID={obsid}"
-    )
-    if len(gaia_qso_candidates):
-        id_offset = len(match_candidates) + len(gaia_agn_candidates)
-        _add_obsid_and_anchor(gaia_qso_candidates, id_offset=id_offset)
-        logger.info(f"OBSID={obsid} GaiaQSO: {len(gaia_qso_candidates)} candidate(s)")
-    else:
-        logger.debug(f"OBSID={obsid} GaiaQSO: no candidates")
-
-    # Milliquas v8 + Gaia DR3 candidates -- VizieR cone search + Gaia position upgrade.
-    milliquas_candidates = get_milliquas_gaia(
-        xray_pos, radius=3 * u.arcsec, logging_tag=f"OBSID={obsid}"
-    )
-    if len(milliquas_candidates):
-        id_offset = (
-            len(match_candidates) + len(gaia_agn_candidates) + len(gaia_qso_candidates)
+        obs_time = CxoTime(obspar["date_obs"][0])
+        # Include RFC and ICRF3 (both local-cache, no network) so astromon_23 can match
+        # against radio sources and icrf3 can label ICRF3-specific matches separately.
+        # Tycho2/USNO-B1.0/2MASS/SDSS are VizieR queries.
+        match_candidates = rough_match(
+            celldetect_sources,
+            obs_time,
+            catalogs=("RFC", "ICRF3", "Tycho2", "USNO-B1.0", "2MASS", "SDSS"),
         )
-        _add_obsid_and_anchor(milliquas_candidates, id_offset=id_offset)
+        # rough_match already sets one row per (source, candidate) pair, so
+        # assign_cat_src_ids only stamps the remaining bookkeeping fields.
+        assign_cat_src_ids(match_candidates, obsid, celldetect_sources, q)
+
+        # Build a time-stamped SkyCoord for all Gaia catalog queries.
+        # obstime is required by get_gaia_var_stars for proper motion correction.
+        xray_pos = coords.SkyCoord(
+            celldetect_sources["ra"],
+            celldetect_sources["dec"],
+            unit="deg",
+            obstime=obs_time,
+        )
+
+        def _add_obsid_and_anchor(candidates, id_offset):
+            """Stamp obsid, sequential ids, y/z angles and the celldetect anchor.
+
+            The anchor is the nearest celldetect source: provenance for why this
+            catalogue row was fetched, and what `separation` measures from. It is not a
+            match key -- the pairing is decided per method by position and the dr cut in
+            simple_cross_match.
+            """
+            assign_cat_src_ids(candidates, obsid, celldetect_sources, q, id_offset)
+
+        gaia_agn_candidates = get_gaia_agn(
+            xray_pos, radius=3 * u.arcsec, logging_tag=f"OBSID={obsid}"
+        )
+        if len(gaia_agn_candidates):
+            _add_obsid_and_anchor(gaia_agn_candidates, id_offset=len(match_candidates))
+            logger.info(
+                f"OBSID={obsid} GaiaAGN: {len(gaia_agn_candidates)} candidate(s)"
+            )
+        else:
+            logger.debug(f"OBSID={obsid} GaiaAGN: no candidates")
+
+        # Gaia DR3 qso_candidates -- extends agn_cross_id to ~6.6M sources (G up to ~21.5).
+        gaia_qso_candidates = get_gaia_qso_candidates(
+            xray_pos, radius=3 * u.arcsec, logging_tag=f"OBSID={obsid}"
+        )
+        if len(gaia_qso_candidates):
+            id_offset = len(match_candidates) + len(gaia_agn_candidates)
+            _add_obsid_and_anchor(gaia_qso_candidates, id_offset=id_offset)
+            logger.info(
+                f"OBSID={obsid} GaiaQSO: {len(gaia_qso_candidates)} candidate(s)"
+            )
+        else:
+            logger.debug(f"OBSID={obsid} GaiaQSO: no candidates")
+
+        # Milliquas v8 + Gaia DR3 candidates -- VizieR cone search + Gaia position upgrade.
+        milliquas_candidates = get_milliquas_gaia(
+            xray_pos, radius=3 * u.arcsec, logging_tag=f"OBSID={obsid}"
+        )
+        if len(milliquas_candidates):
+            id_offset = (
+                len(match_candidates)
+                + len(gaia_agn_candidates)
+                + len(gaia_qso_candidates)
+            )
+            _add_obsid_and_anchor(milliquas_candidates, id_offset=id_offset)
+            logger.info(
+                f"OBSID={obsid} MilliquasGaia: {len(milliquas_candidates)} candidate(s)"
+            )
+        else:
+            logger.debug(f"OBSID={obsid} MilliquasGaia: no candidates")
+
+        # Quaia (Gaia DR3 + unWISE) candidates -- local cache, bounding-cone filter.
+        quaia_candidates = get_quaia_candidates(
+            xray_pos, radius=3 * u.arcsec, logging_tag=f"OBSID={obsid}"
+        )
+        if len(quaia_candidates):
+            id_offset = (
+                len(match_candidates)
+                + len(gaia_agn_candidates)
+                + len(gaia_qso_candidates)
+                + len(milliquas_candidates)
+            )
+            _add_obsid_and_anchor(quaia_candidates, id_offset=id_offset)
+            logger.info(f"OBSID={obsid} Quaia: {len(quaia_candidates)} candidate(s)")
+        else:
+            logger.debug(f"OBSID={obsid} Quaia: no candidates")
+
+        # DESI EDR (V/161) candidates -- VizieR cone search, QSO+GALAXY, ZWARN==0.
+        desi_candidates = get_desi_v161_candidates(
+            xray_pos, radius=3 * u.arcsec, logging_tag=f"OBSID={obsid}"
+        )
+        if len(desi_candidates):
+            id_offset = (
+                len(match_candidates)
+                + len(gaia_agn_candidates)
+                + len(gaia_qso_candidates)
+                + len(milliquas_candidates)
+                + len(quaia_candidates)
+            )
+            _add_obsid_and_anchor(desi_candidates, id_offset=id_offset)
+            logger.info(f"OBSID={obsid} DESIV161: {len(desi_candidates)} candidate(s)")
+        else:
+            logger.debug(f"OBSID={obsid} DESIV161: no candidates")
+
+        # GaiaVarStar catalog candidates -- proper motion corrected to obs epoch.
+        var_star_candidates = get_gaia_var_stars(
+            xray_pos, radius=3 * u.arcsec, logging_tag=f"OBSID={obsid}"
+        )
+        if len(var_star_candidates):
+            id_offset = (
+                len(match_candidates)
+                + len(gaia_agn_candidates)
+                + len(gaia_qso_candidates)
+                + len(milliquas_candidates)
+                + len(quaia_candidates)
+                + len(desi_candidates)
+            )
+            _add_obsid_and_anchor(var_star_candidates, id_offset=id_offset)
+            logger.info(
+                f"OBSID={obsid} GaiaVarStar: {len(var_star_candidates)} candidate(s)"
+            )
+        else:
+            logger.debug(f"OBSID={obsid} GaiaVarStar: no candidates")
+    else:
         logger.info(
-            f"OBSID={obsid} MilliquasGaia: {len(milliquas_candidates)} candidate(s)"
+            f"OBSID={obsid} skip_catalog_match=True: no catalog candidates queried"
         )
-    else:
-        logger.debug(f"OBSID={obsid} MilliquasGaia: no candidates")
-
-    # Quaia (Gaia DR3 + unWISE) candidates -- local cache, bounding-cone filter.
-    quaia_candidates = get_quaia_candidates(
-        xray_pos, radius=3 * u.arcsec, logging_tag=f"OBSID={obsid}"
-    )
-    if len(quaia_candidates):
-        id_offset = (
-            len(match_candidates)
-            + len(gaia_agn_candidates)
-            + len(gaia_qso_candidates)
-            + len(milliquas_candidates)
-        )
-        _add_obsid_and_anchor(quaia_candidates, id_offset=id_offset)
-        logger.info(f"OBSID={obsid} Quaia: {len(quaia_candidates)} candidate(s)")
-    else:
-        logger.debug(f"OBSID={obsid} Quaia: no candidates")
-
-    # DESI EDR (V/161) candidates -- VizieR cone search, QSO+GALAXY, ZWARN==0.
-    desi_candidates = get_desi_v161_candidates(
-        xray_pos, radius=3 * u.arcsec, logging_tag=f"OBSID={obsid}"
-    )
-    if len(desi_candidates):
-        id_offset = (
-            len(match_candidates)
-            + len(gaia_agn_candidates)
-            + len(gaia_qso_candidates)
-            + len(milliquas_candidates)
-            + len(quaia_candidates)
-        )
-        _add_obsid_and_anchor(desi_candidates, id_offset=id_offset)
-        logger.info(f"OBSID={obsid} DESIV161: {len(desi_candidates)} candidate(s)")
-    else:
-        logger.debug(f"OBSID={obsid} DESIV161: no candidates")
-
-    # GaiaVarStar catalog candidates -- proper motion corrected to obs epoch.
-    var_star_candidates = get_gaia_var_stars(
-        xray_pos, radius=3 * u.arcsec, logging_tag=f"OBSID={obsid}"
-    )
-    if len(var_star_candidates):
-        id_offset = (
-            len(match_candidates)
-            + len(gaia_agn_candidates)
-            + len(gaia_qso_candidates)
-            + len(milliquas_candidates)
-            + len(quaia_candidates)
-            + len(desi_candidates)
-        )
-        _add_obsid_and_anchor(var_star_candidates, id_offset=id_offset)
-        logger.info(
-            f"OBSID={obsid} GaiaVarStar: {len(var_star_candidates)} candidate(s)"
-        )
-    else:
-        logger.debug(f"OBSID={obsid} GaiaVarStar: no candidates")
+        empty_cat_src = Table(dtype=db.ASTROMON_CAT_SRC_DTYPE)
+        match_candidates = empty_cat_src
+        gaia_agn_candidates = empty_cat_src
+        gaia_qso_candidates = empty_cat_src
+        milliquas_candidates = empty_cat_src
+        quaia_candidates = empty_cat_src
+        desi_candidates = empty_cat_src
+        var_star_candidates = empty_cat_src
 
     xcorr_cols = list(db.ASTROMON_XCORR_DTYPE.names)
     all_sources = []
@@ -457,6 +489,11 @@ def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
             logger.warning(f"OBSID={obsid} no sources for {version}")
             continue
         all_sources.append(sources)
+
+        if skip_catalog_match:
+            # No candidates to cross-match against -- requery_cat_src.py fills
+            # astromon_cat_src/astromon_xcorr in for this obsid later.
+            continue
 
         logger.debug(f"OBSID={obsid} About to cross-match ({version})")
         matches = compute_cross_matches(
