@@ -251,6 +251,16 @@ def main():
         default=False,
         help="Delete downloaded files not needed after source detection",
     )
+    parser.add_argument(
+        "--skip-catalog-match",
+        action="store_true",
+        default=False,
+        dest="skip_catalog_match",
+        help="Detect sources but skip the catalog rough_match/cross-match step "
+        "entirely (astromon_cat_src/astromon_xcorr come back empty). For a "
+        "detection-only bulk pass whose catalog candidates get filled in "
+        "afterward, in batches, by requery_cat_src.py.",
+    )
     args = parser.parse_args()
 
     _start_parent_watchdog()
@@ -283,6 +293,7 @@ def main():
             source=args.source,
             ciao_prefix=args.ciao_prefix,
             cleanup=args.cleanup,
+            skip_catalog_match=args.skip_catalog_match,
         )
         save_with_lock(
             db_file,
@@ -299,10 +310,20 @@ def main():
             # the obsids present in the data. Passing this makes the empty case
             # behave the same instead of being the one exception that silently
             # keeps the previous run's rows.
-            replace_cat_src=True,
+            #
+            # But that is only true when catalog matching actually ran.
+            # --skip-catalog-match's result is unconditionally empty -- not
+            # because catalogs were queried and found nothing, but because they
+            # were never queried at all -- so it must not be treated as
+            # authoritative: doing so wiped an obsid's entire existing
+            # astromon_cat_src/astromon_xcorr (any detect method, not just this
+            # run's) the moment a --skip-catalog-match rerun touched it, even an
+            # obsid with real, previously-computed production cross-matches.
+            replace_cat_src=not args.skip_catalog_match,
             status="success",
             note=f"{len(result['astromon_xray_src'])} sources, "
-            f"{len(result['astromon_xcorr'])} xcorr",
+            f"{len(result['astromon_xcorr'])} xcorr"
+            + (" (catalog match skipped)" if args.skip_catalog_match else ""),
             ascdsver=result["astromon_obs"]["ascdsver"][0]
             if len(result["astromon_obs"])
             else "",

@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import numpy as np
 import pytest
-from astropy.table import vstack
+from astropy.table import Table, vstack
 
 from astromon import db, utils
 from astromon.scripts.maintenance import run_all
@@ -55,6 +55,60 @@ def test_run_one_timeout_note_uses_configured_timeout(tmp_path, monkeypatch):
 
     log_text = (log_dir / "7001.log").read_text()
     assert "TIMED OUT after 1s" in log_text
+
+
+# A worker that immediately reports success without doing any real work, so run_one
+# takes its normal (non-timeout) completion path.
+_FAKE_SUCCESS_WORKER = 'print(\'RESULT: {"status": "success"}\')'
+
+
+def test_run_one_passes_skip_catalog_match_flag_through(tmp_path, monkeypatch):
+    """--skip-catalog-match threads from run_one() into the worker subprocess cmd."""
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    captured = {}
+
+    real_popen = run_all.subprocess.Popen
+
+    def fake_popen(cmd, **kwargs):
+        captured["cmd"] = cmd
+        return real_popen([sys.executable, "-c", _FAKE_SUCCESS_WORKER], **kwargs)
+
+    monkeypatch.setattr(run_all.subprocess, "Popen", fake_popen)
+
+    result = run_all.run_one(
+        obsid=7001,
+        db_file=tmp_path / "astromon.h5",
+        workdir=tmp_path / "work",
+        log_dir=log_dir,
+        skip_catalog_match=True,
+    )
+
+    assert result["status"] == "success"
+    assert "--skip-catalog-match" in captured["cmd"]
+
+
+def test_run_one_omits_skip_catalog_match_flag_by_default(tmp_path, monkeypatch):
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    captured = {}
+
+    real_popen = run_all.subprocess.Popen
+
+    def fake_popen(cmd, **kwargs):
+        captured["cmd"] = cmd
+        return real_popen([sys.executable, "-c", _FAKE_SUCCESS_WORKER], **kwargs)
+
+    monkeypatch.setattr(run_all.subprocess, "Popen", fake_popen)
+
+    run_all.run_one(
+        obsid=7001,
+        db_file=tmp_path / "astromon.h5",
+        workdir=tmp_path / "work",
+        log_dir=log_dir,
+    )
+
+    assert "--skip-catalog-match" not in captured["cmd"]
 
 
 def _make_tree(root: Path, marker: str) -> Path:
@@ -497,3 +551,59 @@ def test_replace_cat_src_with_rows_present_behaves_as_before():
         cat = db.get_table("astromon_cat_src", dbfile)
         assert list(np.asarray(cat["catalog"]).astype(str)) == ["Tycho2"]
         assert len(db.get_table("astromon_xcorr", dbfile)) == 0
+
+
+def test_skip_catalog_match_run_does_not_wipe_an_obsids_existing_matches(
+    tmp_path, monkeypatch
+):
+    """--skip-catalog-match's empty cat_src/xcorr must not be treated as authoritative.
+
+    process_obsid()'s result is genuinely authoritative when it queried catalogs
+    and found nothing -- but --skip-catalog-match's result is unconditionally
+    empty because catalogs were never queried at all, not because they were
+    queried and came back empty. Before this fix, main() passed
+    replace_cat_src=True regardless, so a --skip-catalog-match rerun of an
+    obsid with real, previously-computed cross-matches (any detect method, not
+    just this run's) silently wiped all of them.
+    """
+    from astromon.scripts.maintenance import process_one_obsid
+
+    dbfile = tmp_path / "pipeline.h5"
+    db.create_empty_tables(dbfile)
+    _seed_obsid_with_matches(dbfile, obsid=7001)
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "process_one_obsid",
+            "7001",
+            str(tmp_path / "work"),
+            str(dbfile),
+            "--skip-catalog-match",
+        ],
+    )
+
+    xray = Table(np.zeros(1, dtype=db.ASTROMON_XRAY_SRC_DTYPE))
+    xray["obsid"] = 7001
+    xray["id"] = 1
+    xray["detect_method"] = "celldetect"
+    fake_result = {
+        "obsid": 7001,
+        "astromon_obs": db.create_table("astromon_obs"),
+        "astromon_xray_src": xray,
+        "astromon_cat_src": db.create_table("astromon_cat_src"),
+        "astromon_xcorr": db.create_table("astromon_xcorr"),
+    }
+
+    with patch.object(process_one_obsid, "process_obsid", return_value=fake_result):
+        process_one_obsid.main()
+
+    cat = db.get_table("astromon_cat_src", dbfile)
+    xcorr = db.get_table("astromon_xcorr", dbfile)
+    assert len(cat[np.asarray(cat["obsid"]) == 7001]) == 1, (
+        "the pre-existing cat_src row must survive a --skip-catalog-match run"
+    )
+    assert len(xcorr[np.asarray(xcorr["obsid"]) == 7001]) == 1, (
+        "the pre-existing xcorr row must survive a --skip-catalog-match run"
+    )
