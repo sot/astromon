@@ -56,6 +56,60 @@ def test_run_one_timeout_note_uses_configured_timeout(tmp_path, monkeypatch):
     assert "TIMED OUT after 1s" in log_text
 
 
+# A worker that immediately reports success without doing any real work, so run_one
+# takes its normal (non-timeout) completion path.
+_FAKE_SUCCESS_WORKER = 'print(\'RESULT: {"status": "success"}\')'
+
+
+def test_run_one_passes_skip_catalog_match_flag_through(tmp_path, monkeypatch):
+    """--skip-catalog-match threads from run_one() into the worker subprocess cmd."""
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    captured = {}
+
+    real_popen = run_all.subprocess.Popen
+
+    def fake_popen(cmd, **kwargs):
+        captured["cmd"] = cmd
+        return real_popen([sys.executable, "-c", _FAKE_SUCCESS_WORKER], **kwargs)
+
+    monkeypatch.setattr(run_all.subprocess, "Popen", fake_popen)
+
+    result = run_all.run_one(
+        obsid=7001,
+        db_file=tmp_path / "astromon.h5",
+        workdir=tmp_path / "work",
+        log_dir=log_dir,
+        skip_catalog_match=True,
+    )
+
+    assert result["status"] == "success"
+    assert "--skip-catalog-match" in captured["cmd"]
+
+
+def test_run_one_omits_skip_catalog_match_flag_by_default(tmp_path, monkeypatch):
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    captured = {}
+
+    real_popen = run_all.subprocess.Popen
+
+    def fake_popen(cmd, **kwargs):
+        captured["cmd"] = cmd
+        return real_popen([sys.executable, "-c", _FAKE_SUCCESS_WORKER], **kwargs)
+
+    monkeypatch.setattr(run_all.subprocess, "Popen", fake_popen)
+
+    run_all.run_one(
+        obsid=7001,
+        db_file=tmp_path / "astromon.h5",
+        workdir=tmp_path / "work",
+        log_dir=log_dir,
+    )
+
+    assert "--skip-catalog-match" not in captured["cmd"]
+
+
 def _make_tree(root: Path, marker: str) -> Path:
     """Create an obs14/14321 subtree containing a file with `marker` as its content."""
     obsid_dir = root / "obs14" / "14321"

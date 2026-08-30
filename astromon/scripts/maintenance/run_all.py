@@ -101,6 +101,7 @@ def run_one(  # noqa: PLR0917
     source: str = "arc5gl",
     ciao_prefix: str | None = None,
     cleanup: bool = False,
+    skip_catalog_match: bool = False,
     worker_timeout: int = _WORKER_TIMEOUT_SEC,
 ) -> dict:
     cmd = [
@@ -122,6 +123,8 @@ def run_one(  # noqa: PLR0917
         cmd += ["--ciao-prefix", str(ciao_prefix)]
     if cleanup:
         cmd += ["--cleanup"]
+    if skip_catalog_match:
+        cmd += ["--skip-catalog-match"]
 
     start = time.time()
     stdout = ""
@@ -255,6 +258,16 @@ def main():  # noqa: PLR0915
         "events, VV report, preview JPEGs, etc.)",
     )
     parser.add_argument(
+        "--skip-catalog-match",
+        action="store_true",
+        default=False,
+        dest="skip_catalog_match",
+        help="detect sources but skip the catalog rough_match/cross-match step "
+        "entirely (astromon_cat_src/astromon_xcorr come back empty). For a "
+        "detection-only bulk pass whose catalog candidates get filled in "
+        "afterward, in batches, by requery_cat_src.py.",
+    )
+    parser.add_argument(
         "--timeout",
         default=_WORKER_TIMEOUT_SEC,
         type=int,
@@ -322,6 +335,7 @@ def main():  # noqa: PLR0915
             source=args.source,
             ciao_prefix=args.ciao_prefix,
             cleanup=args.cleanup,
+            skip_catalog_match=args.skip_catalog_match,
             worker_timeout=args.worker_timeout,
         )
         with write_lock:

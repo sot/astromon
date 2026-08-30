@@ -251,6 +251,16 @@ def main():
         default=False,
         help="Delete downloaded files not needed after source detection",
     )
+    parser.add_argument(
+        "--skip-catalog-match",
+        action="store_true",
+        default=False,
+        dest="skip_catalog_match",
+        help="Detect sources but skip the catalog rough_match/cross-match step "
+        "entirely (astromon_cat_src/astromon_xcorr come back empty). For a "
+        "detection-only bulk pass whose catalog candidates get filled in "
+        "afterward, in batches, by requery_cat_src.py.",
+    )
     args = parser.parse_args()
 
     _start_parent_watchdog()
@@ -283,6 +293,7 @@ def main():
             source=args.source,
             ciao_prefix=args.ciao_prefix,
             cleanup=args.cleanup,
+            skip_catalog_match=args.skip_catalog_match,
         )
         save_with_lock(
             db_file,
@@ -302,7 +313,8 @@ def main():
             replace_cat_src=True,
             status="success",
             note=f"{len(result['astromon_xray_src'])} sources, "
-            f"{len(result['astromon_xcorr'])} xcorr",
+            f"{len(result['astromon_xcorr'])} xcorr"
+            + (" (catalog match skipped)" if args.skip_catalog_match else ""),
             ascdsver=result["astromon_obs"]["ascdsver"][0]
             if len(result["astromon_obs"])
             else "",
