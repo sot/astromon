@@ -275,6 +275,7 @@ def test_save_with_lock_records_status_alongside_the_normal_write():
             obsid=7001,
             status="success",
             note="1 source, 1 match",
+            ascdsver="10.8.3",
         )
 
         status = db.get_table("astromon_status", dbfile)
@@ -282,6 +283,7 @@ def test_save_with_lock_records_status_alongside_the_normal_write():
         assert status["obsid"][0] == 7001
         assert status["status"][0] == "success"
         assert status["note"][0] == "1 source, 1 match"
+        assert status["ascdsver"][0] == "10.8.3"
         assert len(db.get_table("astromon_cat_src", dbfile)) == 1
 
 

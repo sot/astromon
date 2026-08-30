@@ -16,6 +16,12 @@ def _obs_row(obsid):
     return row
 
 
+def _obs_row_with_ascdsver(ascdsver):
+    row = _obs_row(5003)
+    row["ascdsver"] = ascdsver
+    return row
+
+
 def _empty(name):
     return Table(dtype=db.DTYPES[name])
 
@@ -47,24 +53,48 @@ def test_split_versions_preserves_order_and_handles_absence():
     assert _split_versions(()) == ([], [])
 
 
-def test_status_for_result_success():
+def test_status_for_result_success_with_no_astromon_obs():
+    """A success result missing astromon_obs entirely reports an unknown ascdsver."""
     from astromon.scripts.get_cat_obs_data import _status_for_result
 
-    assert _status_for_result({"ok": True, "msg": ""}) == ("success", "")
+    assert _status_for_result({"ok": True, "msg": ""}) == ("success", "", "")
 
 
-def test_status_for_result_skipped_strips_the_prefix():
+def test_status_for_result_success_reads_ascdsver_from_astromon_obs():
     from astromon.scripts.get_cat_obs_data import _status_for_result
 
-    result = _status_for_result({"ok": True, "msg": "skipped: No x-ray sources found"})
-    assert result == ("skipped", "No x-ray sources found")
+    result = _status_for_result(
+        {"ok": True, "msg": "", "astromon_obs": _obs_row_with_ascdsver("10.8.3")}
+    )
+    assert result == ("success", "", "10.8.3")
 
 
-def test_status_for_result_failure_strips_the_prefix():
+def test_status_for_result_skipped_strips_the_prefix_and_reads_ascdsver():
+    from astromon.scripts.get_cat_obs_data import _status_for_result
+
+    result = _status_for_result(
+        {
+            "ok": True,
+            "msg": "skipped: No x-ray sources found",
+            "ascdsver": "10.8.3",
+        }
+    )
+    assert result == ("skipped", "No x-ray sources found", "10.8.3")
+
+
+def test_status_for_result_skipped_defaults_to_unknown_ascdsver():
+    """A skip with no ascdsver key (e.g. it happened before obspar existed)."""
+    from astromon.scripts.get_cat_obs_data import _status_for_result
+
+    result = _status_for_result({"ok": True, "msg": "skipped: not public"})
+    assert result == ("skipped", "not public", "")
+
+
+def test_status_for_result_failure_strips_the_prefix_and_has_no_ascdsver():
     from astromon.scripts.get_cat_obs_data import _status_for_result
 
     result = _status_for_result({"ok": False, "msg": "error: CIAO crashed"})
-    assert result == ("failure", "CIAO crashed")
+    assert result == ("failure", "CIAO crashed", "")
 
 
 def test_save_records_status_for_skipped_and_failed_obsids():
@@ -126,7 +156,7 @@ def test_save_records_status_alongside_a_successful_write():
                 "ok": True,
                 "msg": "",
                 "obsid": 5003,
-                "astromon_obs": _obs_row(5003),
+                "astromon_obs": _obs_row_with_ascdsver("10.8.3"),
                 "astromon_xray_src": _empty("astromon_xray_src"),
                 "astromon_cat_src": _empty("astromon_cat_src"),
                 "astromon_xcorr": _empty("astromon_xcorr"),
@@ -140,3 +170,4 @@ def test_save_records_status_alongside_a_successful_write():
         assert len(status) == 1
         assert status["obsid"][0] == 5003
         assert status["status"][0] == "success"
+        assert status["ascdsver"][0] == "10.8.3"
