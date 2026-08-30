@@ -855,3 +855,94 @@ def test_save_status_works_with_an_open_connection():
         result = db.get_table("astromon_status", dbfile)
         assert len(result) == 1
         assert result["obsid"][0] == 12345
+
+
+def test_save_status_defaults_versions_done_and_catalog_matched_conservatively():
+    """Omitting versions_done/catalog_matched must not claim work that didn't happen."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dbfile = Path(tmpdir) / "fresh.h5"
+
+        db.save_status(dbfile, 12345, "success")
+
+        result = db.get_table("astromon_status", dbfile)
+        assert result["versions_done"][0] == ""
+        assert result["catalog_matched"][0] == 0
+
+
+def test_save_status_records_versions_done_and_catalog_matched():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dbfile = Path(tmpdir) / "fresh.h5"
+
+        db.save_status(
+            dbfile,
+            12345,
+            "success",
+            versions_done="celldetect,gaussian_detect",
+            catalog_matched=True,
+        )
+
+        result = db.get_table("astromon_status", dbfile)
+        assert result["versions_done"][0] == "celldetect,gaussian_detect"
+        assert result["catalog_matched"][0] == 1
+
+
+def test_mark_catalog_matched_flips_the_flag_without_touching_other_columns():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dbfile = Path(tmpdir) / "fresh.h5"
+        db.save_status(
+            dbfile,
+            7001,
+            "success",
+            note="42 sources, 0 xcorr (catalog match skipped)",
+            ascdsver="10.9.2",
+            versions_done="celldetect",
+            catalog_matched=False,
+        )
+
+        result = db.mark_catalog_matched(dbfile, [7001])
+
+        assert result == {"updated": [7001], "skipped_no_row": []}
+        row = db.get_table("astromon_status", dbfile)
+        assert row["catalog_matched"][0] == 1
+        # Everything else from the original detection-stage row survives.
+        assert row["status"][0] == "success"
+        assert row["note"][0] == "42 sources, 0 xcorr (catalog match skipped)"
+        assert row["ascdsver"][0] == "10.9.2"
+        assert row["versions_done"][0] == "celldetect"
+
+
+def test_mark_catalog_matched_only_touches_the_given_obsids():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dbfile = Path(tmpdir) / "multi.h5"
+        db.save_status(dbfile, 111, "success", catalog_matched=False)
+        db.save_status(dbfile, 222, "success", catalog_matched=False)
+
+        result = db.mark_catalog_matched(dbfile, [111])
+
+        assert result == {"updated": [111], "skipped_no_row": []}
+        status = db.get_table("astromon_status", dbfile)
+        by_obsid = {row["obsid"]: row["catalog_matched"] for row in status}
+        assert by_obsid[111] == 1
+        assert by_obsid[222] == 0
+
+
+def test_mark_catalog_matched_reports_obsids_with_no_existing_row():
+    """An obsid with no astromon_status row is skipped, not invented from nothing."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dbfile = Path(tmpdir) / "fresh.h5"
+        db.save_status(dbfile, 111, "success", catalog_matched=False)
+
+        result = db.mark_catalog_matched(dbfile, [111, 999])
+
+        assert result == {"updated": [111], "skipped_no_row": [999]}
+        status = db.get_table("astromon_status", dbfile)
+        assert sorted(status["obsid"]) == [111]  # 999 was not invented
+
+
+def test_mark_catalog_matched_against_a_file_with_no_status_table_at_all():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dbfile = Path(tmpdir) / "fresh.h5"
+
+        result = db.mark_catalog_matched(dbfile, [111])
+
+        assert result == {"updated": [], "skipped_no_row": [111]}
