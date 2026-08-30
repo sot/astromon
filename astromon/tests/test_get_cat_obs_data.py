@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
-from astropy.table import Table
+from astropy.table import Table, vstack
 
 from astromon import db
 
@@ -53,11 +53,22 @@ def test_split_versions_preserves_order_and_handles_absence():
     assert _split_versions(()) == ([], [])
 
 
+def _xray_src_row(*detect_methods, obsid=5003):
+    """A minimal astromon_xray_src table with one row per detect_method given."""
+    row = db.create_table("astromon_xray_src")
+    for method in detect_methods:
+        r = Table(np.zeros(1, dtype=db.DTYPES["astromon_xray_src"]))
+        r["detect_method"] = method
+        r["obsid"] = obsid
+        row = vstack([row, r]) if len(row) else r
+    return row
+
+
 def test_status_for_result_success_with_no_astromon_obs():
-    """A success result missing astromon_obs entirely reports an unknown ascdsver."""
+    """A success result missing astromon_obs/astromon_xray_src reports unknowns."""
     from astromon.scripts.get_cat_obs_data import _status_for_result
 
-    assert _status_for_result({"ok": True, "msg": ""}) == ("success", "", "")
+    assert _status_for_result({"ok": True, "msg": ""}) == ("success", "", "", "")
 
 
 def test_status_for_result_success_reads_ascdsver_from_astromon_obs():
@@ -66,7 +77,20 @@ def test_status_for_result_success_reads_ascdsver_from_astromon_obs():
     result = _status_for_result(
         {"ok": True, "msg": "", "astromon_obs": _obs_row_with_ascdsver("10.8.3")}
     )
-    assert result == ("success", "", "10.8.3")
+    assert result == ("success", "", "10.8.3", "")
+
+
+def test_status_for_result_success_reads_versions_done_from_astromon_xray_src():
+    from astromon.scripts.get_cat_obs_data import _status_for_result
+
+    result = _status_for_result(
+        {
+            "ok": True,
+            "msg": "",
+            "astromon_xray_src": _xray_src_row("celldetect", "gaussian_detect"),
+        }
+    )
+    assert result == ("success", "", "", "celldetect,gaussian_detect")
 
 
 def test_status_for_result_skipped_strips_the_prefix_and_reads_ascdsver():
@@ -79,7 +103,7 @@ def test_status_for_result_skipped_strips_the_prefix_and_reads_ascdsver():
             "ascdsver": "10.8.3",
         }
     )
-    assert result == ("skipped", "No x-ray sources found", "10.8.3")
+    assert result == ("skipped", "No x-ray sources found", "10.8.3", "")
 
 
 def test_status_for_result_skipped_defaults_to_unknown_ascdsver():
@@ -87,14 +111,14 @@ def test_status_for_result_skipped_defaults_to_unknown_ascdsver():
     from astromon.scripts.get_cat_obs_data import _status_for_result
 
     result = _status_for_result({"ok": True, "msg": "skipped: not public"})
-    assert result == ("skipped", "not public", "")
+    assert result == ("skipped", "not public", "", "")
 
 
 def test_status_for_result_failure_strips_the_prefix_and_has_no_ascdsver():
     from astromon.scripts.get_cat_obs_data import _status_for_result
 
     result = _status_for_result({"ok": False, "msg": "error: CIAO crashed"})
-    assert result == ("failure", "CIAO crashed", "")
+    assert result == ("failure", "CIAO crashed", "", "")
 
 
 def test_save_records_status_for_skipped_and_failed_obsids():
@@ -157,7 +181,7 @@ def test_save_records_status_alongside_a_successful_write():
                 "msg": "",
                 "obsid": 5003,
                 "astromon_obs": _obs_row_with_ascdsver("10.8.3"),
-                "astromon_xray_src": _empty("astromon_xray_src"),
+                "astromon_xray_src": _xray_src_row("celldetect"),
                 "astromon_cat_src": _empty("astromon_cat_src"),
                 "astromon_xcorr": _empty("astromon_xcorr"),
             }
@@ -171,3 +195,7 @@ def test_save_records_status_alongside_a_successful_write():
         assert status["obsid"][0] == 5003
         assert status["status"][0] == "success"
         assert status["ascdsver"][0] == "10.8.3"
+        assert status["versions_done"][0] == "celldetect"
+        # This entry point has no --skip-catalog-match: success always means
+        # catalog matching was attempted.
+        assert status["catalog_matched"][0] == 1

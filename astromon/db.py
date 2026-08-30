@@ -22,6 +22,7 @@ __all__ = [
     "get_cross_matches",
     "save",
     "save_status",
+    "mark_catalog_matched",
     "add_regions",
     "update_regions",
     "remove_regions",
@@ -180,6 +181,23 @@ ASTROMON_STATUS_DTYPE = np.dtype(
         # last skipped it, worth retrying" apart from "same version as before,
         # retrying would just fail the same way again".
         ("ascdsver", "S32"),
+        # Comma-joined detect_methods actually completed on the most recent
+        # attempt (e.g. "celldetect,gaussian_detect"), read off
+        # astromon_xray_src.detect_method for this obsid, not a separate claim
+        # that could drift from what is actually stored. Only meaningful when
+        # status == "success" -- a failed/skipped obsid completed no method at
+        # all, so this is empty there. A method absent from this string was
+        # either not requested (--versions did not ask for it) or requested and
+        # not completed; both cases need reprocessing to know which, the same
+        # way an empty astromon_cat_src does before a requery_cat_src.py pass.
+        ("versions_done", "S128"),
+        # Whether the catalog rough_match/cross-match step has been attempted
+        # for this obsid -- not whether it found anything, since a genuine
+        # zero-candidate result and "never attempted" both leave
+        # astromon_cat_src empty. False after a --skip-catalog-match detection
+        # pass; set True either by a normal (non-skipped) run or by
+        # requery_cat_src.py once it has queried this obsid's catalogs.
+        ("catalog_matched", np.int32),
     ]
 )
 
@@ -593,7 +611,9 @@ def save(  # noqa: PLR0912
             h5.create_table("/", table_name, data)
 
 
-def save_status(dbfile, obsid, status, note="", ascdsver=""):
+def save_status(
+    dbfile, obsid, status, note="", ascdsver="", versions_done="", catalog_matched=False
+):
     """Record the outcome of processing `obsid` in astromon_status.
 
     One row per obsid: `save`'s default obsid-keyed replace means a later call for
@@ -604,6 +624,10 @@ def save_status(dbfile, obsid, status, note="", ascdsver=""):
     "attempted and skipped, e.g. no x-ray sources found" (a row with
     status="skipped") -- both currently look identical if you only look at
     astromon_obs, since a skipped obsid never gets one of those rows either.
+    `versions_done`/`catalog_matched` extend the same idea to two later pipeline
+    stages: which detect methods actually completed, and whether catalog
+    matching was attempted -- both of which can otherwise look identical to
+    "never attempted" from an empty astromon_xray_src/astromon_cat_src alone.
 
     Creates the astromon_status table first if `dbfile` predates it, so this
     works against both a brand-new database and an existing one from before this
@@ -624,6 +648,17 @@ def save_status(dbfile, obsid, status, note="", ascdsver=""):
         The archive's processing version for this obsid at the time of this
         attempt (same string as astromon_obs.ascdsver), if known. Empty when the
         outcome happened before obspar was available.
+    versions_done: str
+        Comma-joined detect_methods actually completed this attempt (e.g.
+        ``"celldetect,gaussian_detect"``). Only meaningful when
+        ``status == "success"``; leave empty otherwise. Default empty is the
+        conservative choice -- do not claim a method completed unless told so.
+    catalog_matched: bool
+        Whether the catalog rough_match/cross-match step has been attempted for
+        this obsid (regardless of whether it found anything). Default False is
+        the conservative choice, matching a --skip-catalog-match detection pass;
+        pass True for a normal (non-skipped) run, or when updating this flag
+        after a later requery_cat_src.py pass.
     """
     if status not in ASTROMON_STATUS_VALUES:
         raise ValueError(
@@ -637,10 +672,57 @@ def save_status(dbfile, obsid, status, note="", ascdsver=""):
             "note": [note],
             "timestamp": [CxoTime.now().isot],
             "ascdsver": [ascdsver],
+            "versions_done": [versions_done],
+            "catalog_matched": [int(bool(catalog_matched))],
         },
-        dtype=[np.int32, "S24", "S200", "S32", "S32"],
+        dtype=[np.int32, "S24", "S200", "S32", "S32", "S128", np.int32],
     )
     save("astromon_status", row, dbfile, expect_existing=True)
+
+
+def mark_catalog_matched(dbfile, obsids):
+    """Set astromon_status.catalog_matched=True for `obsids`, in place.
+
+    For use by a batch catalog-matching pass (e.g. requery_cat_src.py) that runs
+    well after the detection pass that created these obsids' astromon_status
+    rows: it needs to flip catalog_matched without touching status/note/
+    ascdsver/versions_done/timestamp, which save_status's obsid-keyed replace
+    would otherwise overwrite with whatever (likely blank) values the caller
+    passed. Reads the existing rows, flips the one column, and re-saves them --
+    a plain read-modify-write, not a new low-level mechanism.
+
+    Obsids with no existing astromon_status row are left alone and reported as
+    skipped: inventing a status/note/ascdsver for them here would be a guess,
+    and in the intended use they should already have one from the detection
+    pass that put their sources in astromon_xray_src in the first place.
+
+    Parameters
+    ----------
+    dbfile: :any:`pathlib.Path` or open connection
+    obsids: sequence of int
+
+    Returns
+    -------
+    dict
+        ``{"updated": [...], "skipped_no_row": [...]}`` -- the obsids actually
+        updated, and those with no existing astromon_status row.
+    """
+    obsids = [int(o) for o in obsids]
+    try:
+        status = get_table("astromon_status", dbfile)
+    except (MissingTableException, FileNotFoundError):
+        return {"updated": [], "skipped_no_row": obsids}
+
+    present = set(np.asarray(status["obsid"]).tolist())
+    to_update = [o for o in obsids if o in present]
+    skipped = [o for o in obsids if o not in present]
+    if not to_update:
+        return {"updated": [], "skipped_no_row": skipped}
+
+    rows = status[np.isin(np.asarray(status["obsid"]), to_update)]
+    rows["catalog_matched"] = 1
+    save("astromon_status", rows, dbfile, expect_existing=True)
+    return {"updated": to_update, "skipped_no_row": skipped}
 
 
 def remove_regions(regions, dbfile=None):

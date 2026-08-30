@@ -516,3 +516,106 @@ def test_named_gaia_var_star_still_goes_through_the_batched_path():
 
     assert calls == [[7001, 7002]]
     assert set(result) == {"GaiaVarStar"}
+
+
+# ─── astromon_status.catalog_matched ─────────────────────────────────────────
+
+
+def _empty_getter(sources, obs_time, logging_tag=""):
+    return _candidates([], [])
+
+
+def _empty_batched_getter(positions, radius=None, logging_tag=""):
+    return {obsid: _candidates([], []) for obsid in positions}
+
+
+def _seed_xray_src(dbfile, obsid=7001):
+    xray = db.conform_to_dtype(_xray_sources(obsid=obsid), "astromon_xray_src")
+    db.save("astromon_xray_src", xray, dbfile, ignore_obsid=True)
+
+
+def test_requery_marks_catalog_matched_when_the_full_catalog_set_is_covered(
+    tmp_path, monkeypatch
+):
+    """catalog_matched flips to True once ALL_CATALOGS has genuinely been queried.
+
+    True even though nothing was found: catalog_matched means "attempted", not
+    "found something" -- an empty astromon_cat_src must not look like "never
+    queried" once this has run.
+    """
+    dbfile = _seeded_db(tmp_path)
+    _seed_xray_src(dbfile, obsid=7001)
+    db.save_status(
+        dbfile, 7001, "success", versions_done="celldetect", catalog_matched=False
+    )
+
+    monkeypatch.setattr(
+        requery_cat_src, "obspar_pointing", lambda obsid: (QUAT, "2020:001")
+    )
+    fake_getters = dict.fromkeys(requery_cat_src.ALL_CATALOGS, _empty_getter)
+
+    with (
+        patch.dict(requery_cat_src.CATALOG_GETTERS, fake_getters, clear=False),
+        patch.dict(
+            requery_cat_src.BATCHED_GETTERS,
+            {"DESIV161": _empty_batched_getter},
+            clear=False,
+        ),
+    ):
+        requery_cat_src.requery(dbfile, [7001], catalogs=requery_cat_src.ALL_CATALOGS)
+
+    status = db.get_table("astromon_status", dbfile)
+    assert status["catalog_matched"][0] == 1
+    # The detection-stage fields survive untouched.
+    assert status["versions_done"][0] == "celldetect"
+
+
+def test_requery_does_not_mark_catalog_matched_for_a_partial_catalog_set(
+    tmp_path, monkeypatch
+):
+    """A narrow run (e.g. just RFC) must not claim the full catalog set is done."""
+    dbfile = _seeded_db(tmp_path)
+    _seed_xray_src(dbfile, obsid=7001)
+    db.save_status(
+        dbfile, 7001, "success", versions_done="celldetect", catalog_matched=False
+    )
+
+    monkeypatch.setattr(
+        requery_cat_src, "obspar_pointing", lambda obsid: (QUAT, "2020:001")
+    )
+
+    with patch.dict(
+        requery_cat_src.CATALOG_GETTERS, {"RFC": _empty_getter}, clear=False
+    ):
+        requery_cat_src.requery(dbfile, [7001], catalogs=("RFC",))
+
+    status = db.get_table("astromon_status", dbfile)
+    assert status["catalog_matched"][0] == 0
+
+
+def test_requery_does_not_mark_catalog_matched_in_dry_run(tmp_path, monkeypatch):
+    dbfile = _seeded_db(tmp_path)
+    _seed_xray_src(dbfile, obsid=7001)
+    db.save_status(
+        dbfile, 7001, "success", versions_done="celldetect", catalog_matched=False
+    )
+
+    monkeypatch.setattr(
+        requery_cat_src, "obspar_pointing", lambda obsid: (QUAT, "2020:001")
+    )
+    fake_getters = dict.fromkeys(requery_cat_src.ALL_CATALOGS, _empty_getter)
+
+    with (
+        patch.dict(requery_cat_src.CATALOG_GETTERS, fake_getters, clear=False),
+        patch.dict(
+            requery_cat_src.BATCHED_GETTERS,
+            {"DESIV161": _empty_batched_getter},
+            clear=False,
+        ),
+    ):
+        requery_cat_src.requery(
+            dbfile, [7001], catalogs=requery_cat_src.ALL_CATALOGS, dry_run=True
+        )
+
+    status = db.get_table("astromon_status", dbfile)
+    assert status["catalog_matched"][0] == 0

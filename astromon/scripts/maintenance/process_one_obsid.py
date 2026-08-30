@@ -132,6 +132,8 @@ def save_with_lock(
     status: str | None = None,
     note: str = "",
     ascdsver: str = "",
+    versions_done: str = "",
+    catalog_matched: bool = False,
 ):
     """Serialize DB writes across concurrently-running worker processes.
 
@@ -168,10 +170,11 @@ def save_with_lock(
     in db.get_cross_matches. The consequence is deliberate: a rerun with a subset
     of --versions leaves xcorr only for the versions it actually ran.
 
-    `status`/`note`/`ascdsver`, when given, additionally record this obsid's
-    outcome in astromon_status under the same lock -- see db.save_status. Passing
-    `tables={}` with only `status` set (no obsid-keyed tables to write) is
-    expected for the skip/failure paths, which have nothing else to save.
+    `status`/`note`/`ascdsver`/`versions_done`/`catalog_matched`, when given,
+    additionally record this obsid's outcome in astromon_status under the same
+    lock -- see db.save_status. Passing `tables={}` with only `status` set (no
+    obsid-keyed tables to write) is expected for the skip/failure paths, which
+    have nothing else to save.
     """
     lock_path = Path(str(db_file) + ".lock")
     lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -212,7 +215,15 @@ def save_with_lock(
                     db.save(name, data, con, expect_existing=True)
 
                 if status is not None and obsid is not None:
-                    db.save_status(con, obsid, status, note=note, ascdsver=ascdsver)
+                    db.save_status(
+                        con,
+                        obsid,
+                        status,
+                        note=note,
+                        ascdsver=ascdsver,
+                        versions_done=versions_done,
+                        catalog_matched=catalog_matched,
+                    )
         finally:
             fcntl.flock(lockfile, fcntl.LOCK_UN)
 
@@ -318,6 +329,19 @@ def main():
             ascdsver=result["astromon_obs"]["ascdsver"][0]
             if len(result["astromon_obs"])
             else "",
+            # Read off what actually completed, not what --versions asked for:
+            # a version can be requested and still not complete (see the
+            # per-version try/except in process_obsid()).
+            versions_done=",".join(
+                sorted(
+                    set(
+                        np.asarray(result["astromon_xray_src"]["detect_method"]).astype(
+                            str
+                        )
+                    )
+                )
+            ),
+            catalog_matched=not args.skip_catalog_match,
         )
         emit_result(
             obsid=obsid,

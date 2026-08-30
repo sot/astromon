@@ -475,7 +475,7 @@ def _batched_candidates(
     return results
 
 
-def requery(  # noqa: PLR0917, PLR0912
+def requery(  # noqa: PLR0917, PLR0912, PLR0915
     dbfile: Path,
     obsids: Sequence[int],
     catalogs: Sequence[str],
@@ -515,6 +515,12 @@ def requery(  # noqa: PLR0917, PLR0912
     batched = [name for name in catalogs if name in BATCHED_CATALOGS]
     if batched:
         logger.info(f"batched across obsids: {', '.join(batched)}")
+
+    # astromon_status.catalog_matched claims "the standard catalog set has been
+    # queried for this obsid" -- true only once this run actually covers all of
+    # ALL_CATALOGS. A narrower run (e.g. just RFC for a quick check) must not
+    # set it, or a later, real batch pass would wrongly look already done.
+    covers_full_catalog_set = set(ALL_CATALOGS) <= set(catalogs)
 
     summary = {
         "resumed": resumed,
@@ -603,6 +609,16 @@ def requery(  # noqa: PLR0917, PLR0912
         # whose candidates never landed.
         if completed and progress_file is not None and not dry_run:
             record_completed(progress_file, dict.fromkeys(completed, catalogs))
+
+        if completed and covers_full_catalog_set and not dry_run:
+            marked = db.mark_catalog_matched(dbfile, completed)
+            if marked["skipped_no_row"]:
+                logger.warning(
+                    f"{len(marked['skipped_no_row'])} obsid(s) queried here have no "
+                    "astromon_status row to update (never went through the "
+                    "detection-stage tracking): "
+                    f"{', '.join(str(o) for o in marked['skipped_no_row'])}"
+                )
 
         logger.info(
             f"{min(start + chunk_size, len(obsids)):,}/{len(obsids):,} obsids -- "

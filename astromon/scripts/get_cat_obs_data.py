@@ -83,8 +83,8 @@ def get_obsids(tstart, tstop):
         return [re.search("axaff([0-9]+)_", name).group(1) for name in names]
 
 
-def _status_for_result(d: dict) -> tuple[str, str, str]:
-    """Map one process() result dict to an (status, note, ascdsver) triple.
+def _status_for_result(d: dict) -> tuple[str, str, str, str]:
+    """Map one process() result dict to a (status, note, ascdsver, versions_done) 4-tuple.
 
     process() reports outcomes as {"ok": bool, "msg": str}, with `msg` empty on
     success and prefixed with "skipped: "/"error: " otherwise (see process()
@@ -94,6 +94,12 @@ def _status_for_result(d: dict) -> tuple[str, str, str]:
     from the saved astromon_obs row for a success; a failure carries none (the
     exception that produced it is not one of those two classes, so it has no
     ascdsver attribute to read).
+
+    `versions_done` (success only) is read off astromon_xray_src.detect_method,
+    i.e. what actually completed, not what --versions asked for. This entry
+    point (unlike process_one_obsid.py) has no --skip-catalog-match option, so
+    catalog_matched is not this function's concern -- the caller derives it
+    directly from status instead.
     """
     msg = d.get("msg", "")
     if not msg:
@@ -103,10 +109,16 @@ def _status_for_result(d: dict) -> tuple[str, str, str]:
             if astromon_obs is not None and len(astromon_obs)
             else ""
         )
-        return "success", "", ascdsver
+        xray_src = d.get("astromon_xray_src")
+        versions_done = (
+            ",".join(sorted(set(np.asarray(xray_src["detect_method"]).astype(str))))
+            if xray_src is not None and len(xray_src)
+            else ""
+        )
+        return "success", "", ascdsver, versions_done
     if d["ok"]:
-        return "skipped", msg.removeprefix("skipped: "), d.get("ascdsver", "")
-    return "failure", msg.removeprefix("error: "), ""
+        return "skipped", msg.removeprefix("skipped: "), d.get("ascdsver", ""), ""
+    return "failure", msg.removeprefix("error: "), "", ""
 def save(data, db_file):  # noqa: PLR0912
     logger = logging.getLogger(name="astromon")
     # Captured before `data` gets filtered/reassigned below: every obsid gets an
@@ -179,8 +191,18 @@ def save(data, db_file):  # noqa: PLR0912
                 if len(data[name]):
                     db.save(name, data[name], con)
         for d in all_results:
-            status, note, ascdsver = _status_for_result(d)
-            db.save_status(con, d["obsid"], status, note=note, ascdsver=ascdsver)
+            status, note, ascdsver, versions_done = _status_for_result(d)
+            db.save_status(
+                con,
+                d["obsid"],
+                status,
+                note=note,
+                ascdsver=ascdsver,
+                versions_done=versions_done,
+                # This entry point has no --skip-catalog-match: a successful
+                # obsid always went through catalog matching.
+                catalog_matched=(status == "success"),
+            )
 
 
 # Detection versions that are run for a side effect rather than saved as their own
