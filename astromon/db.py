@@ -21,6 +21,7 @@ __all__ = [
     "get_table",
     "get_cross_matches",
     "save",
+    "save_status",
     "add_regions",
     "update_regions",
     "remove_regions",
@@ -157,6 +158,24 @@ ASTROMON_META_DTYPE = np.dtype(
 )
 
 
+#: Recognized values for astromon_status.status. Anything else is a typo, not a new
+#: outcome -- add it here first. "success" and "failure" are self-explanatory;
+#: "skipped" covers a normal, expected non-processing (e.g. no x-ray sources found),
+#: with the reason in `note`; "skipped_not_public" is the one skip reason common
+#: enough, and important enough to distinguish from "not yet attempted", to get its
+#: own value rather than living in `note` alone.
+ASTROMON_STATUS_VALUES = ("success", "skipped", "skipped_not_public", "failure")
+
+ASTROMON_STATUS_DTYPE = np.dtype(
+    [
+        ("obsid", np.int32),
+        ("status", "S24"),
+        ("note", "S200"),
+        ("timestamp", "S32"),
+    ]
+)
+
+
 DTYPES = {
     "astromon_xcorr": ASTROMON_XCORR_DTYPE,
     "astromon_xray_src": ASTROMON_XRAY_SRC_DTYPE,
@@ -164,6 +183,7 @@ DTYPES = {
     "astromon_obs": ASTROMON_OBS_DTYPE,
     "astromon_regions": ASTROMON_REGION_DTYPE,
     "astromon_meta": ASTROMON_META_DTYPE,
+    "astromon_status": ASTROMON_STATUS_DTYPE,
 }
 
 
@@ -179,6 +199,7 @@ def create_table(table_name):
     - astromon_obs
     - astromon_regions
     - astromon_meta
+    - astromon_status
 
     Parameters
     ----------
@@ -305,6 +326,7 @@ def get_table(table_name, dbfile=None):
     - astromon_obs
     - astromon_regions
     - astromon_meta
+    - astromon_status
 
     Parameters
     ----------
@@ -561,6 +583,51 @@ def save(  # noqa: PLR0912
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             h5.create_table("/", table_name, data)
+
+
+def save_status(dbfile, obsid, status, note=""):
+    """Record the outcome of processing `obsid` in astromon_status.
+
+    One row per obsid: `save`'s default obsid-keyed replace means a later call for
+    the same obsid overwrites its previous status, so this table always holds the
+    outcome of the *most recent* attempt, not a history of every attempt.
+
+    This is what lets a caller tell "never attempted" (no row) apart from
+    "attempted and skipped, e.g. no x-ray sources found" (a row with
+    status="skipped") -- both currently look identical if you only look at
+    astromon_obs, since a skipped obsid never gets one of those rows either.
+
+    Creates the astromon_status table first if `dbfile` predates it, so this
+    works against both a brand-new database and an existing one from before this
+    table existed.
+
+    Parameters
+    ----------
+    dbfile: :any:`pathlib.Path` or open connection
+        File where tables are stored, or an already-open connection/file handle
+        (as returned by :func:`connect`) -- either works, same as :func:`save`.
+    obsid: int
+    status: str
+        One of :data:`ASTROMON_STATUS_VALUES`.
+    note: str
+        Free-text detail, e.g. the skip reason or exception message. Truncated to
+        fit the column if longer.
+    """
+    if status not in ASTROMON_STATUS_VALUES:
+        raise ValueError(
+            f"Unknown status {status!r}; must be one of {ASTROMON_STATUS_VALUES}"
+        )
+    create_empty_tables(dbfile, table_names=["astromon_status"])
+    row = table.Table(
+        {
+            "obsid": [int(obsid)],
+            "status": [status],
+            "note": [note],
+            "timestamp": [CxoTime.now().isot],
+        },
+        dtype=[np.int32, "S24", "S200", "S32"],
+    )
+    save("astromon_status", row, dbfile, expect_existing=True)
 
 
 def remove_regions(regions, dbfile=None):

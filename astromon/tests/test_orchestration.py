@@ -262,6 +262,48 @@ def test_save_with_lock_without_cat_src_keeps_xcorr():
         assert len(db.get_table("astromon_xcorr", dbfile)) == 1
 
 
+def test_save_with_lock_records_status_alongside_the_normal_write():
+    """The success path's astromon_status row lands under the same lock as its tables."""
+    from astromon.scripts.maintenance.process_one_obsid import save_with_lock
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dbfile = Path(tmpdir) / "pipeline.h5"
+
+        save_with_lock(
+            dbfile,
+            {"astromon_cat_src": _cat_src_row(catalog="RFC", obsid=7001)},
+            obsid=7001,
+            status="success",
+            note="1 source, 1 match",
+        )
+
+        status = db.get_table("astromon_status", dbfile)
+        assert len(status) == 1
+        assert status["obsid"][0] == 7001
+        assert status["status"][0] == "success"
+        assert status["note"][0] == "1 source, 1 match"
+        assert len(db.get_table("astromon_cat_src", dbfile)) == 1
+
+
+def test_save_with_lock_records_status_with_no_tables_to_write():
+    """The skip/failure paths pass tables={} and still get an astromon_status row."""
+    from astromon.scripts.maintenance.process_one_obsid import save_with_lock
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dbfile = Path(tmpdir) / "pipeline.h5"
+
+        save_with_lock(
+            dbfile, {}, obsid=7002, status="skipped", note="No x-ray sources found"
+        )
+
+        status = db.get_table("astromon_status", dbfile)
+        assert len(status) == 1
+        assert status["obsid"][0] == 7002
+        assert status["status"][0] == "skipped"
+        # No obsid-keyed table was passed, so nothing else got created with rows.
+        assert len(db.get_table("astromon_obs", dbfile)) == 0
+
+
 # ---- an authoritative rewrite of an obsid's cat_src ----
 
 

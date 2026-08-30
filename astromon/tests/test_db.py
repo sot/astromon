@@ -758,3 +758,82 @@ def test_conform_to_dtype_prefers_the_former_name_over_a_zero_fill():
     conformed = db.conform_to_dtype(cat, "astromon_cat_src")
 
     assert list(conformed["celldetect_x_id"]) == [11]
+
+
+def test_save_status_creates_table_on_a_fresh_file():
+    """save_status works against a file that has never had astromon_status."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dbfile = Path(tmpdir) / "fresh.h5"
+
+        db.save_status(dbfile, 12345, "success", note="10 sources, 4 matches")
+
+        result = db.get_table("astromon_status", dbfile)
+        assert len(result) == 1
+        assert result["obsid"][0] == 12345
+        assert result["status"][0] == "success"
+        assert result["note"][0] == "10 sources, 4 matches"
+        assert result["timestamp"][0]  # non-empty
+
+
+def test_save_status_leaves_other_tables_untouched():
+    """save_status against an existing populated file only adds astromon_status."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dbfile = Path(tmpdir) / "populated.h5"
+        _seeded_cat_src_db(dbfile)
+
+        db.save_status(dbfile, 7001, "skipped", note="No x-ray sources found")
+
+        result = db.get_table("astromon_cat_src", dbfile)
+        assert len(result) == 4  # unchanged
+        status = db.get_table("astromon_status", dbfile)
+        assert len(status) == 1
+        assert status["obsid"][0] == 7001
+
+
+def test_save_status_replaces_previous_status_for_same_obsid():
+    """A later attempt for the same obsid replaces its status, not accumulates."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dbfile = Path(tmpdir) / "rerun.h5"
+
+        db.save_status(dbfile, 12345, "failure", note="CIAO crashed")
+        db.save_status(dbfile, 12345, "success", note="10 sources, 4 matches")
+
+        result = db.get_table("astromon_status", dbfile)
+        assert len(result) == 1
+        assert result["status"][0] == "success"
+        assert result["note"][0] == "10 sources, 4 matches"
+
+
+def test_save_status_keeps_other_obsids():
+    """save_status only replaces the row for the obsid it was called with."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dbfile = Path(tmpdir) / "multi.h5"
+
+        db.save_status(dbfile, 111, "success")
+        db.save_status(dbfile, 222, "failure", note="timed out")
+
+        result = db.get_table("astromon_status", dbfile)
+        assert len(result) == 2
+        assert sorted(result["obsid"]) == [111, 222]
+
+
+def test_save_status_rejects_unknown_status():
+    """A typo'd status string should fail loudly, not get silently stored."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dbfile = Path(tmpdir) / "bad_status.h5"
+
+        with pytest.raises(ValueError, match="not_a_real_status"):
+            db.save_status(dbfile, 12345, "not_a_real_status")
+
+
+def test_save_status_works_with_an_open_connection():
+    """save_status accepts an already-open connection, like save() and connect()."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dbfile = Path(tmpdir) / "locked.h5"
+
+        with db.connect(dbfile, mode="r+") as con:
+            db.save_status(con, 12345, "success")
+
+        result = db.get_table("astromon_status", dbfile)
+        assert len(result) == 1
+        assert result["obsid"][0] == 12345
