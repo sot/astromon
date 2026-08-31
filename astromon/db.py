@@ -287,7 +287,9 @@ def connect(dbfile=None, mode="r"):
                 logger.debug(f"{dbfile} closed (2)")
 
 
-def save(table_name, data, dbfile, ignore_obsid=False, select_name_key=False):
+def save(  # noqa: PLR0912
+    table_name, data, dbfile, ignore_obsid=False, select_name_key=False
+):
     """
     Insert data into a table, deleting previous entries for the same OBSID.
 
