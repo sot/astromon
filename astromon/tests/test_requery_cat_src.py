@@ -59,6 +59,7 @@ def _cat_src_rows(rows):
         out["name"][i] = name
     return out
 
+
 # ─── reading positions back out of the database ──────────────────────────────
 
 
@@ -282,6 +283,8 @@ def test_write_candidates_reports_obsids_needing_an_xcorr_rebuild(tmp_path):
 
     assert result["replaced_obsids"] == [7001]
     assert result["added_rows"] == 2
+
+
 # ─── resuming a long run ─────────────────────────────────────────────────────
 
 
