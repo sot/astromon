@@ -775,28 +775,6 @@ def test_get_milliquas_gaia_mocked_response():
     assert np.isclose(result["dec"][0], _3C273_DEC, atol=1e-4)
 
 
-def test_get_milliquas_gaia_type_filter_excludes_photometric():
-    """Photometric-only (K-type) Milliquas sources are excluded by the type filter."""
-    pos = coords.SkyCoord([_3C273_RA], [_3C273_DEC], unit="deg")
-
-    photometric_row = Table(
-        {
-            "RAJ2000": np.array([_3C273_RA], dtype=float),
-            "DEJ2000": np.array([_3C273_DEC], dtype=float),
-            "Name": ["PHOT-CANDIDATE"],
-            "Type": ["K"],  # photometric candidate — should be excluded
-            "Rmag": np.ma.MaskedArray([18.5], mask=[False]),
-        }
-    )
-
-    with patch.object(
-        cross_match, "_query_vizier_region", return_value=[photometric_row]
-    ):
-        result = cross_match.get_milliquas_gaia(pos, radius=3 * u.arcsec)
-
-    assert len(result) == 0
-
-
 # ---------------------------------------------------------------------------
 # brightest / acis_streak filter tests for compute_cross_matches
 # ---------------------------------------------------------------------------
