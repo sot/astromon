@@ -1370,7 +1370,9 @@ _MILLIQUAS_GAIA_XMATCH_ARCSEC = 1.5
 _MILLIQUAS_GAIA_XMATCH_DEG = _MILLIQUAS_GAIA_XMATCH_ARCSEC / 3600.0
 
 
-def get_milliquas_gaia(pos, radius=3 * u.arcsec, logging_tag=""):
+def get_milliquas_gaia(  # noqa: PLR0915
+    pos, radius=3 * u.arcsec, logging_tag=""
+):
     """Query Milliquas v8 (VII/294) + Gaia DR3 for spectroscopic AGN around sky positions.
 
     Cone-searches Milliquas v8 around each position in `pos`, filters to
@@ -1489,7 +1491,8 @@ def get_milliquas_gaia(pos, radius=3 * u.arcsec, logging_tag=""):
     n_dropped = int((~gaia_mask).sum())
     if n_dropped:
         logger.debug(
-            f"{logging_tag} MilliquasGaia: dropping {n_dropped} sources without Gaia DR3 counterpart"
+            f"{logging_tag} MilliquasGaia: dropping {n_dropped} sources "
+            "without Gaia DR3 counterpart"
         )
     mq = mq[gaia_mask]
     final_ra = final_ra[gaia_mask]
