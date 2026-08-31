@@ -2,8 +2,10 @@
 
 import tempfile
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import numpy as np
+import pytest
 from astropy.table import Table, vstack
 
 from astromon import db
@@ -199,3 +201,62 @@ def test_save_records_status_alongside_a_successful_write():
         # This entry point has no --skip-catalog-match: success always means
         # catalog matching was attempted.
         assert status["catalog_matched"][0] == 1
+
+
+# ---- cleanup=True runs Observation.cleanup_downloads() on every outcome ----
+#
+# cleanup_downloads() is itself selective (keeps the filtered evt2/asol/bpix,
+# *.src, PSF-size tables, and cache/ state so a later rerun of e.g.
+# gaussian_detect does not need to re-download from CDA) -- process_obsid()
+# is what must guarantee it actually runs regardless of how the obsid turned
+# out, since its own cleanup=True previously only fired on the normal-return
+# (success) path: any exception raised earlier (Skipped, SkippedWithWarning,
+# ObsidNotPubliclyAvailable, or a hard failure) skipped it entirely, leaving
+# the full download in place for every non-success obsid.
+
+
+def _mock_observation_raising(exc):
+    from astromon.scripts import get_cat_obs_data
+
+    mock_observation = MagicMock()
+    mock_observation.process.side_effect = exc
+    return patch.object(
+        get_cat_obs_data, "Observation", return_value=mock_observation
+    ), mock_observation
+
+
+def test_process_obsid_cleanup_runs_when_process_obsid_raises_skipped():
+    from astromon.scripts.get_cat_obs_data import Skipped, process_obsid
+
+    patcher, mock_observation = _mock_observation_raising(
+        Skipped("no x-ray sources found")
+    )
+    with patcher, pytest.raises(Skipped):
+        process_obsid(7001, "/tmp/whatever", cleanup=True)
+
+    mock_observation.cleanup_downloads.assert_called_once()
+
+
+def test_process_obsid_cleanup_runs_on_a_hard_failure():
+    from astromon.scripts.get_cat_obs_data import process_obsid
+
+    patcher, mock_observation = _mock_observation_raising(
+        RuntimeError("fluximage failed")
+    )
+    with patcher, pytest.raises(RuntimeError):
+        process_obsid(7001, "/tmp/whatever", cleanup=True)
+
+    mock_observation.cleanup_downloads.assert_called_once()
+
+
+def test_process_obsid_without_cleanup_flag_never_calls_cleanup_downloads():
+    """--cleanup is opt-in: a failure without it must not touch the workdir."""
+    from astromon.scripts.get_cat_obs_data import process_obsid
+
+    patcher, mock_observation = _mock_observation_raising(
+        RuntimeError("fluximage failed")
+    )
+    with patcher, pytest.raises(RuntimeError):
+        process_obsid(7001, "/tmp/whatever", cleanup=False)
+
+    mock_observation.cleanup_downloads.assert_not_called()
