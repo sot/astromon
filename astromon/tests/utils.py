@@ -1,8 +1,6 @@
 from pathlib import Path
 
-import numpy as np
-from astropy.table import Table
-from astropy.table import vstack
+from astropy.table import Table, vstack
 
 from astromon import db
 

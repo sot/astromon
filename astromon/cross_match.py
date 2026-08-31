@@ -825,6 +825,7 @@ def _get_icrf2(
     """Return ICRF2 sources near *pos* within *radius*, formatted like VizieR results."""
     return _local_catalog_near(get_icrf2(), "ICRF2", pos, radius, logging_tag)
 
+
 _MILLIQUAS_URL = "https://cdsarc.cds.unistra.fr/ftp/VII/294/catalog.dat.gz"
 _MILLIQUAS_CACHE_PATH = _ASTROMON_DATA_DIR / "milliquas_catalog.fits"
 # VII/294 is Milliquas v8 (v7 was VII/290), so the CDS catalogue number is the
