@@ -1,5 +1,4 @@
-"""Query Gaia TAP for new GaiaAGN matches on the 107 obsids reprocessed with
-gaussian_detect / peak_gaussian_detect, and add any new matches to astromon_merged.h5.
+"""Add GaiaAGN matches for the 107 reprocessed obsids via Gaia TAP.
 
 The migration script (backfill_gaia_agn.py) already copied GaiaAGN entries from the
 old h5 and recomputed xcorr for all detect_methods. This script is a second pass that
@@ -8,7 +7,8 @@ different from the old celldetect positions — and adds any Gaia AGN sources th
 not already in the catalog for each obsid.
 
 Usage:
-    SKA=/Users/jean/ska python -m astromon.scripts.maintenance.tap_backfill_107 [--db astromon_merged.h5]
+    SKA=/Users/jean/ska python -m astromon.scripts.maintenance.tap_backfill_107 \\
+        [--db astromon_merged.h5]
 """
 
 import argparse
@@ -134,7 +134,7 @@ def get_new_gaia_for_obsid(
     )
 
 
-def main() -> None:
+def main() -> None:  # noqa: PLR0915
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", default="astromon_merged.h5", type=Path)
     args = parser.parse_args()

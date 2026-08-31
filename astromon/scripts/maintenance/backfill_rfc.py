@@ -10,8 +10,10 @@ under select_name="astromon_21", so the result folds cleanly into the existing
 astromon_21 pipeline without deduplication complexity.
 
 Usage:
-    python -m astromon.scripts.maintenance.backfill_rfc --db astromon_merged.h5 --catalog-cache rfc_2026b_cat.txt
-    python -m astromon.scripts.maintenance.backfill_rfc --db astromon_merged.h5 --catalog-cache rfc_2026b_cat.txt --dry-run
+    python -m astromon.scripts.maintenance.backfill_rfc \\
+        --db astromon_merged.h5 --catalog-cache rfc_2026b_cat.txt
+    python -m astromon.scripts.maintenance.backfill_rfc \\
+        --db astromon_merged.h5 --catalog-cache rfc_2026b_cat.txt --dry-run
 """
 
 import argparse
