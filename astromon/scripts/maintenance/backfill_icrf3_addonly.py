@@ -18,8 +18,10 @@ This script is purely additive:
 
 Usage::
 
-    python -m astromon.scripts.maintenance.backfill_icrf3_addonly --db /Volumes/Black/data/astromon/astromon.h5
-    python -m astromon.scripts.maintenance.backfill_icrf3_addonly --db /path/to/astromon.h5 --dry-run
+    python -m astromon.scripts.maintenance.backfill_icrf3_addonly \\
+        --db /Volumes/Black/data/astromon/astromon.h5
+    python -m astromon.scripts.maintenance.backfill_icrf3_addonly \\
+        --db /path/to/astromon.h5 --dry-run
 """
 
 import argparse

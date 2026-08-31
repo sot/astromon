@@ -6,7 +6,8 @@ correction.  This avoids one TAP round-trip per obsid.
 
 Usage:
     python -m astromon.scripts.maintenance.backfill_gaia_var_stars --db astromon.h5
-    python -m astromon.scripts.maintenance.backfill_gaia_var_stars --db astromon.h5 --catalog-cache gaia_var_stars.ecsv
+    python -m astromon.scripts.maintenance.backfill_gaia_var_stars \\
+        --db astromon.h5 --catalog-cache gaia_var_stars.ecsv
     python -m astromon.scripts.maintenance.backfill_gaia_var_stars --db astromon.h5 --dry-run
 """
 

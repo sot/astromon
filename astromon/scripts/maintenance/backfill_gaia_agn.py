@@ -1,8 +1,9 @@
-"""Merge GaiaAGN catalog data from an old astromon.h5 into a new one, then
-backfill gaia_agn xcorr rows for all detect_methods in the new h5.
+"""Backfill GaiaAGN catalog rows and xcorr results into a new astromon.h5.
 
 Usage:
-    python -m astromon.scripts.maintenance.backfill_gaia_agn --old-db ~/git/astromon/astromon.h5 --new-db astromon.h5
+    python -m astromon.scripts.maintenance.backfill_gaia_agn \\
+        --old-db ~/git/astromon/astromon.h5 \\
+        --new-db astromon.h5
 
 The old h5 has GaiaAGN cat_src and xcorr rows but no detect_method column.
 The new h5 has celldetect + gaussian_detect + peak_gaussian_detect but no GaiaAGN.
