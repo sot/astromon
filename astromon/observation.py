@@ -1987,7 +1987,9 @@ def _seed_and_select_events(events_yag, events_zag, source, box_size, seed_from_
     return fit_source, event_mask
 
 
-def _fit_gaussian_sources(obs, inputs, outputs, seed_from_peak):
+def _fit_gaussian_sources(  # noqa: PLR0915
+    obs, inputs, outputs, seed_from_peak
+):
     """Shared implementation of gaussian_detect and peak_gaussian_detect.
 
     The two tasks are identical except for the fit seed: gaussian_detect seeds
