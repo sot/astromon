@@ -218,6 +218,8 @@ def record_completed(progress_file: Path, done: dict) -> None:
 def is_complete(completed: dict, obsid: int, catalogs: Sequence[str]) -> bool:
     """Whether `obsid` has already been re-queried for every one of `catalogs`."""
     return set(catalogs) <= completed.get(int(obsid), set())
+
+
 def empty_cat_src() -> Table:
     """A zero-row astromon_cat_src table with every column the schema requires."""
     return Table(np.zeros(0, dtype=db.ASTROMON_CAT_SRC_DTYPE))
