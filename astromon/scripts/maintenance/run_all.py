@@ -1,6 +1,4 @@
-"""
-Process a list of obsids, one obsid per subprocess invocation,
-recording success/failure explicitly per obsid.
+"""Process obsids one per subprocess and record per-obsid outcomes.
 
 Runs process_one_obsid.py per obsid (not the astromon-cross-match CLI --
 we confirmed that swallows per-obsid failures silently: no traceback, no
@@ -190,7 +188,7 @@ def run_one(  # noqa: PLR0917
     }
 
 
-def main():
+def main():  # noqa: PLR0915
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db-file", required=True, type=Path)
     parser.add_argument("--workdir", required=True, type=Path)
