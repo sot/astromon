@@ -1,3 +1,5 @@
+# ruff: noqa: E501
+
 """
 Make annotated X-ray image review page for a set of obsids.
 
