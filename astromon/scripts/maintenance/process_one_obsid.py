@@ -15,7 +15,8 @@ single source of truth. This script adds:
 
 Usage::
 
-    python -m astromon.scripts.maintenance.process_one_obsid <obsid> <workdir> <db_file> [<archive_dir>]
+    python -m astromon.scripts.maintenance.process_one_obsid \\
+        <obsid> <workdir> <db_file> [<archive_dir>]
         [--source arc5gl|archive] [--ciao-prefix /path/to/ciao]
         [--versions celldetect gaussian_detect ...]
 """
