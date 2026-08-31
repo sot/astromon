@@ -1681,7 +1681,9 @@ def _candidates_for_cat_src_ids(ras, decs, names=None, catalog="RFC"):
 def test_assign_cat_src_ids_stamps_obsid_ids_and_angles():
     candidates = _candidates_for_cat_src_ids([150.0, 150.01], [2.0, 2.01])
 
-    cross_match.assign_cat_src_ids(candidates, 7001, _xray_sources_for_cat_src_ids(), QUAT)
+    cross_match.assign_cat_src_ids(
+        candidates, 7001, _xray_sources_for_cat_src_ids(), QUAT
+    )
 
     assert list(candidates["obsid"]) == [7001, 7001]
     assert list(candidates["id"]) == [0, 1]
@@ -1747,7 +1749,9 @@ def test_assign_cat_src_ids_keeps_a_separation_that_is_already_there():
     candidates = _candidates_for_cat_src_ids([150.0], [2.01])
     candidates["separation"] = np.array([1.25], dtype=np.float32)
 
-    cross_match.assign_cat_src_ids(candidates, 7001, _xray_sources_for_cat_src_ids(), QUAT)
+    cross_match.assign_cat_src_ids(
+        candidates, 7001, _xray_sources_for_cat_src_ids(), QUAT
+    )
 
     assert candidates["separation"][0] == pytest.approx(1.25)
 
@@ -1755,7 +1759,9 @@ def test_assign_cat_src_ids_keeps_a_separation_that_is_already_there():
 def test_assign_cat_src_ids_handles_empty_candidates():
     candidates = _candidates_for_cat_src_ids([], [])
 
-    cross_match.assign_cat_src_ids(candidates, 7001, _xray_sources_for_cat_src_ids(), QUAT)
+    cross_match.assign_cat_src_ids(
+        candidates, 7001, _xray_sources_for_cat_src_ids(), QUAT
+    )
 
     assert len(candidates) == 0
     for name in ("obsid", "id", "celldetect_x_id", "y_angle", "z_angle"):
