@@ -1,13 +1,13 @@
 import contextlib
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import numpy as np
 import pytest
 import requests
 from astropy import coordinates as coords
 from astropy import units as u
-from astropy.table import Table, vstack
+from astropy.table import Table
 from cxotime import CxoTime
 from Quaternion import Quat
 from ska_helpers.retry import retry
@@ -16,7 +16,11 @@ from testr.test_helper import has_internet
 from astromon import cross_match, db
 from astromon.tests.utils import (
     minimal_cat_src as _minimal_cat_src,
+)
+from astromon.tests.utils import (
     minimal_obs as _minimal_obs,
+)
+from astromon.tests.utils import (
     minimal_xray_src as _minimal_xray_src,
 )
 
@@ -770,6 +774,7 @@ def test_get_milliquas_gaia_mocked_response():
     assert np.isclose(result["ra"][0], _3C273_RA, atol=1e-4)
     assert np.isclose(result["dec"][0], _3C273_DEC, atol=1e-4)
 
+
 def test_get_milliquas_gaia_type_filter_excludes_photometric():
     """Photometric-only (K-type) Milliquas sources are excluded by the type filter."""
     pos = coords.SkyCoord([_3C273_RA], [_3C273_DEC], unit="deg")
@@ -790,6 +795,7 @@ def test_get_milliquas_gaia_type_filter_excludes_photometric():
         result = cross_match.get_milliquas_gaia(pos, radius=3 * u.arcsec)
 
     assert len(result) == 0
+
 
 # ---------------------------------------------------------------------------
 # brightest / acis_streak filter tests for compute_cross_matches

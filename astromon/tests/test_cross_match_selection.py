@@ -18,8 +18,14 @@ from cxotime import CxoTime
 from astromon import cross_match
 from astromon.tests.utils import (
     minimal_cat_src as _minimal_cat_src,
+)
+from astromon.tests.utils import (
     minimal_obs as _minimal_obs,
+)
+from astromon.tests.utils import (
     minimal_xray_src as _minimal_xray_src,
+)
+from astromon.tests.utils import (
     two_method_xray_src as _two_method_xray_src,
 )
 
