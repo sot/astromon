@@ -119,6 +119,8 @@ def _status_for_result(d: dict) -> tuple[str, str, str, str]:
     if d["ok"]:
         return "skipped", msg.removeprefix("skipped: "), d.get("ascdsver", ""), ""
     return "failure", msg.removeprefix("error: "), "", ""
+
+
 def save(data, db_file):  # noqa: PLR0912
     logger = logging.getLogger(name="astromon")
     # Captured before `data` gets filtered/reassigned below: every obsid gets an
