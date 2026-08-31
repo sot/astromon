@@ -38,7 +38,7 @@ setup(
         "astromon.web",
     ],
     package_data={
-        "astromon": ["sql/x-corr/*.sql", "sql/tables/*.sql"],
+        "astromon": ["sql/x-corr/*.sql", "sql/tables/*.sql", "data/*"],
         "astromon.web": ["templates/*"],
         "astromon.tests": ["data/*"],
     },

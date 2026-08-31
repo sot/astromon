@@ -1,0 +1,18 @@
+# %ECSV 1.0
+# ---
+# datatype:
+# - {name: catalog, datatype: string}
+# - {name: n_gained, datatype: int64}
+# - {name: n_new_total, datatype: int64}
+# - {name: pct_of_new, datatype: float64, format: '%.1f'}
+# schema: astropy-2.0
+catalog n_gained n_new_total pct_of_new
+GaiaQSO 7579 12653 59.898838220184935
+GaiaAGN 6768 12653 53.48929107721489
+MilliquasGaia 6756 12653 53.39445190863827
+DESIV161 4001 12653 31.620959456255434
+Quaia 3692 12653 29.178850865407412
+RFC 1032 12653 8.156168497589505
+ICRF3 119 12653 0.9404884217181696
+GaiaVarStar 88 12653 0.6954872362285623
+"TOTAL (distinct sources)" 10909 12653 86.21670750019759

@@ -15,6 +15,7 @@ from cxotime import CxoTime
 from matplotlib import pyplot as plt
 
 from astromon import db
+from astromon.cross_match import get_bad_source_mask
 
 matplotlib.style.use("bmh")
 
@@ -142,21 +143,7 @@ def main():
     matches["year"] = CxoTime(matches["time"]).decimalyear
 
     ok = matches["year"] > CxoTime(start).decimalyear
-    bad_targets = [
-        "RW Aur",
-        "Tau Boo",
-        "70 OPH",
-        "16 Cyg",
-        "M87",
-        "Orion",
-        "HD 97950HD4915",
-    ]
-    bad_targets = [x.replace(" ", "").lower() for x in bad_targets]
-    for ii, target in enumerate(matches["target"]):
-        target = target.replace(" ", "").lower()  # noqa: PLW2901
-        for bad_target in bad_targets:
-            if target.startswith(bad_target):
-                ok[ii] = False
+    ok &= ~get_bad_source_mask(matches)
     matches["ok"] = ok
 
     years_dy_binned, dy_binned, dy_bins = binned_median(

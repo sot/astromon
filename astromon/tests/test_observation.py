@@ -660,3 +660,28 @@ def test_drop_acis_streak_seeds_handles_empty_input(tmp_path):
     result = observation._drop_acis_streak_seeds(sources, obs)
 
     assert len(result) == 0
+
+
+def test_observation_archive_dir_defaults_to_the_module_default(tmp_path):
+    """With no archive_dir the observation archives under ARCHIVE_DIR."""
+    obs = observation.Observation(
+        1234, workdir=tmp_path, use_ciao=False, archive_dir=None
+    )
+
+    assert obs.archive_dir == observation.ARCHIVE_DIR / "obs01" / "1234"
+
+
+def test_explicit_archive_dir_overrides_the_default(tmp_path):
+    """An explicit archive_dir -- what --archive-dir supplies -- still wins.
+
+    ARCHIVE_DIR now derives from ASTROMON_DATA_DIR, so this pins the precedence:
+    the command line beats the environment, not the other way round.
+    """
+    chosen = tmp_path / "elsewhere"
+
+    obs = observation.Observation(
+        1234, workdir=tmp_path, use_ciao=False, archive_dir=chosen
+    )
+
+    assert obs.archive_dir == chosen / "obs01" / "1234"
+    assert observation.ARCHIVE_DIR not in obs.archive_dir.parents
