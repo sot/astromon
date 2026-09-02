@@ -277,7 +277,9 @@ class StoredResult:
             hsh = argument_hash(self.func, self.instance, *args, **kwargs)  # method
         else:
             hsh = argument_hash(self.func, *args, **kwargs)  # function
-        filename = f"{self.name}::{hsh}"
+        # Use "__" rather than "::" to separate name from hash: macOS (APFS/HFS+)
+        # disallows colons in filenames, which broke every cache write on macOS.
+        filename = f"{self.name}__{hsh}"
         filename = FORMATS[self.fmt].sanitize_filename(filename)
         return self.subdir / filename
 
@@ -314,7 +316,7 @@ class StoredResult:
             pass
 
     def invalidate_all_results(self):
-        for filename in self.storage.glob(f"{self.subdir / self.name}::*"):
+        for filename in self.storage.glob(f"{self.subdir / self.name}__*"):
             invalid = self._invalidate_filename(filename)
             if not invalid.parent.exists():
                 invalid.parent.mkdir(parents=True, exist_ok=True)
@@ -322,7 +324,7 @@ class StoredResult:
                 pass
 
     def files(self) -> list[Path]:
-        return list(self.storage.glob(f"{self.subdir}/{self.name}::*"))
+        return list(self.storage.glob(f"{self.subdir}/{self.name}__*"))
 
     def _invalidate_filename(self, filename):
         filename = self.storage.work_path(filename)
@@ -372,12 +374,13 @@ def stored_result(*args, **kwargs) -> Callable:
             ...
     """
 
-    if len(args) == 1 and len(kwargs) == 0:
+    if len(args) == 1 and callable(args[0]) and len(kwargs) == 0:
         # If the first argument is a callable, we are decorating a function
         return StoredResultWrapper(func=args[0])
 
     storage = kwargs.pop("storage", None)
-    name = kwargs.pop("name", None)
+    # Support both @stored_result("name", ...) and @stored_result(name="name", ...)
+    name = args[0] if args and isinstance(args[0], str) else kwargs.pop("name", None)
     fmt = kwargs.pop("fmt", None)
     subdir = kwargs.pop("subdir", "")
 

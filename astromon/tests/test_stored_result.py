@@ -342,7 +342,7 @@ def test_stored_result_function():
     assert stop - start < 0.1
 
     # archive and remove the file from the workdir
-    storage.archive("my_function::*")
+    storage.archive("my_function__*")
     filename.unlink(missing_ok=True)  # remove the file from the workdir
 
     assert len(my_function.files()) == 1, "Function files should contain one file"
