@@ -46,6 +46,7 @@ ASTROMON_XCORR_DTYPE = np.dtype(
         ("dy", np.float32),
         ("dz", np.float32),
         ("dr", np.float32),
+        ("detect_method", "S24"),
     ]
 )
 
@@ -65,6 +66,27 @@ ASTROMON_XRAY_SRC_DTYPE = np.dtype(
         ("pileup", np.float32),
         ("acis_streak", np.int32),
         ("caldb_version", "S10"),
+        # Ratio of fitted Gaussian sigma to PSF ECF=90% radius.
+        # Values > 1 indicate emission broader than the PSF.
+        ("psfratio", np.float32),
+        # Fraction of source counts within 2" vs 10" of the fitted position.
+        # Near 1 for point sources; near 0 for extended emission.
+        ("concentration_ratio", np.float32),
+        # True if source falls inside a grating arm mask region (HEG, MEG, or LETG),
+        # excluding the zero-order circle. Used to reject dispersed-spectrum detections.
+        ("grating_arm", np.int32),
+        # True for the single brightest source (highest SNR) in the observation.
+        # Used to allow the calibration target into cross-matching even when it is
+        # also flagged acis_streak=True (e.g. grating spectrum detected as a streak).
+        ("brightest", np.int32),
+        # Source detection method that produced this row, e.g. "celldetect"
+        # or "gaussian_detect".
+        ("detect_method", "S24"),
+        # Angular distance in arcsec from this row's position to the
+        # peak-seeded Gaussian fit of the same source. A stability diagnostic:
+        # when the peak-seeded fit disagrees with the centroid, the source is
+        # extended, confused, or faint. NaN if not computed.
+        ("peak_offset", np.float32),
     ]
 )
 
@@ -75,7 +97,7 @@ ASTROMON_CAT_SRC_DTYPE = np.dtype(
         ("id", np.int32),
         ("x_id", np.int32),
         ("catalog", "S16"),
-        ("name", "S24"),
+        ("name", "S32"),
         ("ra", np.float64),
         ("dec", np.float64),
         ("separation", np.float32),
@@ -162,6 +184,17 @@ def create_table(table_name):
     return table.Table(names=DTYPES[table_name].names, dtype=DTYPES[table_name])
 
 
+def _cast_to_dtype(arr: np.ndarray, dtype: np.dtype) -> np.ndarray:
+    """Cast a structured numpy array to *dtype*, filling any missing fields with zeros."""
+    if arr.dtype == dtype:
+        return arr
+    result = np.zeros(len(arr), dtype=dtype)
+    for name in dtype.names:
+        if name in arr.dtype.names:
+            result[name] = arr[name]
+    return result
+
+
 def get_table(table_name, dbfile=None):
     """
     Get an entire table from the DB file.
@@ -196,7 +229,7 @@ def get_table(table_name, dbfile=None):
         try:
             res = con.get_node(f"/{table_name}")[:]
             if table_name in DTYPES:
-                res = res.astype(DTYPES[table_name])
+                res = _cast_to_dtype(res, DTYPES[table_name])
             result = table.Table(res)
             result.convert_bytestring_to_unicode()
             set_formats(result)
@@ -254,7 +287,7 @@ def connect(dbfile=None, mode="r"):
                 logger.debug(f"{dbfile} closed (2)")
 
 
-def save(table_name, data, dbfile, ignore_obsid=False):
+def save(table_name, data, dbfile, ignore_obsid=False, select_name_key=False):
     """
     Insert data into a table, deleting previous entries for the same OBSID.
 
@@ -286,6 +319,11 @@ def save(table_name, data, dbfile, ignore_obsid=False):
         The default is `$ASTROMON_FILE` or `$SKA/data/astromon/astromon.h5`
     ignore_obsid: bool
         If True, do not consider obsid to decide which rows to keep in the table.
+    select_name_key: bool
+        When True and the table has both ``detect_method`` and ``select_name`` columns,
+        key on ``(obsid, detect_method, select_name)`` instead of ``(obsid, detect_method)``.
+        This lets independent catalog backfills update one select_name without clobbering rows
+        from other select_names for the same obsid.
     """
     with connect(dbfile, mode="r+") as h5:
         if not h5.isopen:
@@ -314,11 +352,40 @@ def save(table_name, data, dbfile, ignore_obsid=False):
         if table_name in h5.root:
             node = h5.get_node(f"/{table_name}")
             if not ignore_obsid and "obsid" in data.dtype.names:
-                # remove rows for these obsids
-                obsids = np.unique(data["obsid"])
-                data_out = node[:].astype(dtype)
-                data_out = data_out[~np.isin(data_out["obsid"], obsids)]
-                # append current data
+                data_out = _cast_to_dtype(node[:], dtype)
+                has_detect = (
+                    "detect_method" in data.dtype.names
+                    and "detect_method" in data_out.dtype.names
+                )
+                has_select = (
+                    "select_name" in data.dtype.names
+                    and "select_name" in data_out.dtype.names
+                )
+                if has_detect and select_name_key and has_select:
+                    # Key on (obsid, detect_method, select_name) so independent catalog
+                    # backfills don't clobber each other's rows.
+                    for obsid, method, sname in np.unique(
+                        data[["obsid", "detect_method", "select_name"]]
+                    ):
+                        data_out = data_out[
+                            ~(
+                                (data_out["obsid"] == obsid)
+                                & (data_out["detect_method"] == method)
+                                & (data_out["select_name"] == sname)
+                            )
+                        ]
+                elif has_detect:
+                    # Key on (obsid, detect_method) so different methods coexist.
+                    for obsid, method in np.unique(data[["obsid", "detect_method"]]):
+                        data_out = data_out[
+                            ~(
+                                (data_out["obsid"] == obsid)
+                                & (data_out["detect_method"] == method)
+                            )
+                        ]
+                else:
+                    obsids = np.unique(data["obsid"])
+                    data_out = data_out[~np.isin(data_out["obsid"], obsids)]
                 data = np.concatenate((data_out, data))
             h5.remove_node(node)
 
@@ -668,7 +735,9 @@ def get_cross_matches(name="astromon_21", dbfile=None, **kwargs):
     )
     matches = table.join(matches, astromon_obs, keys=["obsid"])
     matches = table.join(matches, astromon_cat_src, keys=["obsid", "c_id"])
-    matches = table.join(matches, astromon_xray_src, keys=["obsid", "x_id"])
+    matches = table.join(
+        matches, astromon_xray_src, keys=["obsid", "x_id", "detect_method"]
+    )
 
     matches["time"] = CxoTime(matches["date_obs"])
     matches["c_loc"] = SkyCoord(matches["c_ra"] * u.deg, matches["c_dec"] * u.deg)
