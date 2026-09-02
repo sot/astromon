@@ -421,13 +421,13 @@ def _cat_src_row(
     *,
     catalog: str,
     obsid: int = 7001,
-    x_id: int = 1,
+    celldetect_x_id: int = 1,
     name: str = "src",
 ) -> Table:
     """Build a one-row astromon_cat_src table using the current DB dtype."""
     row = Table(np.zeros(1, dtype=db.ASTROMON_CAT_SRC_DTYPE))
     row["obsid"] = obsid
-    row["x_id"] = x_id
+    row["celldetect_x_id"] = celldetect_x_id
     row["catalog"] = catalog
     row["name"] = name
     return row
