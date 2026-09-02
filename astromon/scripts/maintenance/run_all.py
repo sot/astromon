@@ -43,6 +43,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 from datetime import datetime
 from pathlib import Path
 
@@ -60,12 +61,21 @@ def _kill_process_group(pgid: int) -> None:
     Used to tear down a worker and all its CIAO subprocesses when the
     per-obsid timeout expires.  With start_new_session=True the worker PID
     equals its PGID, so os.killpg(proc.pid, ...) reaches every descendant.
+
+    Both ProcessLookupError (ESRCH: the group is already gone) and
+    PermissionError (EPERM) are treated as "nothing left to kill" -- macOS
+    has been observed to raise EPERM rather than ESRCH for a pgid whose
+    leader already exited (e.g. a concurrent external kill of the same
+    worker), and there is nothing more this function can do about a
+    process group it cannot signal either way. Letting either propagate
+    would crash the whole orchestrator (see process_and_record's own
+    try/except for why that must never happen for a single obsid).
     """
     for sig in (signal.SIGTERM, signal.SIGKILL):
         try:
             os.killpg(pgid, sig)
-        except ProcessLookupError:
-            return  # already gone — nothing left to kill
+        except (ProcessLookupError, PermissionError):
+            return  # already gone (or unsignalable) — nothing left to kill
         time.sleep(3)
 
 
@@ -337,20 +347,68 @@ def main():  # noqa: PLR0915
     versions = tuple(args.versions)
 
     def process_and_record(obsid):
-        result = run_one(
-            obsid,
-            args.db_file,
-            args.workdir,
-            args.log_dir,
-            versions,
-            archive_dir=args.archive_dir,
-            source=args.source,
-            ciao_prefix=args.ciao_prefix,
-            cleanup=args.cleanup,
-            skip_catalog_match=args.skip_catalog_match,
-            mirror=args.mirror,
-            worker_timeout=args.worker_timeout,
-        )
+        start = time.time()
+        try:
+            result = run_one(
+                obsid,
+                args.db_file,
+                args.workdir,
+                args.log_dir,
+                versions,
+                archive_dir=args.archive_dir,
+                source=args.source,
+                ciao_prefix=args.ciao_prefix,
+                cleanup=args.cleanup,
+                skip_catalog_match=args.skip_catalog_match,
+                mirror=args.mirror,
+                worker_timeout=args.worker_timeout,
+            )
+
+            if args.preserve_workdir is not None:
+                # Mirror the Observation workdir layout: {base}/obs{obsid//1000:02d}/{obsid}
+                slot = f"obs{obsid // 1000:02d}"
+                src = args.workdir / slot / str(obsid)
+                dst = args.preserve_workdir / slot / str(obsid)
+                if src.exists():
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    if dst.exists():
+                        # An older copy is already there (e.g. from a prior rsync or an
+                        # earlier run). The tree we just produced is the newer one, so
+                        # it wins -- keeping the stale copy would silently discard this
+                        # reprocessing and let a later rerun reuse the old cache/images.
+                        print(
+                            f"  obsid {obsid}: replacing stale {dst} with the "
+                            "workdir from this run"
+                        )
+                        shutil.rmtree(str(dst))
+                    shutil.move(str(src), str(dst))
+        except Exception as exc:
+            # This must never escape: a single obsid's own cleanup/bookkeeping
+            # going wrong (e.g. os.killpg raising something other than
+            # ProcessLookupError -- see _kill_process_group) is not the same
+            # kind of failure as that obsid's actual processing, but letting
+            # ANY exception propagate out of a ThreadPoolExecutor worker
+            # re-raises in the main thread on the next pool.map() iteration
+            # and kills the whole orchestrator -- every other in-flight and
+            # not-yet-started obsid in this run along with it. The module
+            # docstring's "a hard crash in one obsid's CIAO calls only kills
+            # that one subprocess, not this orchestrator or the rest of the
+            # run" is exactly the invariant this restores.
+            print(
+                f"  obsid {obsid}: process_and_record raised {exc!r}, recording "
+                "as failure and continuing"
+            )
+            traceback.print_exc()
+            result = {
+                "obsid": obsid,
+                "status": "failure",
+                "note": f"orchestrator-side error: {exc}",
+                "returncode": -1,
+                "elapsed_sec": round(time.time() - start, 1),
+                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                "log_file": "",
+            }
+
         with write_lock:
             csv_writer.writerow(result)
             csv_file.flush()
@@ -362,25 +420,6 @@ def main():  # noqa: PLR0915
                 f"[{n_done}/{len(todo)}] obsid {obsid}: {result['status']} "
                 f"({result['elapsed_sec']}s)  -- running total: {tally}"
             )
-
-        if args.preserve_workdir is not None:
-            # Mirror the Observation workdir layout: {base}/obs{obsid//1000:02d}/{obsid}
-            slot = f"obs{obsid // 1000:02d}"
-            src = args.workdir / slot / str(obsid)
-            dst = args.preserve_workdir / slot / str(obsid)
-            if src.exists():
-                dst.parent.mkdir(parents=True, exist_ok=True)
-                if dst.exists():
-                    # An older copy is already there (e.g. from a prior rsync or an
-                    # earlier run). The tree we just produced is the newer one, so it
-                    # wins -- keeping the stale copy would silently discard this
-                    # reprocessing and let a later rerun reuse the old cache/images.
-                    print(
-                        f"  obsid {obsid}: replacing stale {dst} with the "
-                        "workdir from this run"
-                    )
-                    shutil.rmtree(str(dst))
-                shutil.move(str(src), str(dst))
 
         return result
 
