@@ -320,3 +320,40 @@ def fit_gaussians(obs, sources, columns=("y_angle", "z_angle"), box_size=4):
             fit_gaussian_2d(events[sel], source, columns=columns, box_size=box_size)
         )
     return results
+
+
+def concentration_ratio(
+    events_yag: np.ndarray,
+    events_zag: np.ndarray,
+    src_yag: float,
+    src_zag: float,
+    r_core_as: float = 2.0,
+    r_extract_as: float = 10.0,
+) -> float:
+    """
+    Compute counts(r < r_core) / counts(r < r_extract) as a point-source indicator.
+
+    For a point source this is ~1 (most counts within the PSF core).
+    For extended emission it approaches 0 as the surface brightness flattens.
+
+    Parameters
+    ----------
+    events_yag, events_zag
+        Y- and Z-angle of all events in arcsec (SI frame).
+    src_yag, src_zag
+        Source position in arcsec (SI frame).
+    r_core_as
+        Core aperture radius in arcsec (default 2").
+    r_extract_as
+        Outer aperture radius in arcsec (default 10").
+
+    Returns
+    -------
+    float in [0, 1], or nan if there are no events within r_extract_as.
+    """
+    dr2 = (events_yag - src_yag) ** 2 + (events_zag - src_zag) ** 2
+    n_core = int(np.sum(dr2 < r_core_as**2))
+    n_extract = int(np.sum(dr2 < r_extract_as**2))
+    if n_extract == 0:
+        return float("nan")
+    return n_core / n_extract
