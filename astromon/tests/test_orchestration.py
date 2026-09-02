@@ -1,5 +1,6 @@
 """Tests for the bulk rerun orchestration scripts and the CIAO environment cache."""
 
+import csv
 import sys
 import tempfile
 from pathlib import Path
@@ -219,6 +220,82 @@ def test_preserve_workdir_replaces_stale_destination(tmp_path, monkeypatch):
     moved = preserve / "obs14" / "14321" / "primary" / "evt2.fits"
     assert moved.read_text() == "fresh"
     assert not (workdir / "obs14" / "14321").exists()
+
+
+def test_kill_process_group_swallows_permission_error(monkeypatch):
+    """os.killpg raising EPERM is treated the same as ESRCH: nothing left to kill.
+
+    macOS has been observed to raise PermissionError rather than
+    ProcessLookupError for a pgid whose leader already exited (e.g. a
+    concurrent external kill of the same worker). Before this, only
+    ProcessLookupError was caught, so EPERM propagated out of
+    _kill_process_group entirely uncaught.
+    """
+
+    def raise_eperm(pgid, sig):
+        raise PermissionError(1, "Operation not permitted")
+
+    monkeypatch.setattr(run_all.os, "killpg", raise_eperm)
+    monkeypatch.setattr(run_all.time, "sleep", lambda _: None)
+
+    run_all._kill_process_group(12345)  # must not raise
+
+
+def test_process_and_record_survives_run_one_raising(tmp_path, monkeypatch):
+    """One obsid's run_one() raising is recorded as a failure, not a crash.
+
+    Previously any exception escaping run_one() (e.g. the os.killpg bug above,
+    before it was fixed) propagated out of the ThreadPoolExecutor worker and
+    re-raised in main()'s pool.map() call, killing the whole orchestrator --
+    every other in-flight and not-yet-started obsid in the run along with it.
+    This is exactly the "a hard crash in one obsid ... only kills that one
+    subprocess, not this orchestrator or the rest of the run" invariant the
+    module docstring promises.
+    """
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_all",
+            "--db-file",
+            str(tmp_path / "astromon.h5"),
+            "--workdir",
+            str(tmp_path / "work"),
+            "--obsid-list",
+            str(tmp_path / "obsids.txt"),
+            "--log-dir",
+            str(tmp_path / "logs"),
+            "--tracking-csv",
+            str(tmp_path / "tracking.csv"),
+            "--parallel",
+            "2",
+        ],
+    )
+    (tmp_path / "obsids.txt").write_text("14321\n14322\n")
+
+    def fake_run_one(obsid, *args, **kwargs):
+        if obsid == 14321:
+            raise PermissionError(1, "Operation not permitted")
+        return {
+            "obsid": obsid,
+            "status": "success",
+            "note": "",
+            "returncode": 0,
+            "elapsed_sec": 1.0,
+            "timestamp": "2026-08-21T00:00:00",
+            "log_file": "x.log",
+        }
+
+    with patch.object(run_all, "run_one", side_effect=fake_run_one):
+        run_all.main()  # must not raise
+
+    rows = {
+        int(row["obsid"]): row
+        for row in csv.DictReader((tmp_path / "tracking.csv").read_text().splitlines())
+    }
+    assert rows[14321]["status"] == "failure"
+    assert "Operation not permitted" in rows[14321]["note"]
+    assert rows[14322]["status"] == "success"
 
 
 # --- DB write path of the maintenance scripts ------------------------------
