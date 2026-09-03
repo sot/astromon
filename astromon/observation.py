@@ -4,6 +4,7 @@
 import argparse
 import collections
 import functools
+import gzip
 
 # import sys
 import os
@@ -12,13 +13,11 @@ import shutil
 import subprocess
 import tempfile
 import warnings
+from datetime import datetime
 from pathlib import Path
 
-import bs4
-import chardet
 import numpy as np
 import regions
-import requests
 import Ska.arc5gl
 from astropy import table
 from astropy import units as u
@@ -26,6 +25,7 @@ from astropy.coordinates import SkyCoord
 from astropy.io import ascii, fits
 from astropy.wcs import WCS, FITSFixedWarning
 from chandra_aca.transform import radec_to_yagzag, yagzag_to_radec
+from mica.archive import cda
 from Quaternion import Quat
 from ska_helpers.logging import basic_logger
 
@@ -34,7 +34,25 @@ from astromon.stored_result import Storage, stored_result
 from astromon.task import TASKS, ReturnCode, ReturnValue, dependencies, run_tasks, task
 from astromon.utils import Ciao, chdir, logging_call_decorator
 
-__all__ = ["Observation"]
+__all__ = ["Observation", "ObsidNotPubliclyAvailable", "ObsparUnavailable"]
+
+
+class ObsparUnavailable(RuntimeError):
+    """Raised when no obspar can be obtained for an obsid.
+
+    The obspar has exactly two sources: the local mica archive, or an arc5gl
+    download. The public archive is not one of them -- CDA does not publish the
+    observation parameter file among download_chandra_obsid's filetypes.
+    """
+
+
+class ObsidNotPubliclyAvailable(RuntimeError):
+    """Raised when an obsid is not available via the public CDA archive.
+
+    Treated as a "skip" rather than a pipeline failure — the obsid is
+    intentionally unavailable (embargoed, permanently proprietary, or
+    simply not yet released), and retrying will not help.
+    """
 
 
 logger = basic_logger(__name__, level="WARNING")
@@ -97,6 +115,25 @@ CATEGORY_ID_MAP = collections.defaultdict(
 """
 Mapping between observation category names and numerical values.
 """
+
+# CDA ocat `category` strings differ from ID_CATEGORY_MAP labels (e.g. "STARS AND WD"
+# vs "Normal Stars and WD"), so map them directly to numeric IDs.
+CDA_CATEGORY_ID_MAP = collections.defaultdict(
+    lambda: 200,
+    {
+        "STARS AND WD": 10,
+        "WD BINARIES AND CVS": 20,
+        "BH AND NS BINARIES": 30,
+        "NORMAL GALAXIES": 40,
+        "ACTIVE GALAXIES AND QUASARS": 50,
+        "EXTRAGALACTIC DIFFUSE EMISSION AND SURVEYS": 60,
+        "GALACTIC DIFFUSE EMISSION AND SURVEYS": 70,
+        "SOLAR SYSTEM AND MISC": 100,
+        "SN, SNR AND ISOLATED NS": 110,
+        "CLUSTERS OF GALAXIES": 120,
+    },
+)
+"""Mapping from CDA ocat category strings to numeric category IDs."""
 
 
 ARCHIVE_DIR = Path(os.environ["SKA"]) / "data" / "astromon" / "xray_observations"
@@ -241,6 +278,98 @@ class Observation:
 
     is_acis = property(lambda self: self.get_obspar()["instrume"].lower() == "acis")
 
+    def cleanup_downloads(self):
+        """Remove intermediate files that are only needed during processing.
+
+        Call this after all detection versions and cross-matches are complete.
+        Files that the pipeline never reads (level-1 events, VV report, preview
+        JPEGs, etc.) are excluded at download time by ``_download_archive`` and
+        therefore never hit the disk.
+
+        This method handles the processing intermediates:
+
+        Deleted
+        -------
+        primary/
+            Raw level-2 event file (``*_evt2.fits``, excluding the filtered copy).
+            The filtered copy (created by filter_events) is sufficient to re-run
+            any source detection step; re-downloading is all-or-nothing anyway.
+        sources/
+            wavdetect auxiliary outputs (``*.cell``, ``*.img``, ``*.nbkg``).  The
+            actual source lists (``*.src``) and PSF-size tables (``*.fits``) are
+            kept so gaussian_detect can be re-run without re-running wavdetect.
+        param/
+            CIAO parameter files written during the run.
+        results/
+            Per-obsid FITS copies of the DB tables (redundant with astromon.h5).
+        images/
+            fluximage outputs (flux map, PSF map, exposure map), pileup maps,
+            and acis_streak images.  Not needed for aggregate analysis or
+            cross-matching.
+
+            Regenerating them means re-downloading: ``make_images`` declares
+            ``primary/*_evt2.fits*`` -- the raw level-2 events -- among its
+            inputs, and this method deletes exactly that, keeping only the
+            filtered copy.  So a cleaned workdir cannot re-image in place.
+            ``clear_invalid_make_images.py`` exists because that bit in
+            production: ~437 obsids were marked for re-imaging and failed with
+            "Missing input files for task make_images: events".
+
+        Kept
+        ----
+        primary/
+            Filtered evt2, asol, and bpix — sufficient to rerun source
+            detection on a single outlier without re-downloading from CDA.
+        sources/
+            Source lists (``*.src``) and PSF-size tables (``*.fits``).
+        secondary/
+            Mask file.
+        cache/
+            Task-state JSON files so reruns skip completed steps.
+        """
+        deleted_bytes = 0
+
+        def _remove(path):
+            nonlocal deleted_bytes
+            if path.is_file() and not path.is_symlink():
+                deleted_bytes += path.stat().st_size
+                path.unlink()
+
+        # Raw evt2 — keep the filtered copy, delete the full original.
+        # Both share "*_evt2.fits*" but the filtered file has "_filtered" in its name.
+        primary = self.workdir / "primary"
+        for path in primary.glob("*_evt2.fits*"):
+            if "_filtered" not in path.name:
+                _remove(path)
+
+        # wavdetect cell/image/background auxiliaries — not needed for any re-run;
+        # gaussian_detect works from the filtered evt2 + *.src source list directly.
+        sources_dir = self.workdir / "sources"
+        for pattern in ("*.cell", "*.img", "*.nbkg"):
+            for path in sources_dir.glob(pattern):
+                _remove(path)
+
+        # CIAO parameter files, DB-redundant results, and flux/pileup/streak images.
+        # images/ is entirely regenerable from the filtered evt2 + asol.
+        for dirname in ("param", "results", "images"):
+            dirpath = self.workdir / dirname
+            if dirpath.exists():
+                for path in dirpath.rglob("*"):
+                    _remove(path)
+                shutil.rmtree(dirpath, ignore_errors=True)
+
+        # images/ is gone, so make_images is no longer done. Its stored result
+        # lives in cache/, which this method deliberately keeps, so without this it
+        # would go on reporting success while its outputs were deleted -- and
+        # pileup, acis_streak and grating_arm would come back as measured zeros on
+        # any later recompute. This does not make the images regenerable in place;
+        # the raw evt2 make_images needs is deleted above. What it buys is that a
+        # recompute fails loudly on the missing input rather than quietly writing
+        # zeros. follow_dependents=False because the detection results stay valid:
+        # keeping sources/*.src is the point of this cleanup.
+        make_images.invalidate_result(self, follow_dependents=False)
+        logger.info(f"{self} cleanup_downloads removed {deleted_bytes / 1e6:.1f} MB")
+
     def create_archive_symlinks(self):
         """
         Create symlinks from working directory to the archive.
@@ -260,14 +389,29 @@ class Observation:
     def get_ciao(self):
         if self.use_ciao and self.ciao_ is None:
             try:
+                # Clear any stale .par files from previous interrupted runs.
+                # A partial or interrupted fluximage (or other CIAO tool) can
+                # leave a malformed param file that causes subsequent runs to
+                # fail with "punlearn() Could not open parameter file".
+                param_dir = self.workdir / "param"
+                if param_dir.exists():
+                    shutil.rmtree(param_dir)
                 self.ciao_ = Ciao(
                     prefix=self.ciao_prefix,
-                    workdir=self.workdir / "param",
+                    workdir=param_dir,
                     logger="astromon",
                 )
             except Exception as e:
                 self.use_ciao = False
                 logger.warning(f"CIAO could not be initialized: {e}")
+        if self.ciao_ is None:
+            # Fail here with an actionable message instead of letting the caller use None as
+            # if it were a Ciao instance, which surfaces as a bare TypeError/AttributeError
+            # far from the actual cause.
+            raise RuntimeError(
+                f"{self} requires CIAO, but CIAO is not available "
+                f"(ciao_prefix={self.ciao_prefix}). See earlier log messages for why."
+            )
         return self.ciao_
 
     ciao = property(get_ciao)
@@ -319,63 +463,126 @@ class Observation:
 
     @stored_result("seq_summary", fmt="json", subdir="cache")
     def _get_sequence_summary(self):
-        def parse_name_value(child):
-            names = ["Title", "PI", "Observer", "Subject Category", "Cycle"]
-            if m := re.match("(.+):(.+)", child):
-                _name, _value = m.groups()
-                _value = _value.strip()
-                if _name in names and _value:
-                    return {_name: _value}
-            return {}
+        """Get observation metadata (title, PI, category) from the Chandra ocat.
 
-        obspar = self.get_obspar()
-        url = "https://icxc.harvard.edu/cgi-bin/mp/target.cgi?{seq_num}"
-        r = requests.get(url.format(**obspar))
-        soup = bs4.BeautifulSoup(
-            r.content.decode(chardet.detect(r.content)["encoding"]), features="lxml"
-        )
-        info = {}
-        for h4 in soup.find_all("h4"):
-            for child in h4.contents:
-                if not isinstance(child, bs4.element.Tag):
-                    info.update(parse_name_value(child))
+        Tries the local HDF5 ocat first (fast, available at CXC), then falls
+        back to the public CDA web service (works anywhere).  If both fail,
+        returns a default with category_id=200 (Unknown).
 
-        if "Subject Category" not in info:
-            info["Subject Category"] = "NO MATCH"
-        info["category_id"] = CATEGORY_ID_MAP[info["Subject Category"].lower()]
+        Returns a dict with keys Title, PI, Observer, Subject Category, Cycle,
+        and category_id.
+        """
+        obsid_int = int(self.obsid)
+        ocat_row = None
+        for fetch in (
+            lambda: cda.get_ocat_local(obsid_int),
+            lambda: cda.get_ocat_web(obsid_int),
+        ):
+            try:
+                ocat_row = fetch()
+                break
+            except Exception as exc:
+                logger.debug(f"{self} ocat fetch failed: {exc}")
 
-        return info
+        if ocat_row is None:
+            logger.warning(f"{self} could not fetch ocat data; using Unknown category")
+            return {
+                "Title": "",
+                "PI": "",
+                "Observer": "",
+                "Subject Category": "NO MATCH",
+                "Cycle": "",
+                "category_id": 200,
+            }
+
+        cda_category = str(ocat_row.get("category", "")).upper()
+        category_id = CDA_CATEGORY_ID_MAP[cda_category]
+        return {
+            "Title": str(ocat_row.get("prop_title", "")),
+            "PI": str(ocat_row.get("pi_name", "")),
+            "Observer": str(ocat_row.get("observer", "")),
+            "Subject Category": cda_category.title(),
+            "Cycle": str(ocat_row.get("obs_cycle", "")),
+            "category_id": category_id,
+        }
+
+    def _get_mica_obspar(self) -> dict | None:
+        """Obspar from the local mica archive, or None if it has no entry.
+
+        mica.archive.obspar reads $SKA/data/mica/archive/obspar and returns None
+        when the obsid is absent.  Any other failure (no $SKA, archive not synced)
+        is also treated as a miss so the caller can fall back to downloading.
+        """
+        from mica.archive import obspar as mica_obspar  # noqa: PLC0415
+
+        try:
+            return mica_obspar.get_obspar(int(self.obsid))
+        except Exception as exc:
+            logger.debug(f"{self} mica obspar lookup failed: {exc}")
+            return None
 
     @stored_result("obspar", fmt="json", subdir="cache")
     def get_obspar(self):
         """
         Get the contents of the obs0 file as a dictionary.
-        """
-        obspar_file = self.file_glob("*obs0*")
-        if not obspar_file:
-            logger.debug(f"{self} No obspar file for OBSID {self.obsid}. Downloading")
-            self.download(["obspar"])
-        obspar_file = self.file_glob("*obs0*")
-        if len(obspar_file) == 0:
-            raise Exception(f"{self} No obspar file for OBSID {self.obsid}.")
-        obspar_file = str(obspar_file[0])
-        t = ascii.read(obspar_file)
 
-        types = {
-            "r": float,
-            "s": str,
-            "i": int,
-        }
-        self._obsid_info = {row["col1"]: types[row["col2"]](row["col4"]) for row in t}
+        Sources are tried in order: an obspar already in the working directory,
+        then the local mica obspar archive, then an arc5gl download.
+
+        mica reads $SKA/data/mica/archive/obspar, so the common case needs neither
+        the network nor arc5gl.  That ordering matters beyond convenience: every
+        task parameter substitution resolves through here, so downloading before
+        consulting mica made the whole task framework unreachable off the HEAD
+        network -- including the dependency and cache-invalidation tests.
+        """
+
+        def _find_obspar():
+            # arc5gl downloads the obspar to workdir root; download_chandra_obsid
+            # places it in secondary/.  Check both.
+            return self.file_glob("*obs0*") or self.file_glob("secondary/*obs0*")
+
+        obspar_file = _find_obspar()
+        mica_info = None
+        if not obspar_file:
+            mica_info = self._get_mica_obspar()
+            if mica_info is None:
+                logger.debug(
+                    f"{self} No obspar file or mica entry for OBSID {self.obsid}."
+                    " Downloading"
+                )
+                self.download(["obspar"])
+                obspar_file = _find_obspar()
+
+        if mica_info is not None:
+            logger.debug(f"{self} obspar from mica.archive.obspar")
+            # mica's parser already normalises 'date-obs' to 'date_obs'.
+            self._obsid_info = dict(mica_info)
+        elif len(obspar_file) > 0:
+            obspar_file = str(obspar_file[0])
+            t = ascii.read(obspar_file)
+            types = {"r": float, "s": str, "i": int}
+            self._obsid_info = {
+                row["col1"]: types[row["col2"]](row["col4"]) for row in t
+            }
+            # par files use 'date-obs' (hyphen); normalise to 'date_obs'
+            self._obsid_info["date_obs"] = self._obsid_info.pop("date-obs", "")
+        else:
+            raise ObsparUnavailable(
+                f"{self} no obspar available for OBSID {self.obsid}: not in the"
+                " working directory and not in the local mica archive"
+                " ($SKA/data/mica/archive/obspar). Its only other source is an"
+                ' arc5gl download, which needs source="arc5gl" and the CXC'
+                " network."
+            )
+
         self._obsid_info["instrument"] = self._obsid_info["instrume"].lower()
         self._obsid_info["obsid"] = int(self.obsid)
         self._obsid_info["target"] = self._obsid_info["object"]
-        self._obsid_info["date_obs"] = self._obsid_info["date-obs"]
         self._obsid_info["dec"] = float(self._obsid_info["dec_nom"])
         self._obsid_info["ra"] = float(self._obsid_info["ra_nom"])
         self._obsid_info["roll"] = float(self._obsid_info["roll_nom"])
 
-        m = re.match(r"(\d+).(\d+).(\d+)", self._obsid_info["ascdsver"])
+        m = re.match(r"(\d+).(\d+).(\d+)", str(self._obsid_info.get("ascdsver", "")))
         if m:
             version = [int(v) for v in m.groups()]
             self._obsid_info["version"] = (
@@ -446,44 +653,187 @@ class Observation:
         uv = (wcs.wcs.cdelt * (xy - wcs.wcs.crpix)).T
         return np.sqrt(np.sum(uv**2, axis=0)) * 60
 
+    # Filetypes needed by the pipeline.  download_chandra_obsid accepts a
+    # comma-separated list so we request only what we use, rather than
+    # downloading the full set (evt1/evt1a, VV reports, spectra, JPEGs, …)
+    # and deleting the excess afterward.
+    _ARCHIVE_FILETYPES = "asol,bpix,dtf,evt2,fov,msk"
+
+    # Requested filetypes the public archive cannot supply at all, as opposed to
+    # the ones _download_archive covers by always fetching _ARCHIVE_FILETYPES.
+    _ARCHIVE_UNAVAILABLE = ("obspar",)
+
+    def _archive_download_marker(self) -> Path:
+        """File written once an archive download has fully succeeded.
+
+        The presence of ``secondary/`` cannot serve as this signal:
+        download_chandra_obsid creates it early, and neither the timeout nor the
+        error path removes it, so an interrupted download left behind a directory
+        that every later attempt read as "already done" -- turning one transient
+        failure into a workdir that needed manual cleanup before it would ever
+        download again. It lives inside ``secondary/`` so that removing that
+        directory resets the state deliberately.
+        """
+        return self.workdir / "secondary" / ".download_complete"
+
+    def _fix_archive_bpix(self) -> None:
+        """Gunzip the bad pixel file from secondary/ into primary/ as a real file.
+
+        CIAO fluximage cannot find the bad pixel file when it is a symlink (even
+        if the symlink target is valid).  ``download_chandra_obsid`` places the
+        bpix file in ``secondary/`` and the old code created a symlink in
+        ``primary/``; this replaces that with a real decompressed copy.
+
+        Also removes any stale ``.fits.gz`` symlink left by older runs so that
+        the ``primary/*_bpix1.fits*`` glob in ``make_images`` returns exactly
+        one candidate.
+
+        Idempotent: safe to call on every run regardless of whether the download
+        was cached.
+        """
+        secondary = self.workdir / "secondary"
+        primary = self.workdir / "primary"
+        for bpix_file in secondary.glob("*bpix*fits*"):
+            is_gz = bpix_file.suffix == ".gz"
+            if is_gz:
+                dest = primary / bpix_file.stem  # strip .gz → plain .fits
+                stale = primary / bpix_file.name  # old .gz symlink, if any
+            else:
+                dest = primary / bpix_file.name
+                stale = primary / (bpix_file.name + ".gz")
+            if stale.exists() or stale.is_symlink():
+                stale.unlink()
+            if not dest.exists():
+                # Only the .gz case needs decompressing; opening a plain FITS
+                # file with gzip.open raises BadGzipFile.
+                opener = gzip.open if is_gz else open
+                with opener(bpix_file, "rb") as f_in, open(dest, "wb") as f_out:
+                    shutil.copyfileobj(f_in, f_out)
+
     @logging_call_decorator
-    def _download_archive(self, ftypes):
+    def _download_archive(self, ftypes):  # noqa: PLR0912
         """
-        Download data from chandra public archive using CIAO's download_chandra_obsid
+        Download pipeline-required files for this obsid from the Chandra public archive.
+
+        Uses CIAO's ``download_chandra_obsid`` to fetch only the filetypes the
+        pipeline actually reads (``_ARCHIVE_FILETYPES``).  ``ftypes`` is accepted
+        for API compatibility with ``_download_arc5gl`` and is otherwise ignored --
+        except for the filetypes CDA does not publish at all, listed in
+        ``_ARCHIVE_UNAVAILABLE``, which raise :class:`ObsparUnavailable`. Ignoring
+        those silently meant a request for the obspar fetched a full evt2 and five
+        other filetypes and then failed claiming the download produced nothing.
+        A marker written after the download and its layout fix-ups have all
+        succeeded is the "already downloaded" signal -- see
+        :meth:`_archive_download_marker` for why the ``secondary/`` directory
+        cannot be. Subsequent calls are then no-ops.
         """
+        unavailable = sorted(set(ftypes or ()) & set(self._ARCHIVE_UNAVAILABLE))
+        if unavailable:
+            raise ObsparUnavailable(
+                f"obsid {self.obsid}: {', '.join(unavailable)} cannot be downloaded"
+                " from the public archive -- CDA does not publish it among"
+                " download_chandra_obsid's filetypes. It has to come from the local"
+                " mica archive ($SKA/data/mica/archive/obspar) or from arc5gl with"
+                ' source="arc5gl".'
+            )
+
+        secondary = self.workdir / "secondary"
+        marker = self._archive_download_marker()
+        if marker.exists():
+            logger.debug(f"{self} {marker} present, skipping download")
+            self._fix_archive_bpix()
+            return
+
+        # Check public release date before attempting download, so we get a
+        # clear failure message rather than a silent "not found on archive site".
+        # Use get_ocat_local (mica's on-disk cache) to avoid a network round-trip;
+        # fall back to get_ocat_web only if the local cache misses.
+        try:
+            try:
+                info = cda.get_ocat_local(int(self.obsid))
+            except Exception:
+                info = cda.get_ocat_web(self.obsid, summary=True)
+            pa_raw = info.get("public_avail", "")
+            # get_ocat_local returns '0' for embargoed/no-release-date observations.
+            # get_ocat_web returns np.ma.masked for the same case (np.ma.is_masked
+            # needed because bool(masked) raises TypeError in newer numpy).
+            pa_str = str(pa_raw).strip() if not np.ma.is_masked(pa_raw) else ""
+            if not pa_str or pa_str == "0":
+                # No release date set — embargoed or permanently proprietary.
+                raise ObsidNotPubliclyAvailable(
+                    f"obsid {self.obsid} has no public release date "
+                    f"(public_avail={pa_raw!r}); not available via public archive"
+                )
+            release_date = datetime.strptime(pa_str, "%Y-%m-%d %H:%M:%S")
+            if release_date > datetime.now():
+                raise ObsidNotPubliclyAvailable(
+                    f"obsid {self.obsid} not yet publicly available "
+                    f"(release date: {pa_str})"
+                )
+        except ObsidNotPubliclyAvailable:
+            raise
+        except Exception as exc:
+            logger.warning(f"{self} could not check public release date: {exc}")
+
         if not self.workdir.parent.exists():
             self.workdir.parent.mkdir(exist_ok=True, parents=True)
 
-        secondary = self.workdir / "secondary"
-        if secondary.exists():
-            logger.debug(f"{self} {secondary} exists, skipping download")
-            return
-
-        repro = self.file_path("repro")
-        if repro.exists():
-            logger.debug(f"{self} {repro} exists, skipping download")
-            return
+        # Maximum time to wait for download_chandra_obsid.  A large observation
+        # at a slow network rate might take ~2 hours; beyond that the connection
+        # is almost certainly hung (broken TCP with no data flowing).
+        _DOWNLOAD_TIMEOUT_SEC = 7200
 
         with chdir(self.workdir.parent):
-            r = subprocess.run(
-                ["download_chandra_obsid", "-t", "-q"],
-                stdout=subprocess.PIPE,
-                env=self.ciao.env,
-                check=True,
-            )
-            available_types = r.stdout.decode().strip().split(":")[-1].split()
-            exclude = [t for t in available_types if t not in ftypes]
             process = subprocess.Popen(
-                ["download_chandra_obsid", self.obsid, "--exclude", ",".join(exclude)],
+                ["download_chandra_obsid", self.obsid, self._ARCHIVE_FILETYPES],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 env=self.ciao.env,
             )
-            output, _ = process.communicate().decode()
-            output = "\n".join([f"{self} {line}" for line in output.split("\n")])
-            logger.info(output)
+            try:
+                stdout_bytes, _ = process.communicate(timeout=_DOWNLOAD_TIMEOUT_SEC)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.communicate()
+                raise RuntimeError(
+                    f"obsid {self.obsid} download_chandra_obsid timed out "
+                    f"after {_DOWNLOAD_TIMEOUT_SEC}s (hung connection)"
+                ) from None
+            stdout_text = stdout_bytes.decode(errors="replace")
+            for line in stdout_text.splitlines():
+                logger.info(f"{self} {line}")
+            # download_chandra_obsid exits 0 even when the obsid is not found on
+            # the archive site — detect that case from its output.  Raise a plain
+            # RuntimeError (retryable failure) rather than ObsidNotPubliclyAvailable
+            # because the same message appears on transient network failures; only the
+            # ocat check above has enough context to declare an obsid permanently
+            # unavailable.
+            if "not found on the archive site" in stdout_text:
+                raise RuntimeError(
+                    f"obsid {self.obsid} not found on the CDA archive site "
+                    f"(download_chandra_obsid: {stdout_text.strip()!r})"
+                )
             if process.returncode:
-                raise Exception(f"{self.obsid} failed to download")
+                raise Exception(
+                    f"{self.obsid} download_chandra_obsid failed "
+                    f"(exit code {process.returncode})"
+                )
+
+        # download_chandra_obsid follows the official CDA layout, which differs
+        # from the arc5gl layout that the rest of the pipeline expects:
+        #   asol: CDA puts it in primary/, pipeline expects secondary/
+        #   bpix: CDA puts it in secondary/, pipeline expects primary/
+        # Create symlinks so downstream code finds files in the expected places.
+        primary = self.workdir / "primary"
+        for asol_file in primary.glob("*asol*fits*"):
+            link = secondary / asol_file.name
+            if not link.exists():
+                link.symlink_to(asol_file)
+        self._fix_archive_bpix()
+
+        # Last, so that anything raising above leaves the download retryable.
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text("download_chandra_obsid completed\n")
 
     def _download_arc5gl(self, ftypes, revision=None, force=False):
         """
@@ -1058,6 +1408,22 @@ class Observation:
             calalign["obsid"] = int(self.obsid)
             calalign["caldb_version"] = hdus[1].header["CALDBVER"]
             return calalign
+        # acal file not available (e.g. when data was downloaded via
+        # download_chandra_obsid which does not include CXC-internal products).
+        # Fall back to reading CALDBVER from the L2 event file, which records
+        # the CALDB version used when CXC processed the observation.
+        caldb_version = "0.0"
+        evt_files = self.file_glob("primary/*_evt2.fits*")
+        if evt_files:
+            try:
+                with fits.open(evt_files[0]) as hdus:
+                    caldb_version = hdus[1].header.get("CALDBVER", "0.0")
+            except Exception as exc:
+                logger.debug(f"{self} could not read CALDBVER from event file: {exc}")
+        logger.debug(
+            f"{self} no acal file; using CALDBVER={caldb_version!r} from event file"
+        )
+        return {"obsid": int(self.obsid), "caldb_version": caldb_version}
 
     def get_asol_files(self):
         return [self.file_path(f) for f in self._get_asol_files_cached()]
