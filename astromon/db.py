@@ -12,7 +12,6 @@ from astropy import units as u
 from astropy.coordinates import SkyCoord
 from astropy.table.table import Table
 from cxotime import CxoTime
-from mica.archive.obspar import get_obspar
 from ska_helpers.retry import tables_open_file
 
 from astromon import observation
@@ -661,8 +660,8 @@ def get_regions(obsid=None, dbfile=None, radius=5 * u.arcmin):
     Parameters
     ----------
     obsid: int
-        If provided, only return regions with obsid=0 or centered around the nominal pointing
-        of the given obsid, as stored in the obspar file.
+        If provided, only return regions with obsid=0 or centered around the pointing
+        of the given obsid, as stored in the astromon_obs table.
     dbfile: :any:`pathlib.Path`
         File where tables are stored.
         The default is `$ASTROMON_FILE` or `$SKA/data/astromon/astromon.h5`
@@ -675,8 +674,9 @@ def get_regions(obsid=None, dbfile=None, radius=5 * u.arcmin):
     """
     regions = get_table("astromon_regions", dbfile)
     if obsid is not None:
-        obspar = get_obspar(obsid)
-        obs_loc = SkyCoord(obspar["ra_nom"] * u.deg, obspar["dec_nom"] * u.deg)
+        astromon_obs = get_table("astromon_obs", dbfile)
+        obs_row = astromon_obs[astromon_obs["obsid"] == obsid][0]
+        obs_loc = SkyCoord(obs_row["ra"] * u.deg, obs_row["dec"] * u.deg)
 
         loc = SkyCoord(regions["ra"] * u.deg, regions["dec"] * u.deg)
         regions = regions[

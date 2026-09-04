@@ -270,13 +270,11 @@ class Observation:
             self.use_ciao = False
             logger.warning(msg)
 
-    is_multi_obi = property(
-        lambda self: int(self.get_obspar()["obsid"]) in _multi_obi_obsids
-    )
+    is_multi_obi = property(lambda self: int(self.obsid) in _multi_obi_obsids)
 
-    is_hrc = property(lambda self: self.get_obspar()["instrume"].lower() == "hrc")
+    is_hrc = property(lambda self: self.get_evt2_info()["instrument"] == "hrc")
 
-    is_acis = property(lambda self: self.get_obspar()["instrume"].lower() == "acis")
+    is_acis = property(lambda self: self.get_evt2_info()["instrument"] == "acis")
 
     def cleanup_downloads(self):
         """Remove intermediate files that are only needed during processing.
@@ -428,11 +426,18 @@ class Observation:
         """
         Get observation info.
 
-        Observation info is a combination of OBSPAR (from the obs0 file) and the sequence summary
-        from https://icxc.harvard.edu/cgi-bin/mp/target.cgi.
+        Observation info is a combination of pointing/configuration metadata read
+        directly from the evt2 file's own header (:any:`get_evt2_info`) and
+        proposal-level metadata -- title, PI, category, and the ocat's detector label
+        -- from the Chandra ocat (:any:`_get_sequence_summary`).  The obspar is not
+        used: it is a separately-versioned archive product that is not guaranteed to
+        be in sync with the evt2 file actually being processed (see
+        :any:`get_evt2_info`).
         """
-        obsid_info = self.get_obspar()
-        obsid_info.update(self._get_sequence_summary())
+        obsid_info = self.get_evt2_info()
+        seq_summary = self._get_sequence_summary()
+        obsid_info.update(seq_summary)
+        obsid_info["detector"] = seq_summary.get("instr", "")
         return obsid_info
 
     def file_glob(self, pattern):
@@ -470,7 +475,13 @@ class Observation:
         returns a default with category_id=200 (Unknown).
 
         Returns a dict with keys Title, PI, Observer, Subject Category, Cycle,
-        and category_id.
+        category_id, instr (the ocat detector label, e.g. "ACIS-S"), mode (readout
+        mode, "TE" or "CC"), and d_cyc ("Y"/"N", duty cycling in use).  instr/mode/
+        d_cyc are also used by :any:`is_selected` to gate observations, in place of
+        obspar's obs_mode/instrume/readmode/dtycycle: non-science secondary/duplicate
+        segments come back from the ocat with a blank or "NONE" instr, and mode/d_cyc
+        line up with readmode/dtycycle (TE<->TIMED, CC<->CONTINUOUS) to better than
+        99.99% across the archive.
         """
         obsid_int = int(self.obsid)
         ocat_row = None
@@ -493,6 +504,9 @@ class Observation:
                 "Subject Category": "NO MATCH",
                 "Cycle": "",
                 "category_id": 200,
+                "instr": "",
+                "mode": "",
+                "d_cyc": "",
             }
 
         cda_category = str(ocat_row.get("category", "")).upper()
@@ -504,6 +518,9 @@ class Observation:
             "Subject Category": cda_category.title(),
             "Cycle": str(ocat_row.get("obs_cycle", "")),
             "category_id": category_id,
+            "instr": str(ocat_row.get("instr", "")),
+            "mode": str(ocat_row.get("mode", "")),
+            "d_cyc": str(ocat_row.get("d_cyc", "")),
         }
 
     def _get_mica_obspar(self) -> dict | None:
@@ -592,6 +609,76 @@ class Observation:
             self._obsid_info["version"] = 0.0
 
         return self._obsid_info
+
+    @stored_result("evt2_info", fmt="json", subdir="cache")
+    @dependencies(download=["evt2"])
+    def get_evt2_info(self):
+        """
+        Get pointing and observation metadata directly from the evt2 file's own header.
+
+        This is the source of truth for anything that must be self-consistent with the
+        events actually being processed -- most importantly the pointing
+        (``ra_pnt``/``dec_pnt``/``roll_pnt``), which is what ``filter_events``'s 180"
+        circular cut is centered on.  ``get_obspar`` is a separately-versioned archive
+        product and can genuinely disagree with the evt2 file's own header for the same
+        obsid: confirmed empirically for a real observation, where obspar's cached
+        RA_PNT differed from the evt2 header's RA_PNT (and from the actual measured
+        aspect trajectory) by 38.6 arcsec, because the two products are revisioned
+        independently by the archive and are not reprocessed together.
+
+        Returns
+        -------
+        dict
+            ra_pnt/dec_pnt/roll_pnt (and ra/dec/roll aliases), ra_targ/dec_targ,
+            revision, obs_mode, readmode, dtycycle, grating, instrume, instrument
+            (lowercase), detnam, target, sim_x/sim_y/sim_z, datamode, ascdsver, obsid,
+            and a derived ``version`` float -- all read straight from the evt2 file's
+            primary event-list header, the same file ``filter_events`` reads via
+            ``dmkeypar``.
+        """
+        event_files = self.file_glob("primary/*_evt2.fits*")
+        if len(event_files) == 0:
+            raise Exception(f"{self} No evt2 file for OBSID {self.obsid}.")
+
+        header = fits.getheader(str(event_files[0]), 1)
+
+        info = {
+            "ra_pnt": float(header["RA_PNT"]),
+            "dec_pnt": float(header["DEC_PNT"]),
+            "roll_pnt": float(header["ROLL_PNT"]),
+            "ra": float(header["RA_PNT"]),
+            "dec": float(header["DEC_PNT"]),
+            "roll": float(header["ROLL_PNT"]),
+            "ra_targ": float(header["RA_TARG"]),
+            "dec_targ": float(header["DEC_TARG"]),
+            "obs_mode": str(header.get("OBS_MODE", "")),
+            "readmode": str(header.get("READMODE", "")),
+            "dtycycle": int(header["DTYCYCLE"]) if "DTYCYCLE" in header else None,
+            "grating": str(header.get("GRATING", "")),
+            "instrume": str(header.get("INSTRUME", "")),
+            "instrument": str(header.get("INSTRUME", "")).lower(),
+            "detnam": str(header.get("DETNAM", "")),
+            "target": str(header.get("OBJECT", "")),
+            "sim_x": float(header["SIM_X"]) if "SIM_X" in header else None,
+            "sim_y": float(header["SIM_Y"]) if "SIM_Y" in header else None,
+            "sim_z": float(header["SIM_Z"]) if "SIM_Z" in header else None,
+            "datamode": str(header.get("DATAMODE", "")),
+            "ascdsver": str(header.get("ASCDSVER", "")),
+            "date_obs": str(header.get("DATE-OBS", "")),
+            "obsid": int(self.obsid),
+        }
+
+        m = re.search(r"N(?P<revision>\d{3})_evt2", str(event_files[0]))
+        info["revision"] = int(m.group("revision")) if m else 0
+
+        vm = re.match(r"(\d+).(\d+).(\d+)", info["ascdsver"])
+        if vm:
+            v = [int(x) for x in vm.groups()]
+            info["version"] = v[0] + v[1] / 100 + v[2] / 10000
+        else:
+            info["version"] = 0.0
+
+        return info
 
     @stored_result("ra_dec_wcs", fmt="pickle", subdir="cache")
     @dependencies(download=["evt2"])
@@ -837,16 +924,20 @@ class Observation:
 
     def _download_arc5gl(self, ftypes, revision=None, force=False):
         """
-        Download data from chandra public archive
-        """
+        Download data from chandra public archive.
 
-        if ftypes != ["obspar"] and revision is None:
-            # the first thing we do is to get the obspar file, to know the revision number.
-            # self.get_obspar calls self.download with ftypes=['obspar'], and that is why we just
-            # checked that ftypes is not ['obspar'], to avoid infinite recursion.
-            # The obspar is cached, so this happens only once.
-            obspar = self.get_obspar()
-            revision = obspar["revision"]
+        With ``revision=None`` (the default), each ftype is fetched at its own current
+        archive default, independently.  This used to default to obspar's own revision
+        number and pass that as ``version=`` for every ftype, on the assumption that one
+        revision number meant the same processing epoch across product types.  It
+        doesn't: evt2, asol, and obspar each carry their own independently-incremented
+        revision counter for the same obsid (confirmed empirically -- N003/N001/N002 for
+        the same real obsid, all "current" at the same time), so pinning one product's
+        counter onto a request for another was never actually achieving self-consistency,
+        and at worst could silently fetch a superseded file for a product type whose
+        revision history happens to include one at that same number.  Pass ``revision``
+        explicitly only when there's a specific, known reason to request an exact one.
+        """
 
         for ftype in ftypes:
             if ftype == "obspar":
@@ -994,13 +1085,6 @@ class Observation:
         """
         return filter_events.run(self, run_dependencies=True)
 
-    @logging_call_decorator
-    def filter_sources(self):
-        """
-        Filter detected sources outside a radius around the optical axis.
-        """
-        return filter_sources.run(self, run_dependencies=True)
-
     @dependencies(
         optional_files={
             "sources": "sources/{obsid}_baseline.src",
@@ -1054,30 +1138,39 @@ class Observation:
         Check if the observation fulfills the requirements for astromon processing.
 
         This function skips:
-            - observations with obs_mode other than "POINTING".
-            - ACIS observations with readmode other than "TIMED" and dtycycle different than 0.
+            - obsids >= 38000, the reserved block for engineering/calibration-replay
+              sequences, which are never real science pointings.
+            - obsids with no usable Chandra ocat instrument value.  Non-science
+              secondary/duplicate segments come back from the ocat with a blank or
+              "NONE" instr even when a real ocat row exists for the obsid.
+            - ACIS observations not in TE (timed exposure) readout mode, or with
+              duty cycling in use.  Continuous Clocking (CC) mode collapses one
+              spatial dimension for high-time-resolution timing, so 2-D source
+              detection cannot produce a valid position from it.
+
+        All of this comes from the Chandra ocat rather than the obspar: the obspar is
+        a separately-versioned archive product that is not guaranteed to be in sync
+        with the obsid actually being processed (see :any:`get_evt2_info`), while the
+        ocat fields used here (instr, mode, d_cyc) line up with the obspar's
+        obs_mode/instrume/readmode/dtycycle to better than 99.99% across the archive.
 
         Returns
         -------
         bool
             True if the observation is suitable for astromon processing, False otherwise.
         """
-        obsid_info = self.get_info()
+        obsid_int = int(self.obsid)
+        if obsid_int >= 38000 or obsid_int in _multi_obi_obsids:
+            return False
 
-        return (
-            int(obsid_info["obsid"]) not in _multi_obi_obsids
-            # and obsid_info['category_id'] not in [110]
-            and obsid_info["obs_mode"] == "POINTING"
-            # and obsid_info['grating'] == 'NONE'
-            and (
-                obsid_info["instrume"] == "HRC"
-                or (
-                    obsid_info["instrume"] == "ACIS"
-                    and obsid_info["readmode"] == "TIMED"
-                    and int(obsid_info["dtycycle"]) == 0
-                )
-            )
-        )
+        seq = self._get_sequence_summary()
+        instr = str(seq.get("instr", "")).strip().upper()
+        if instr in ("", "NONE"):
+            return False
+
+        if instr.startswith("ACIS"):
+            return seq.get("mode", "") == "TE" and seq.get("d_cyc", "") == "N"
+        return True
 
     @logging_call_decorator
     def process(self):
@@ -1135,14 +1228,25 @@ class Observation:
             return table.Table()
 
         if "y_angle" not in sources.colnames or "z_angle" not in sources.colnames:
-            obspar = self.get_obspar()
+            evt2_info = self.get_evt2_info()
             q = Quat(
-                equatorial=(obspar["ra_pnt"], obspar["dec_pnt"], obspar["roll_pnt"])
+                equatorial=(
+                    evt2_info["ra_pnt"],
+                    evt2_info["dec_pnt"],
+                    evt2_info["roll_pnt"],
+                )
             )
             sources["y_angle"], sources["z_angle"] = radec_to_yagzag(
                 sources["RA"], sources["DEC"], q
             )
         sources["r_angle"] = np.sqrt(sources["y_angle"] ** 2 + sources["z_angle"] ** 2)
+
+        # filter_events cuts input events to a 180" radius (see that task), but
+        # celldetect (and gaussian_detect, which seeds from it) fits cells/Gaussians
+        # on the full rectangular flux image built from those events, so a detection's
+        # position is not itself constrained to stay inside that circle.  Drop the ones
+        # that land beyond it.
+        sources = sources[sources["r_angle"] < 180]
 
         if "near_neighbor_dist" not in sources.colnames:
             # this uses y_angle and z_angle
@@ -1376,7 +1480,10 @@ class Observation:
 
     @property
     def archive_file_locations(self):
-        instrument = self.get_obspar()["instrument"]
+        # Needed to decide how to download evt2 itself, so it must come from something
+        # cheap and pre-download -- the ocat's instr label (e.g. "ACIS-S"), not
+        # get_evt2_info (which requires evt2 to already exist -- that would be circular).
+        instrument = str(self._get_sequence_summary().get("instr", "")).split("-")[0].lower()
         return {
             "obspar": ("obspar", "."),
             "evt2": (f"{instrument}2{{evt2}}", "primary"),
@@ -1453,15 +1560,13 @@ class Observation:
             ]
             asol = [self.file_path(f"secondary/{filename}") for filename in filenames]
 
-            # the file does not exist, check if the file revision is different
-            # from the current revision
+            # If the expected asol file (per evt2's own ASOLFILE header) is missing,
+            # download it at the exact revision that filename names.
             if not asol[0].exists() and (
                 mr := re.search(r"N(?P<revision>\d\d\d)_asol1.fits", asol[0].name)
             ):
                 revision = int(mr.group("revision"))
-                cur_revision = int(self.get_obspar()["revision"])
-                if revision != cur_revision:
-                    self.download(["asol"], revision=revision, force=True)
+                self.download(["asol"], revision=revision, force=True)
         else:
             # asol file is not given in the event file,
             # see if there is something and hope for the best
@@ -1733,7 +1838,7 @@ def _make_grating_arm_mask(obs, inputs, outputs, logging_tag):
     gives the actual measured zero-order rather than the nominal pointing.
     """
     evt_file = inputs["events"][0]
-    obspar = obs.get_obspar()
+    evt2_info = obs.get_evt2_info()
     ciao = obs.ciao
 
     zo_x, zo_y = _find_zeroth_order(evt_file)
@@ -1745,8 +1850,8 @@ def _make_grating_arm_mask(obs, inputs, outputs, logging_tag):
         {
             "X": np.array([zo_x]),
             "Y": np.array([zo_y]),
-            "RA": np.array([obspar["ra_targ"]]),
-            "DEC": np.array([obspar["dec_targ"]]),
+            "RA": np.array([evt2_info["ra_targ"]]),
+            "DEC": np.array([evt2_info["dec_targ"]]),
         }
     )
     zo_pos_file = (
@@ -2362,46 +2467,6 @@ def filter_events(obs, inputs, outputs):
         evt2,
         logging_tag=str(obs),
         clobber="yes",
-    )
-
-
-@task(
-    name="filter_sources",
-    inputs={
-        "events": "primary/{obsid}_evt2_filtered.fits.gz",
-        "src": "sources/{obsid}_baseline.src",
-    },
-    outputs={
-        "src": "sources/{obsid}_filtered.src",
-    },
-    download=(["evt2"]),
-)
-def filter_sources(obs, inputs, outputs):
-    """
-    Filter detected sources outside a radius around the optical axis.
-    """
-    # possible parameters:
-    radius = 180  # radius in arcsec
-    psfratio = 1
-
-    pixel = 0.13180 if obs.is_hrc else 0.5
-
-    evt = inputs["events"]
-
-    obs.ciao("dmkeypar", evt, "RA_PNT", logging_tag=str(obs))
-    ra = obs.ciao.pget("dmkeypar", logging_tag=str(obs))
-    obs.ciao("dmkeypar", evt, "DEC_PNT", logging_tag=str(obs))
-    dec = obs.ciao.pget("dmkeypar", logging_tag=str(obs))
-
-    obs.ciao("punlearn", "dmcoords", logging_tag=str(obs))
-    obs.ciao("dmcoords", evt, op="cel", celfmt="deg", ra=ra, dec=dec)
-    x = obs.ciao.pget("dmcoords", "x", logging_tag=str(obs))
-    y = obs.ciao.pget("dmcoords", "y", logging_tag=str(obs))
-    filters = [f"psfratio=:{psfratio}", f"(x,y)=circle({x},{y},{radius / pixel})"]
-    filters = ",".join(filters)
-
-    obs.ciao(
-        "dmcopy", f"{inputs['src']}[{filters}]", outputs["src"], logging_tag=str(obs)
     )
 
 

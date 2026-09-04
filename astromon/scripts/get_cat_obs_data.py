@@ -135,9 +135,7 @@ def process(obsid, workdir, log_level, archive_dir):  # noqa: PLR0915, PLR0912
         if len(sources) == 0:
             raise SkippedWithWarning("No x-ray sources found")
 
-        match_candidates = rough_match(
-            sources, CxoTime(observation.get_obspar()["date_obs"])
-        )
+        match_candidates = rough_match(sources, CxoTime(obspar["date_obs"][0]))
 
         if len(match_candidates):
             q = Quat(
