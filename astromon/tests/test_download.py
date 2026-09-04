@@ -536,3 +536,34 @@ def test_cleanup_leaves_the_detection_results_valid(tmp_path):
     assert observation.wavdetect.get_result(obs).return_code == (
         observation.ReturnCode.OK
     )
+
+
+def test_cleanup_clears_the_download_marker_so_a_retry_redownloads(tmp_path):
+    """cleanup_downloads deletes the raw evt2 that a later retry needs back.
+
+    The marker written by ``_download_archive`` says "already downloaded" and
+    used to survive cleanup untouched, so a later retry's ``_download_archive``
+    call short-circuited on it and skipped re-fetching the raw evt2 -- leaving
+    make_images permanently unable to find its input ("Missing input files for
+    task make_images: events") no matter how many times the obsid was retried.
+    Documented in production as a ~437-obsid cluster that needed
+    clear_invalid_make_images.py to unstick; clearing the marker here means
+    a retry never falls into that trap in the first place.
+    """
+    obs = _obs(tmp_path)
+    secondary = obs.workdir / "secondary"
+    secondary.mkdir(parents=True)
+    obs._archive_download_marker().write_text("download_chandra_obsid completed\n")
+
+    primary = obs.workdir / "primary"
+    primary.mkdir(parents=True)
+    (primary / "acisf8007N004_evt2.fits.gz").write_bytes(b"raw")
+    (primary / "8007_evt2_filtered.fits.gz").write_bytes(b"filtered")
+
+    obs.cleanup_downloads()
+
+    assert not (primary / "acisf8007N004_evt2.fits.gz").exists()
+    assert not obs._archive_download_marker().exists(), (
+        "the marker must be cleared so a later _download_archive() call"
+        " re-fetches the raw evt2 instead of trusting a stale 'done' signal"
+    )

@@ -322,7 +322,12 @@ class Observation:
             filtered copy.  So a cleaned workdir cannot re-image in place.
             ``clear_invalid_make_images.py`` exists because that bit in
             production: ~437 obsids were marked for re-imaging and failed with
-            "Missing input files for task make_images: events".
+            "Missing input files for task make_images: events". The archive
+            download marker (see ``_archive_download_marker``) is cleared for
+            the same reason: leaving it in place made a later retry's
+            ``_download_archive`` skip re-fetching the raw evt2 it just
+            deleted, so every retry landed in the exact same missing-input
+            failure instead of recovering.
 
         Kept
         ----
@@ -350,6 +355,18 @@ class Observation:
         for path in primary.glob("*_evt2.fits*"):
             if "_filtered" not in path.name:
                 _remove(path)
+
+        # The archive-download marker says "the raw evt2 is on disk" -- which
+        # just became false. Leaving it in place made _download_archive()
+        # short-circuit on every later retry, skipping the re-download that
+        # make_images then needed and could never get: this is the exact
+        # "Missing input files for task make_images: events" failure
+        # clear_invalid_make_images.py exists to clean up after the fact.
+        # Clearing it here means a retry re-fetches instead of falling into
+        # that trap to begin with.
+        marker = self._archive_download_marker()
+        if marker.exists():
+            marker.unlink()
 
         # wavdetect cell/image/background auxiliaries — not needed for any re-run;
         # gaussian_detect works from the filtered evt2 + *.src source list directly.
