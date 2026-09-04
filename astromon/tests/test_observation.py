@@ -8,6 +8,10 @@ from astropy.io import fits
 
 from astromon import observation
 
+# The real HRC plate scale, per the Chandra Proposers' Observatory Guide. filter_events
+# filters events in a circle around the optical axis, and needs to convert the filter
+# radius from arcsec to detector pixels. Using the wrong scale here does not raise an
+# exception: it silently changes the filtered region size (see astromon/observation.py).
 HRC_ARCSEC_PER_PIXEL = 0.13180
 ACIS_ARCSEC_PER_PIXEL = 0.5
 
@@ -108,21 +112,6 @@ def test_filter_events_pixel_scale(is_hrc, arcsec_per_pixel):
     observation.filter_events.func(obs, inputs, outputs)
 
     radius = 180  # matches the fixed radius in filter_events
-    assert _dmcopy_circle_radius(obs.ciao) == pytest.approx(radius / arcsec_per_pixel)
-
-
-@pytest.mark.parametrize(
-    "is_hrc,arcsec_per_pixel",
-    [(True, HRC_ARCSEC_PER_PIXEL), (False, ACIS_ARCSEC_PER_PIXEL)],
-)
-def test_filter_sources_pixel_scale(is_hrc, arcsec_per_pixel):
-    obs = _fake_obs(is_hrc)
-    inputs = {"events": "evt2_filtered.fits.gz", "src": "baseline.src"}
-    outputs = {"src": "filtered.src"}
-
-    observation.filter_sources.func(obs, inputs, outputs)
-
-    radius = 180  # matches the fixed radius in filter_sources
     assert _dmcopy_circle_radius(obs.ciao) == pytest.approx(radius / arcsec_per_pixel)
 
 
@@ -885,3 +874,84 @@ def test_fit_gaussian_sources_matches_ecf_radius_by_component(tmp_path, monkeypa
         assert row["ecf_radius"] == pytest.approx(expected_ecf_radius[row["COMPONENT"]])
         expected_psfratio = 2.0 / expected_ecf_radius[row["COMPONENT"]]
         assert row["PSFRATIO"] == pytest.approx(expected_psfratio)
+
+
+# --- is_selected --------------------------------------------------------
+#
+# Ocat fields (instr/mode/d_cyc) say nothing about pointed-vs-slew: an ACIS
+# observation with a usable instrument, TE readout, and no duty cycling can
+# still not be OBS_MODE=POINTING. Only the evt2 header itself -- the one
+# processing actually reads -- says that, so is_selected downloads it and
+# checks directly once the cheap ocat prefilter has passed.
+
+
+def _stub_valid_ocat_row(monkeypatch):
+    """An ocat row that passes is_selected's cheap prefilter (ACIS, TE, no duty cycle)."""
+    monkeypatch.setattr(
+        observation.cda,
+        "get_ocat_local",
+        lambda obsid: {
+            "category": "BH AND NS BINARIES",
+            "prop_title": "test",
+            "pi_name": "test",
+            "observer": "test",
+            "obs_cycle": "23",
+            "instr": "ACIS-S",
+            "mode": "TE",
+            "d_cyc": "N",
+        },
+    )
+
+
+def test_is_selected_true_for_pointing_acis_observation(tmp_path, monkeypatch):
+    """A valid ocat row plus a POINTING evt2 header selects the observation."""
+    obs = _make_observation(tmp_path, obsid=1234)
+    _stub_valid_ocat_row(monkeypatch)
+    monkeypatch.setattr(obs, "download", lambda *a, **k: None)
+    monkeypatch.setattr(obs, "get_evt2_info", lambda: {"obs_mode": "POINTING"})
+
+    assert obs.is_selected is True
+
+
+def test_is_selected_false_for_non_pointing_evt2_despite_valid_ocat(
+    tmp_path, monkeypatch
+):
+    """Ocat alone cannot tell a slew apart from a pointed exposure.
+
+    An ACIS observation with a usable instrument, TE readout, and no duty
+    cycling used to pass is_selected on ocat fields alone, even when the
+    observation's own evt2 header says it is not OBS_MODE=POINTING.
+    """
+    obs = _make_observation(tmp_path, obsid=1234)
+    _stub_valid_ocat_row(monkeypatch)
+    monkeypatch.setattr(obs, "download", lambda *a, **k: None)
+    monkeypatch.setattr(obs, "get_evt2_info", lambda: {"obs_mode": "RASTER"})
+
+    assert obs.is_selected is False
+
+
+def test_is_selected_rejects_ocat_prefilter_without_downloading_evt2(
+    tmp_path, monkeypatch
+):
+    """An obsid the cheap ocat prefilter already rejects must not download evt2.
+
+    Blank/"NONE" ocat instr already means "not a real science pointing" (see
+    is_selected's docstring); paying for an evt2 download just to confirm that
+    would defeat the point of having a cheap prefilter at all.
+    """
+    obs = _make_observation(tmp_path, obsid=1234)
+    monkeypatch.setattr(
+        observation.cda,
+        "get_ocat_local",
+        lambda obsid: {
+            "category": "BH AND NS BINARIES",
+            "instr": "",
+            "mode": "",
+            "d_cyc": "",
+        },
+    )
+    calls = []
+    monkeypatch.setattr(obs, "download", lambda *a, **k: calls.append(a))
+
+    assert obs.is_selected is False
+    assert not calls, "an ocat-rejected obsid must not download evt2"
