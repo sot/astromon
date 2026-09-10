@@ -130,6 +130,12 @@ def _fit(events, source, columns=("y_angle", "z_angle"), box_size=4):
         The source position to fit around.
     columns : tuple of str
         The columns to use for the fit. Both the events and source must have these columns.
+    box_size : float
+        Half-width of the box the caller selected events from, in the same units as
+        `columns`. The centroid bounds below are tied to this so the optimizer can
+        never converge on a position outside the data it was actually given -- see
+        `fit_gaussian_2d`, which also rejects a fit that pins the centroid at this
+        boundary.
     """
     data = np.vstack([events[columns[0]], events[columns[1]]]).T
 
@@ -137,8 +143,8 @@ def _fit(events, source, columns=("y_angle", "z_angle"), box_size=4):
         Likelihood(data, box_size=box_size),
         x0=[source[columns[0]], source[columns[1]], 1, 1, 0, 3],
         bounds=[
-            (source[columns[0]] - 10, source[columns[0]] + 10),
-            (source[columns[1]] - 10, source[columns[1]] + 10),
+            (source[columns[0]] - box_size, source[columns[0]] + box_size),
+            (source[columns[1]] - box_size, source[columns[1]] + box_size),
             (0.1, 20),
             (0.1, 20),
             (-np.pi / 2, np.pi / 2),
@@ -200,6 +206,23 @@ def fit_gaussian_2d(events, source, columns=("y_angle", "z_angle"), box_size=4):
 
     result = _fit(events, source, columns=columns, box_size=box_size)
     if not result.success:
+        return fail_value
+
+    # `_fit`'s centroid bounds are exactly +/- box_size from the seed, matching the
+    # box the caller actually drew events from. A centroid pinned at that boundary
+    # means the optimizer wanted to move further but couldn't -- i.e. it found no
+    # localized signal in the box and is not reporting a meaningful position, even
+    # though scipy still calls it converged (result.success=True). Concretely: at
+    # obsid 15669 COMPONENT 1 (SNR~3.2 celldetect source), the pre-fix +/-10" bounds
+    # let a background-dominated fit (snr=0.09, p_signal=0.09) wander to a centroid
+    # 10.5" from its own seed, inflating the peak_offset diagnostic for a reason that
+    # has nothing to do with real source structure.
+    at_bound = np.isclose(
+        np.abs(result.x[0] - source[columns[0]]), box_size, atol=1e-6, rtol=0
+    ) or np.isclose(
+        np.abs(result.x[1] - source[columns[1]]), box_size, atol=1e-6, rtol=0
+    )
+    if at_bound:
         return fail_value
 
     p_signal = result.x[5] / (1 + result.x[5])
