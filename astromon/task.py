@@ -146,37 +146,63 @@ class Dependent:
                 "Dependent functions should not take positional arguments."
             )
 
-        if self._download:
-            obs.download(self._download)
+        # get_tasks_to_run() unconditionally computes get_parameters() -- which
+        # evaluates every task's "variables" callbacks -- for every registered
+        # task, on every call, regardless of what was actually requested. If
+        # some other task's variable callback calls back into this same
+        # Dependent (e.g. make_images's "band" variable reads obs.is_hrc,
+        # which calls this get_evt2_info), and this call is what triggered
+        # that other task's parameters being computed in the first place (via
+        # run_tasks() below), the result is infinite recursion: this method
+        # never gets to cache a result before it is asked to produce one
+        # again. A re-entrant call only ever happens strictly after the
+        # download step below already ran, so it is safe to skip straight to
+        # running the underlying function rather than resolving dependencies
+        # (and re-triggering the same run_tasks() call) all over again.
+        in_progress = getattr(obs, "_dependents_in_progress", None)
+        if in_progress is None:
+            in_progress = set()
+            obs._dependents_in_progress = in_progress
+        if self.name in in_progress:
+            return self.func(obs, **kwargs)
 
-        params = self.get_parameters(obs, **kwargs)
+        in_progress.add(self.name)
+        try:
+            if self._download:
+                obs.download(self._download)
 
-        requested_files = list(
-            set(params["required_files"].values())
-            | set(params["optional_files"].values())
-        )
+            params = self.get_parameters(obs, **kwargs)
 
-        rv = self._manager.run_tasks(obs=obs, requested_files=requested_files)
+            requested_files = list(
+                set(params["required_files"].values())
+                | set(params["optional_files"].values())
+            )
 
-        errors = {
-            name: value
-            for name, value in rv.items()
-            if value.return_code.value >= ReturnCode.ERROR.value
-        }
-        if errors:
-            msg = ", ".join(f"{name} {value.msg}" for name, value in errors.items())
-            raise RuntimeError(f"{self.name} failed. Dependency tasks failed: {msg}")
+            rv = self._manager.run_tasks(obs=obs, requested_files=requested_files)
 
-        missing = {
-            name: value
-            for name, value in params["required_files"].items()
-            if not obs.file_path(value).exists()
-        }
-        if missing:
-            msg = ", ".join(f"{value}" for value in missing.values())
-            raise FileNotFoundError(f"{self.name} failed. Missing files: {msg}")
+            errors = {
+                name: value
+                for name, value in rv.items()
+                if value.return_code.value >= ReturnCode.ERROR.value
+            }
+            if errors:
+                msg = ", ".join(f"{name} {value.msg}" for name, value in errors.items())
+                raise RuntimeError(
+                    f"{self.name} failed. Dependency tasks failed: {msg}"
+                )
 
-        return self.func(obs, **kwargs)
+            missing = {
+                name: value
+                for name, value in params["required_files"].items()
+                if not obs.file_path(value).exists()
+            }
+            if missing:
+                msg = ", ".join(f"{value}" for value in missing.values())
+                raise FileNotFoundError(f"{self.name} failed. Missing files: {msg}")
+
+            return self.func(obs, **kwargs)
+        finally:
+            in_progress.discard(self.name)
 
     def get_parameters(self, obs, **kwargs):
         """
