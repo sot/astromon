@@ -567,3 +567,64 @@ def test_cleanup_clears_the_download_marker_so_a_retry_redownloads(tmp_path):
         "the marker must be cleared so a later _download_archive() call"
         " re-fetches the raw evt2 instead of trusting a stale 'done' signal"
     )
+
+
+# --- seq_summary cache schema -----------------------------------------------
+
+
+def test_stale_seq_summary_cache_is_refreshed_for_missing_fields(tmp_path, monkeypatch):
+    """A seq_summary cache written before instr/mode/d_cyc existed must not stick.
+
+    @stored_result trusts whatever is on disk with no notion of schema -- so any
+    obsid processed before those fields were added to _get_sequence_summary()'s
+    return value permanently reads back instr="", which is_selected() reads as
+    "non-science" and skips forever, even though the obsid was already fully
+    processed. This is what silently turned a --skip-catalog-match backfill
+    pass into thousands of false "observation does not fulfill requirements"
+    skips: the on-disk cache was old-format, so nothing was ever re-fetched.
+    """
+    from astromon.stored_result import FORMATS, argument_hash
+
+    obs = _obs(tmp_path)
+    stale = {
+        "Title": "old",
+        "PI": "old",
+        "Observer": "old",
+        "Subject Category": "Unknown",
+        "Cycle": "",
+        "category_id": 200,
+    }
+
+    # Simulate a file genuinely left over from before _cache_schema_version
+    # existed: its hash comes from the old (zero-argument) signature, not
+    # from calling today's get_filename(), which would already include the
+    # version bump and so miss the point of this test.
+    def _pre_fix_signature(self):
+        pass
+
+    old_hash = argument_hash(_pre_fix_signature, obs)
+    old_filename = FORMATS["json"].sanitize_filename(f"seq_summary__{old_hash}")
+    cache_path = obs.workdir / "cache" / old_filename
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(__import__("json").dumps(stale))
+
+    monkeypatch.setattr(
+        observation.cda,
+        "get_ocat_local",
+        lambda obsid: {
+            "category": "BH AND NS BINARIES",
+            "prop_title": "new",
+            "pi_name": "new",
+            "observer": "new",
+            "obs_cycle": "23",
+            "instr": "ACIS-S",
+            "mode": "TE",
+            "d_cyc": "N",
+        },
+    )
+
+    seq = obs._get_sequence_summary()
+
+    assert seq["instr"] == "ACIS-S"
+    assert seq["mode"] == "TE"
+    assert seq["d_cyc"] == "N"
