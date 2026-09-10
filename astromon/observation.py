@@ -495,7 +495,7 @@ class Observation:
         return wp
 
     @stored_result("seq_summary", fmt="json", subdir="cache")
-    def _get_sequence_summary(self):
+    def _get_sequence_summary(self, _cache_schema_version=2):
         """Get observation metadata (title, PI, category) from the Chandra ocat.
 
         Tries the local HDF5 ocat first (fast, available at CXC), then falls
@@ -510,6 +510,14 @@ class Observation:
         segments come back from the ocat with a blank or "NONE" instr, and mode/d_cyc
         line up with readmode/dtycycle (TE<->TIMED, CC<->CONTINUOUS) to better than
         99.99% across the archive.
+
+        ``_cache_schema_version`` is never passed by a caller -- it exists only so
+        @stored_result's argument hash (and therefore its cache filename) changes
+        whenever this method's return schema changes. Without it, a cache written
+        before instr/mode/d_cyc existed is trusted forever: is_selected() reads
+        seq.get("instr", "") from the stale dict, always gets "", and silently
+        skips an already-fully-processed obsid as "does not fulfill requirements"
+        on every later run. Bump this whenever the returned dict's keys change.
         """
         obsid_int = int(self.obsid)
         ocat_row = None
