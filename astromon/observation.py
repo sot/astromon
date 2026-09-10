@@ -495,7 +495,7 @@ class Observation:
         return wp
 
     @stored_result("seq_summary", fmt="json", subdir="cache")
-    def _get_sequence_summary(self):
+    def _get_sequence_summary(self, _cache_schema_version=2):
         """Get observation metadata (title, PI, category) from the Chandra ocat.
 
         Tries the local HDF5 ocat first (fast, available at CXC), then falls
@@ -510,6 +510,14 @@ class Observation:
         segments come back from the ocat with a blank or "NONE" instr, and mode/d_cyc
         line up with readmode/dtycycle (TE<->TIMED, CC<->CONTINUOUS) to better than
         99.99% across the archive.
+
+        ``_cache_schema_version`` is never passed by a caller -- it exists only so
+        @stored_result's argument hash (and therefore its cache filename) changes
+        whenever this method's return schema changes. Without it, a cache written
+        before instr/mode/d_cyc existed is trusted forever: is_selected() reads
+        seq.get("instr", "") from the stale dict, always gets "", and silently
+        skips an already-fully-processed obsid as "does not fulfill requirements"
+        on every later run. Bump this whenever the returned dict's keys change.
         """
         obsid_int = int(self.obsid)
         ocat_row = None
@@ -1516,7 +1524,9 @@ class Observation:
         # Needed to decide how to download evt2 itself, so it must come from something
         # cheap and pre-download -- the ocat's instr label (e.g. "ACIS-S"), not
         # get_evt2_info (which requires evt2 to already exist -- that would be circular).
-        instrument = str(self._get_sequence_summary().get("instr", "")).split("-")[0].lower()
+        instrument = (
+            str(self._get_sequence_summary().get("instr", "")).split("-")[0].lower()
+        )
         return {
             "obspar": ("obspar", "."),
             "evt2": (f"{instrument}2{{evt2}}", "primary"),
