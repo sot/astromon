@@ -676,6 +676,71 @@ def test_dependencies():
     assert STACK == [("do", "1")], "Task do should be run exactly once"
 
 
+def test_dependent_call_does_not_recurse_via_an_unrelated_tasks_variable():
+    """An unrelated task's ``variables`` callback must not re-enter a Dependent
+    that is still resolving and recurse forever.
+
+    get_tasks_to_run() unconditionally computes get_parameters() -- which
+    evaluates every "variables" callback -- for *every* registered task, on
+    every call, regardless of what was actually requested. If one task's
+    variable callback calls a @dependencies method (a Dependent), and that
+    Dependent's own dependency resolution is what triggered this
+    get_tasks_to_run() call in the first place, the nested call evaluates the
+    same variable again, which calls the same still-unresolved Dependent
+    again -- forever.
+
+    This reproduces exactly what production hit: make_images's ``band``
+    variable reads ``obs.is_hrc``, which calls ``get_evt2_info()`` -- a
+    ``@dependencies(download=["evt2"])`` method -- whose own dependency
+    resolution triggers this same unconditional-parameter-evaluation pass,
+    landing back on ``band`` before ``get_evt2_info`` ever finishes and
+    caches a result. Every previously-processed obsid whose evt2_info cache
+    was cold hit "maximum recursion depth exceeded" on retry.
+    """
+    TASKS = task.TaskManager()
+    TMPDIR = tempfile.TemporaryDirectory()
+    calls = []
+
+    @TASKS.task(
+        name="unrelated_task",
+        outputs={"out": "unrelated_{flag}.json"},
+        variables={"flag": lambda obs: obs.get_flag()},
+    )
+    def unrelated_task(obs, inputs=None, outputs=None):
+        pass
+
+    class Data:
+        def __init__(self):
+            self.storage = stored_result.Storage(workdir=TMPDIR.name)
+            self.obsid = "1"
+
+        @property
+        def workdir(self):
+            return self.storage.workdir
+
+        def file_path(self, *args, **kwargs):
+            return self.storage.path(*args, **kwargs)
+
+        def file_glob(self, *args, **kwargs):
+            return self.storage.glob(*args, **kwargs)
+
+        def download(self, *args, **kwargs):
+            calls.append("download")
+
+        @TASKS.dependencies(download=["flag_source"])
+        def get_flag(self):
+            calls.append("get_flag")
+            return True
+
+    data = Data()
+
+    assert data.get_flag() is True
+    # The re-entrant call (triggered from inside unrelated_task's "flag"
+    # variable) must short-circuit rather than re-trigger obs.download() --
+    # it runs strictly after the outer call's own download already happened.
+    assert calls.count("download") == 1
+
+
 @NEEDS_HEAD_NETWORK
 def test_grating_arm_obsid13712(tmp_path):
     """Obsid 13712 (GX 3+1, HETG/HRC-I): verify grating arm masking end-to-end.
