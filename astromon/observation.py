@@ -1483,7 +1483,9 @@ class Observation:
         # Needed to decide how to download evt2 itself, so it must come from something
         # cheap and pre-download -- the ocat's instr label (e.g. "ACIS-S"), not
         # get_evt2_info (which requires evt2 to already exist -- that would be circular).
-        instrument = str(self._get_sequence_summary().get("instr", "")).split("-")[0].lower()
+        instrument = (
+            str(self._get_sequence_summary().get("instr", "")).split("-")[0].lower()
+        )
         return {
             "obspar": ("obspar", "."),
             "evt2": (f"{instrument}2{{evt2}}", "primary"),
@@ -2168,7 +2170,7 @@ def _fit_gaussian_sources(  # noqa: PLR0915
     events["RA"], events["DEC"] = wcs.pixel_to_world_values(events["x"], events["y"])
 
     obs_info = obs.get_info()
-    att = Quat([obs_info["ra_nom"], obs_info["dec_nom"], obs_info["roll_nom"]])
+    att = Quat([obs_info["ra_pnt"], obs_info["dec_pnt"], obs_info["roll_pnt"]])
     events["y_angle"], events["z_angle"] = radec_to_yagzag(
         events["RA"], events["DEC"], att
     )
