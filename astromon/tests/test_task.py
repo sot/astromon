@@ -303,8 +303,12 @@ def test_sequence_two(test_pipeline, test_obs):
     ], "Task one and two should be run"
 
 
+@NEEDS_HEAD_NETWORK
 def test_sequence_five(test_pipeline, test_obs):
-    # task five does not depend on any other task (this test a disconnected dependency graph)
+    # task five does not depend on any other task (this test a disconnected dependency graph).
+    # Its "band" variable reads obs.is_hrc, which calls get_evt2_info() -- a real
+    # download -- so, unlike the rest of this module's task-sequencing tests, this one
+    # genuinely needs arc5gl/network access.
     test_pipeline.run_task(test_obs, "five")
     assert _call_args_list(test_pipeline.inner_function) == [("five", "8007")], (
         "Task five should run"
@@ -606,6 +610,71 @@ def test_repeated_task_name(test_pipeline):
         )
         def five(obs, inputs, outputs):
             pass
+
+
+def test_get_tasks_to_run_does_not_evaluate_an_unrelated_tasks_variables():
+    """Requesting one task must not resolve the parameters of an unrelated one.
+
+    get_tasks_to_run() used to build ``{name: task.get_parameters(obs) for name,
+    task in self.tasks.items()}`` unconditionally, for every registered task, before
+    narrowing down to the tasks actually reachable from what was requested. A task's
+    "variables" callback can have side effects (astromon's real is_hrc variable
+    triggers a download), so calling run_task/run_tasks for one task used to also
+    resolve every *other* task's variables, whether or not that other task was ever
+    going to run. This reproduces the shape of the bug without touching Observation
+    or requiring a download: requesting "one" must not call "five"'s variable.
+    """
+    TASKS = task.TaskManager()
+    calls = []
+
+    @TASKS.task(
+        name="one",
+        outputs={"one": "one.txt"},
+    )
+    def one(obs, inputs=None, outputs=None):
+        with open(outputs["one"], "w"):
+            pass
+
+    @TASKS.task(
+        name="five",
+        outputs={"five": "five_{flag}.txt"},
+        variables={"flag": lambda obs: calls.append("five") or "x"},
+    )
+    def five(obs, inputs=None, outputs=None):
+        with open(outputs["five"], "w"):
+            pass
+
+    obs = get_obs("8007")
+
+    TASKS.get_tasks_to_run(obs, requested_tasks=["one"])
+
+    assert calls == [], (
+        "requesting 'one' must not evaluate the unrelated task 'five's variables"
+    )
+
+
+def test_get_tasks_to_run_still_resolves_by_requested_filename():
+    """The filename -> task lookup this optimization must not break.
+
+    When the caller asks for a file by name (not by task name), get_tasks_to_run
+    still has to scan every task's (interpolated) outputs to find who produces it --
+    that full scan is the case being preserved, not the one being skipped.
+    """
+    TASKS = task.TaskManager()
+
+    @TASKS.task(
+        name="one",
+        outputs={"one": "one.txt"},
+    )
+    def one(obs, inputs=None, outputs=None):
+        with open(outputs["one"], "w"):
+            pass
+
+    obs = get_obs("8007")
+
+    tasks = TASKS.get_tasks_to_run(obs, requested_tasks=[], requested_files=["one.txt"])
+
+    assert "one" in tasks
 
 
 def test_dependencies():
