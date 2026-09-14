@@ -2210,7 +2210,7 @@ def _fit_gaussian_sources(  # noqa: PLR0915
     events["RA"], events["DEC"] = wcs.pixel_to_world_values(events["x"], events["y"])
 
     obs_info = obs.get_info()
-    att = Quat([obs_info["ra_nom"], obs_info["dec_nom"], obs_info["roll_nom"]])
+    att = Quat([obs_info["ra_pnt"], obs_info["dec_pnt"], obs_info["roll_pnt"]])
     events["y_angle"], events["z_angle"] = radec_to_yagzag(
         events["RA"], events["DEC"], att
     )
