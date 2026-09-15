@@ -383,21 +383,31 @@ def save(  # noqa: PLR0912
     expect_existing=False,
 ):
     """
-    Insert data into a table, deleting previous entries for the same OBSID.
+    Insert data into a table, deleting previous entries with a matching key.
 
     If the table does not exist, it is created using pre-existing table definitions.
 
-    If `ignore_obsid` is `False`, and `data` has an "obsid" column, this function replaces all rows
-    in the table whose OBSID is in `data["obsid"]`. It does not replace the whole table. If `data`
-    has all rows of a given obsid removed, those entries are NOT removed from the table. For
-    example, the following code has no effect:
+    If `ignore_obsid` is `False`, and `data` has an "obsid" column, this function replaces
+    rows in the table whose key matches a row of `data`. It does not replace the whole
+    table, and rows outside `data`'s key values are left untouched. By default the key is
+    `obsid` alone. If the table also has a `detect_method` column, the key automatically
+    becomes `(obsid, detect_method)`, so rows for different detect methods on the same
+    obsid coexist instead of clobbering each other -- no flag is needed for this. On top of
+    that, `select_name_key=True` extends the key to `(obsid, detect_method, select_name)`
+    when the table also has a `select_name` column, so independent catalog backfills can
+    update one select_name without touching other select_names for the same obsid.
+
+    Because replacement is keyed rather than whole-table, if `data` has all rows of a given
+    key removed, those entries are NOT removed from the table. For example, the following
+    code has no effect:
 
         data = db.get_table("astromon_xray_src", dbfile)
         data = data[data['obsid'] != 12345]
         db.save("astromon_xray_src", data, dbfile)
 
-    To remove all entries for a given obsid, set `ignore_obsid=True`. If you do that,
-    the entire table is replaced by `data`. The following removes all entries for obsid 12345:
+    To remove all entries for a given obsid regardless of key, set `ignore_obsid=True`. If
+    you do that, the entire table is replaced by `data`. The following removes all entries
+    for obsid 12345:
 
         data = db.get_table("astromon_xray_src", dbfile)
         data = data[data['obsid'] != 12345]
@@ -412,10 +422,12 @@ def save(  # noqa: PLR0912
         File where tables are stored.
         The default is `$ASTROMON_FILE` or `$SKA/data/astromon/astromon.h5`
     ignore_obsid: bool
-        If True, do not consider obsid to decide which rows to keep in the table.
+        If True, do not consider obsid (or the auto-detected obsid/detect_method/select_name
+        combination) to decide which rows to keep in the table.
     select_name_key: bool
-        When True and the table has both ``detect_method`` and ``select_name`` columns,
-        key on ``(obsid, detect_method, select_name)`` instead of ``(obsid, detect_method)``.
+        When True and the table has a `select_name` column (in addition to `detect_method`),
+        extend the default key with `select_name`, i.e. key on
+        `(obsid, detect_method, select_name)` instead of the default `(obsid, detect_method)`.
         This lets independent catalog backfills update one select_name without clobbering rows
         from other select_names for the same obsid. Equivalent to
         ``replace_keys=("obsid", "detect_method", "select_name")``.
