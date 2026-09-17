@@ -642,6 +642,26 @@ class Observation:
 
         header = fits.getheader(str(event_files[0]), 1)
 
+        # NaN, not None: get_cat_obs_data.py wraps this dict's values in
+        # `Table([observation.get_info()])`, which infers a column's dtype from
+        # this single value. A bare `None` produces an object-dtype column that
+        # later fails when that table is written to FITS ("unsupported object
+        # types or mixed types"). dtycycle isn't part of any DTYPES schema (it
+        # never reaches db.save), so this is the only place its dtype is fixed.
+        # NaN also can't collide with a real reading the way 0 would -- 0 is
+        # itself a legitimate DTYCYCLE value (see
+        # test_get_evt2_info_parses_a_normal_dtycycle) -- matching
+        # missing_column_fill's own float-column convention in db.py.
+        dtycycle = float("nan")
+        if "DTYCYCLE" in header:
+            try:
+                dtycycle = float(int(header["DTYCYCLE"]))
+            except (TypeError, ValueError):
+                logger.warning(
+                    f"{self} DTYCYCLE header value {header['DTYCYCLE']!r} is not an"
+                    " integer; treating dtycycle as unknown (NaN)"
+                )
+
         info = {
             "ra_pnt": float(header["RA_PNT"]),
             "dec_pnt": float(header["DEC_PNT"]),
@@ -653,7 +673,7 @@ class Observation:
             "dec_targ": float(header["DEC_TARG"]),
             "obs_mode": str(header.get("OBS_MODE", "")),
             "readmode": str(header.get("READMODE", "")),
-            "dtycycle": int(header["DTYCYCLE"]) if "DTYCYCLE" in header else None,
+            "dtycycle": dtycycle,
             "grating": str(header.get("GRATING", "")),
             "instrume": str(header.get("INSTRUME", "")),
             "instrument": str(header.get("INSTRUME", "")).lower(),

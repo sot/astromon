@@ -834,3 +834,106 @@ def test_fit_gaussian_sources_matches_ecf_radius_by_component(tmp_path, monkeypa
         assert row["ecf_radius"] == pytest.approx(expected_ecf_radius[row["COMPONENT"]])
         expected_psfratio = 2.0 / expected_ecf_radius[row["COMPONENT"]]
         assert row["PSFRATIO"] == pytest.approx(expected_psfratio)
+
+
+def _write_evt2(obs, *, dtycycle):
+    """A minimal real evt2 FITS file with a header at HDU 1, as get_evt2_info reads.
+
+    dtycycle is written as-is into the DTYCYCLE header card, so passing a string
+    like "" reproduces a header value fits.getheader hands back unparseable by
+    int() -- the case get_evt2_info must not raise on.
+    """
+    from astropy.io import fits
+
+    primary_dir = obs.workdir / "primary"
+    primary_dir.mkdir(parents=True, exist_ok=True)
+
+    header = fits.Header(
+        {
+            "RA_PNT": 83.8,
+            "DEC_PNT": -5.4,
+            "ROLL_PNT": 0.0,
+            "RA_TARG": 83.8,
+            "DEC_TARG": -5.4,
+            "INSTRUME": "ACIS",
+            "READMODE": "TIMED",
+            "DTYCYCLE": dtycycle,
+            # sim_x/y/z have the same None-when-missing pattern DTYCYCLE used to,
+            # and aren't the column under test here -- set them so this fixture
+            # doesn't also trip that (separate, still-open) bug.
+            "SIM_X": 0.0,
+            "SIM_Y": 0.0,
+            "SIM_Z": -190.0,
+        }
+    )
+    hdul = fits.HDUList([fits.PrimaryHDU(), fits.BinTableHDU(header=header)])
+    hdul.writeto(primary_dir / f"acisf{obs.obsid}N001_evt2.fits", overwrite=True)
+
+
+def test_get_evt2_info_falls_back_to_nan_for_an_unparseable_dtycycle(
+    tmp_path, monkeypatch
+):
+    """A DTYCYCLE header value that int() rejects must not crash get_evt2_info.
+
+    Confirmed empirically that HRC evt2 files never carry DTYCYCLE at all (it is
+    ACIS-only), which the existing "DTYCYCLE" in header guard already handles. A
+    present-but-blank value is the case that guard misses: int("") raises
+    ValueError, which previously propagated out of get_evt2_info and failed the
+    whole obsid. It must instead be treated the same as a missing key.
+
+    NaN, not None: a bare None makes Table([observation.get_info()]) infer an
+    object-dtype dtycycle column, which then fails to write to FITS (see
+    test_obspar_table_with_unknown_dtycycle_is_fits_writable below). NaN keeps
+    the column numeric like every other unknown reading in this codebase (see
+    db.missing_column_fill), while still being distinguishable from a real
+    DTYCYCLE=0 reading.
+
+    Not asserting on the accompanying warning here: observation.logger is
+    ska_helpers.logging.basic_logger, a one-shot, propagate=False logger whose
+    StreamHandler is bound to whatever sys.stderr was at first use in the test
+    session -- neither caplog nor capsys/capfd reliably see it after that. The
+    warning is visible in this test's own captured-stderr output on failure.
+    """
+    obs = _make_observation(tmp_path, obsid=1234)
+    monkeypatch.setattr(obs, "download", lambda *a, **k: None)
+    _write_evt2(obs, dtycycle="")
+
+    info = obs.get_evt2_info()
+
+    assert np.isnan(info["dtycycle"])
+
+
+def test_get_evt2_info_parses_a_normal_dtycycle(tmp_path, monkeypatch):
+    """The common case -- a clean integer DTYCYCLE -- still comes through as a float.
+
+    0 is itself a legitimate DTYCYCLE reading (not "unknown"), so this doubles as
+    the case that rules out reusing 0 as the missing-value sentinel.
+    """
+    obs = _make_observation(tmp_path, obsid=1234)
+    monkeypatch.setattr(obs, "download", lambda *a, **k: None)
+    _write_evt2(obs, dtycycle=0)
+
+    info = obs.get_evt2_info()
+
+    assert info["dtycycle"] == 0
+
+
+def test_obspar_table_with_unknown_dtycycle_is_fits_writable(tmp_path, monkeypatch):
+    """get_cat_obs_data.py wraps get_info() as Table([observation.get_info()]) and
+    writes it to FITS (astromon/scripts/get_cat_obs_data.py). A bare None for an
+    unknown dtycycle survives get_evt2_info() and the Table() call just fine, but
+    makes that column object-dtype, which blows up at write() time with
+    "unsupported object types or mixed types" -- crashing the whole obsid well
+    after the original DTYCYCLE cast, in code that itself has nothing to do with
+    dtycycle. Reproduce that exact path here instead of only unit-testing
+    get_evt2_info() in isolation.
+    """
+    obs = _make_observation(tmp_path, obsid=1234)
+    monkeypatch.setattr(obs, "download", lambda *a, **k: None)
+    _write_evt2(obs, dtycycle="")
+
+    info = obs.get_evt2_info()
+    obspar = table.Table([info])
+
+    assert obspar["dtycycle"].dtype.kind == "f"
+    obspar.write(tmp_path / "astromon_obs.fits")
