@@ -34,6 +34,13 @@ Usage::
 By default it repairs exactly the obsids that fail the consistency check; pass
 ``--obsids`` to target a specific list instead (for example after re-querying
 catalogs for fields near RA=0).
+
+If an obsid's astromon_cat_src is itself missing candidates a stored match used,
+recomputing from it would silently drop that match rather than repair it -- this
+refuses that obsid (see ``_check_rebuild_does_not_lose_matches``) instead of
+writing a smaller result. The fix is to re-query that obsid's catalogs with
+``requery_cat_src.py`` first, then rerun this script; ``--force`` overrides the
+refusal but does not fix the missing candidates, it just accepts losing them.
 """
 
 import argparse
@@ -80,8 +87,8 @@ def find_obsids_with_dangling_c_id(xcorr: Table, cat: Table) -> dict:
     return per_obsid
 
 
-def find_orphaned_selections(xcorr: Table, cat: Table) -> dict:
-    """xcorr rows whose select_name needs a catalog the obsid no longer has.
+def find_selections_with_fewer_matches(before: Table, after: Table | None) -> dict:
+    """(obsid, select_name) pairs where a rebuild would store fewer xcorr rows.
 
     A rebuild recomputes from the stored cat_src, so if an obsid's candidates for
     some catalog have gone missing the recomputed result silently drops those
@@ -89,27 +96,55 @@ def find_orphaned_selections(xcorr: Table, cat: Table) -> dict:
     script is for: it means cat_src itself is incomplete and the catalogs have to
     be re-queried first.
 
-    Returns ``{select_name: count}``.
-    """
-    catalogs_by_obsid: dict[int, set[str]] = {}
-    obsid_col = np.asarray(cat["obsid"])
-    catalog_col = np.asarray(cat["catalog"]).astype(str)
-    for obsid in set(obsid_col.tolist()):
-        catalogs_by_obsid[int(obsid)] = set(catalog_col[obsid_col == obsid].tolist())
+    This used to be judged by checking which catalogs a select_name's hierarchy
+    still had candidates for in cat_src, but that reasoning cannot actually tell
+    "this catalog was queried and genuinely found nothing" apart from "this
+    catalog's candidates existed and were later dropped" -- both look identical
+    as catalog-absent-for-this-obsid, and the former is the common case (most
+    obsids will not have a GaiaVarStar or DESIV161 candidate, and that is normal,
+    not loss). Any input-side heuristic runs into the same wall, because the
+    completeness information it would need does not exist in the stored tables.
 
-    orphaned: Counter = Counter()
-    for obsid, select_name in zip(
-        np.asarray(xcorr["obsid"]),
-        np.asarray(xcorr["select_name"]).astype(str),
-        strict=True,
-    ):
-        args = CROSS_MATCHES_ARGS.get(select_name)
-        if args is None:
-            continue
-        present = catalogs_by_obsid.get(int(obsid), set())
-        if not (set(args["catalogs"]) & present):
-            orphaned[select_name] += 1
-    return dict(orphaned)
+    Comparing outcomes sidesteps the question entirely: `before` and `after` are
+    the existing and recomputed xcorr rows for the obsids being rebuilt, and this
+    just counts rows per (obsid, select_name) in each. A catalog that was queried
+    and found nothing never contributed a row either way, so it cannot produce a
+    deficit here. A catalog whose candidates existed and vanished can only show up
+    as fewer recomputed rows than before -- which is exactly, and only, the harm
+    this check exists to catch, regardless of which catalog or how many were
+    involved.
+
+    What this does not catch: a source whose match silently changes to a worse
+    (but still valid) catalog keeps the same row count, so a quality regression
+    like that passes clean. That is a separate, already-documented limitation --
+    see the module docstring's note on `save_with_lock`'s xcorr drop -- not
+    something this check was ever able to detect.
+
+    Returns ``{(obsid, select_name): deficit}`` for pairs where `after` has fewer
+    rows than `before` (a `select_name`/`obsid` present in `after` but not
+    `before` scores 0, since that is a new selection, not a loss).
+    """
+    before_counts = Counter(
+        zip(
+            np.asarray(before["obsid"]).tolist(),
+            np.asarray(before["select_name"]).astype(str).tolist(),
+            strict=True,
+        )
+    )
+    after_counts: Counter = Counter()
+    if after is not None and len(after):
+        after_counts = Counter(
+            zip(
+                np.asarray(after["obsid"]).tolist(),
+                np.asarray(after["select_name"]).astype(str).tolist(),
+                strict=True,
+            )
+        )
+    return {
+        key: n_before - after_counts.get(key, 0)
+        for key, n_before in before_counts.items()
+        if after_counts.get(key, 0) < n_before
+    }
 
 
 def select_names_in(xcorr: Table) -> list[str]:
@@ -117,18 +152,25 @@ def select_names_in(xcorr: Table) -> list[str]:
     return sorted(set(np.asarray(xcorr["select_name"]).astype(str).tolist()))
 
 
-def _check_cat_src_is_complete(xcorr: Table, cat: Table, force: bool = False) -> None:
-    """Refuse to rebuild from a cat_src that is missing catalogs the matches used."""
-    orphaned = find_orphaned_selections(xcorr, cat)
-    if not orphaned:
+def _check_rebuild_does_not_lose_matches(
+    before: Table, after: Table | None, force: bool = False
+) -> None:
+    """Refuse a rebuild that would store fewer xcorr rows than exist today."""
+    fewer = find_selections_with_fewer_matches(before, after)
+    if not fewer:
         return
-    detail = ", ".join(f"{k}={v}" for k, v in sorted(orphaned.items()))
+    detail = ", ".join(
+        f"obsid {obsid} {select_name}: -{deficit}"
+        for (obsid, select_name), deficit in sorted(fewer.items())
+    )
     message = (
-        f"{sum(orphaned.values())} existing xcorr row(s) reference a select_name"
-        f" whose catalogs are absent from the stored cat_src ({detail})."
-        " Recomputing would drop those matches rather than repair them:"
-        " astromon_cat_src is itself incomplete for these obsids, so the catalogs"
-        " need re-querying before a rebuild means anything."
+        f"{sum(fewer.values())} existing xcorr row(s) would be lost, not repaired,"
+        f" by this rebuild ({detail})."
+        " Something removed candidates from the stored astromon_cat_src that these"
+        " matches used, so recomputing would silently drop them. Re-query the"
+        " affected obsids with requery_cat_src.py first, then retry this rebuild --"
+        " that is the actual fix. force=True is not a substitute for that: it just"
+        " accepts the loss and writes the smaller result anyway."
     )
     if not force:
         raise RuntimeError(message + " Pass force=True to rebuild anyway.")
@@ -202,10 +244,6 @@ def rebuild(
     target = np.isin(np.asarray(xcorr["obsid"]), obsids)
     logger.info(f"existing xcorr rows for these obsids: {int(target.sum()):,}")
 
-    _check_cat_src_is_complete(
-        xcorr[target], cat[np.isin(np.asarray(cat["obsid"]), obsids)], force=force
-    )
-
     # Restrict the inputs once, then run each selection over the subset.
     obs_sub = obs[np.isin(np.asarray(obs["obsid"]), obsids)]
     xray_sub = xray[np.isin(np.asarray(xray["obsid"]), obsids)]
@@ -218,6 +256,8 @@ def rebuild(
     new = recompute(select_names, obs_sub, xray_sub, cat_sub)
     n_new = len(new) if new is not None else 0
     logger.info(f"rebuilt {n_new:,} rows, replacing {int(target.sum()):,}")
+
+    _check_rebuild_does_not_lose_matches(xcorr[target], new, force=force)
 
     kept = xcorr[~target]
     combined = vstack([kept, new], metadata_conflicts="silent") if n_new else kept
@@ -264,8 +304,10 @@ def main() -> None:
     parser.add_argument(
         "--force",
         action="store_true",
-        help="rebuild even where the stored cat_src is missing catalogs the"
-        " existing matches used -- this DROPS those matches",
+        help="rebuild even where recomputing would store fewer xcorr rows than"
+        " exist today -- this DROPS the matches that would otherwise be lost."
+        " Usually the actual fix is to re-query the affected obsids with"
+        " requery_cat_src.py first and retry without --force",
     )
     args = parser.parse_args()
     if not args.db.exists():
