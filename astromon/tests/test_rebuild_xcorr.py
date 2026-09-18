@@ -121,40 +121,154 @@ def test_rebuild_is_a_noop_when_everything_is_consistent(tmp_path):
     assert len(db.get_table("astromon_xcorr", dbfile)) == 1, "nothing touched"
 
 
-def test_rebuild_refuses_when_cat_src_is_missing_catalogs(tmp_path):
-    """A rebuild reads the stored cat_src, so an incomplete one turns the repair
-    into data loss: matches whose catalog is no longer stored just vanish."""
-    from astromon.scripts.maintenance.rebuild_xcorr import rebuild
+def test_find_selections_with_fewer_matches_ignores_equal_or_more_rows():
+    """No deficit -- same or more rows after -- is not a loss."""
+    from astromon.scripts.maintenance.rebuild_xcorr import (
+        find_selections_with_fewer_matches,
+    )
 
-    dbfile = tmp_path / "incomplete.h5"
-    # cat_src holds only RFC, but an existing match came from tycho2
-    cat = _cat_src_row(catalog="RFC", obsid=7001, celldetect_x_id=5)
+    before = vstack(
+        [
+            _xcorr_row(select_name="astromon_25", obsid=7001, x_id=1),
+            _xcorr_row(select_name="astromon_25", obsid=7001, x_id=2),
+        ],
+        metadata_conflicts="silent",
+    )
+    same = vstack(
+        [
+            _xcorr_row(select_name="astromon_25", obsid=7001, x_id=1),
+            _xcorr_row(select_name="astromon_25", obsid=7001, x_id=2),
+        ],
+        metadata_conflicts="silent",
+    )
+    more = vstack([same, _xcorr_row(select_name="astromon_25", obsid=7001, x_id=3)])
+
+    assert find_selections_with_fewer_matches(before, same) == {}
+    assert find_selections_with_fewer_matches(before, more) == {}
+    assert find_selections_with_fewer_matches(before, None) == {
+        (7001, "astromon_25"): 2
+    }
+
+
+def test_find_selections_with_fewer_matches_flags_a_deficit():
+    """The actual harm: a rebuild that would leave fewer rows than exist today.
+
+    This is what a partial cat_src loss looks like in practice -- losing eight of
+    astromon_25's nine hierarchy catalogs, say, and keeping only RFC. A
+    catalog-presence check can't reliably tell that apart from every catalog but
+    RFC simply never having had a candidate here, which is the common case, not
+    loss. Comparing row counts sidesteps the question: whatever the cause, two
+    matches recomputing down to one is a real deficit.
+    """
+    from astromon.scripts.maintenance.rebuild_xcorr import (
+        find_selections_with_fewer_matches,
+    )
+
+    before = vstack(
+        [
+            _xcorr_row(select_name="astromon_25", obsid=7001, x_id=1),
+            _xcorr_row(select_name="astromon_25", obsid=7001, x_id=2),
+        ],
+        metadata_conflicts="silent",
+    )
+    after = _xcorr_row(select_name="astromon_25", obsid=7001, x_id=1)
+
+    assert find_selections_with_fewer_matches(before, after) == {
+        (7001, "astromon_25"): 1
+    }
+
+
+def test_find_selections_with_fewer_matches_ignores_a_brand_new_selection():
+    """A select_name recomputed for the first time is a backfill, not a loss."""
+    from astromon.scripts.maintenance.rebuild_xcorr import (
+        find_selections_with_fewer_matches,
+    )
+
+    before = _xcorr_row(select_name="astromon_21", obsid=7001)
+    after = vstack(
+        [
+            _xcorr_row(select_name="astromon_21", obsid=7001),
+            _xcorr_row(select_name="gaia_agn", obsid=7001),
+        ],
+        metadata_conflicts="silent",
+    )
+    assert find_selections_with_fewer_matches(before, after) == {}
+
+
+def test_rebuild_refuses_when_recompute_finds_fewer_matches(tmp_path):
+    """rebuild() itself refuses, not just the helper function in isolation.
+
+    Recompute is mocked here to stand in for whatever caused a real deficit (a
+    dropped catalog, a stricter cut, anything) -- the check does not need to know
+    the cause, only that rows are about to disappear.
+    """
+    from astromon.scripts.maintenance import rebuild_xcorr
+
+    dbfile = tmp_path / "fewer_matches.h5"
+    cat = _cat_src_row(catalog="RFC", obsid=7001, celldetect_x_id=1)
     cat["id"] = 1
     db.save("astromon_cat_src", cat, dbfile, ignore_obsid=True)
-    db.save(
-        "astromon_xcorr",
-        _xcorr_row(select_name="tycho2", obsid=7001, c_id=99, x_id=5),
-        dbfile,
-        ignore_obsid=True,
+    original = vstack(
+        [
+            _xcorr_row(select_name="astromon_25", obsid=7001, c_id=1, x_id=1),
+            _xcorr_row(select_name="astromon_25", obsid=7001, c_id=1, x_id=2),
+        ],
+        metadata_conflicts="silent",
     )
-    db.save(
-        "astromon_xray_src",
-        db.create_table("astromon_xray_src"),
-        dbfile,
-        ignore_obsid=True,
+    db.save("astromon_xcorr", original, dbfile, ignore_obsid=True)
+    xray = Table(np.zeros(2, dtype=db.ASTROMON_XRAY_SRC_DTYPE))
+    xray["obsid"] = 7001
+    xray["id"] = [1, 2]
+    xray["detect_method"] = "gaussian_detect"
+    db.save("astromon_xray_src", xray, dbfile, ignore_obsid=True)
+    db.save("astromon_obs", _obs_table(7001), dbfile, ignore_obsid=True)
+
+    def one_row_only(select_names, obs, xray, cat):
+        return _xcorr_row(select_name="astromon_25", obsid=7001, c_id=1, x_id=1)[
+            list(db.ASTROMON_XCORR_DTYPE.names)
+        ]
+
+    with patch.object(rebuild_xcorr, "recompute", one_row_only):
+        with pytest.raises(RuntimeError, match="would be lost, not repaired"):
+            rebuild_xcorr.rebuild(dbfile, obsids=[7001])
+
+    stored = db.get_table("astromon_xcorr", dbfile)
+    assert len(stored) == 2, "the database must be untouched"
+
+
+def test_rebuild_with_force_accepts_fewer_matches(tmp_path):
+    """force=True is the documented escape hatch -- it must still write."""
+    from astromon.scripts.maintenance import rebuild_xcorr
+
+    dbfile = tmp_path / "fewer_matches_forced.h5"
+    cat = _cat_src_row(catalog="RFC", obsid=7001, celldetect_x_id=1)
+    cat["id"] = 1
+    db.save("astromon_cat_src", cat, dbfile, ignore_obsid=True)
+    original = vstack(
+        [
+            _xcorr_row(select_name="astromon_25", obsid=7001, c_id=1, x_id=1),
+            _xcorr_row(select_name="astromon_25", obsid=7001, c_id=1, x_id=2),
+        ],
+        metadata_conflicts="silent",
     )
-    db.save("astromon_obs", db.create_table("astromon_obs"), dbfile, ignore_obsid=True)
+    db.save("astromon_xcorr", original, dbfile, ignore_obsid=True)
+    xray = Table(np.zeros(2, dtype=db.ASTROMON_XRAY_SRC_DTYPE))
+    xray["obsid"] = 7001
+    xray["id"] = [1, 2]
+    xray["detect_method"] = "gaussian_detect"
+    db.save("astromon_xray_src", xray, dbfile, ignore_obsid=True)
+    db.save("astromon_obs", _obs_table(7001), dbfile, ignore_obsid=True)
 
-    with pytest.raises(RuntimeError, match="absent from the stored cat_src"):
-        rebuild(dbfile, obsids=[7001])
+    def one_row_only(select_names, obs, xray, cat):
+        return _xcorr_row(select_name="astromon_25", obsid=7001, c_id=1, x_id=1)[
+            list(db.ASTROMON_XCORR_DTYPE.names)
+        ]
 
+    with patch.object(rebuild_xcorr, "recompute", one_row_only):
+        rebuild_xcorr.rebuild(dbfile, obsids=[7001], force=True)
 
-def test_find_orphaned_selections_ignores_selections_it_can_satisfy():
-    from astromon.scripts.maintenance.rebuild_xcorr import find_orphaned_selections
-
-    cat = _cat_src_row(catalog="Tycho2", obsid=7001, celldetect_x_id=5)
-    xcorr = _xcorr_row(select_name="tycho2", obsid=7001, c_id=1, x_id=5)
-    assert find_orphaned_selections(xcorr, cat) == {}
+    stored = db.get_table("astromon_xcorr", dbfile)
+    assert len(stored) == 1
 
 
 # ─── rebuild_xcorr and the per-method x_id remap ─────────────────────────────
