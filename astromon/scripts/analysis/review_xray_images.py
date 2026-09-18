@@ -78,7 +78,7 @@ def load_cat_src_rfc(obsid: int, db_path: Path) -> set[int]:
             if isinstance(cat, bytes):
                 cat = cat.decode()
             if cat.strip() in ("RFC", "ICRS"):
-                rfc_ids.add(int(row["x_id"]))
+                rfc_ids.add(int(row["celldetect_x_id"]))
     return rfc_ids
 
 
