@@ -123,7 +123,7 @@ def build_rfc_cat_src(
                 {
                     "obsid": np.full(len(nearby), obsid_i, dtype=np.int32),
                     "id": np.arange(len(nearby), dtype=np.int32) + id_offset,
-                    "x_id": cd_sources["id"][xray_idx].astype(np.int32),
+                    "celldetect_x_id": cd_sources["id"][xray_idx].astype(np.int32),
                     "catalog": np.full(len(nearby), "RFC"),
                     "name": list(nearby["name"]),
                     "ra": np.asarray(nearby["ra"], dtype=np.float64),
@@ -148,7 +148,11 @@ def run_xcorr_for_obsids(
     new_xray: Table,
     new_obs: Table,
 ) -> Table:
-    """Re-run cross-matches for *select_name* for the given obsids using the full cat_src.
+    """Re-run cross-matches for *select_name* once per obsid, across all detect_methods.
+
+    simple_cross_match matches candidates to x-ray sources by position for every
+    detect_method present in `astromon_xray_src`, so it only needs to be called
+    once per obsid with the full (all-methods) xray slice.
 
     Parameters
     ----------
@@ -183,40 +187,22 @@ def run_xcorr_for_obsids(
             continue
 
         obsid_xray = new_xray[new_xray["obsid"] == obsid_i]
-        for detect_method in np.unique(obsid_xray["detect_method"]):
-            sources = obsid_xray[obsid_xray["detect_method"] == detect_method]
 
-            cat_sc = coords.SkyCoord(
-                cat_for_obsid["ra"], cat_for_obsid["dec"], unit="deg"
+        try:
+            matches = cross_match.compute_cross_matches(
+                select_name,
+                astromon_obs=obspar,
+                astromon_xray_src=obsid_xray,
+                astromon_cat_src=cat_for_obsid,
             )
-            xray_sc = coords.SkyCoord(
-                np.asarray(sources["ra"], dtype=float),
-                np.asarray(sources["dec"], dtype=float),
-                unit="deg",
-            )
-            xray_idx, _, _ = cat_sc.match_to_catalog_sky(xray_sc)
+        except (ValueError, KeyError) as exc:
+            logger.warning(f"OBSID={obsid_i} {select_name} xcorr failed: {exc}")
+            continue
 
-            candidates = cat_for_obsid.copy()
-            candidates["x_id"] = sources["id"][xray_idx].astype(np.int32)
+        if len(matches) == 0:
+            continue
 
-            try:
-                matches = cross_match.compute_cross_matches(
-                    select_name,
-                    astromon_obs=obspar,
-                    astromon_xray_src=sources,
-                    astromon_cat_src=candidates,
-                )
-            except Exception as exc:
-                logger.warning(
-                    f"OBSID={obsid_i} {detect_method} {select_name} xcorr failed: {exc}"
-                )
-                continue
-
-            if len(matches) == 0:
-                continue
-
-            matches["detect_method"] = detect_method
-            all_xcorr.append(matches[xcorr_cols])
+        all_xcorr.append(matches[xcorr_cols])
 
     if not all_xcorr:
         return Table(names=xcorr_cols)

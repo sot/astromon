@@ -121,7 +121,7 @@ def get_new_gaia_for_obsid(
         {
             "obsid": np.full(len(new_gaia), obsid, dtype=np.int32),
             "id": new_ids,
-            "x_id": celldetect_src["id"][xray_idx].astype(np.int32),
+            "celldetect_x_id": celldetect_src["id"][xray_idx].astype(np.int32),
             "catalog": new_gaia["catalog"],
             "name": new_gaia["name"],
             "ra": np.array(new_gaia["ra"], dtype=np.float64),
@@ -212,40 +212,19 @@ def main() -> None:  # noqa: PLR0915
         ]
         obsid_xray = xray_by_obsid[obsid_i]
 
-        agn_sc = coords.SkyCoord(
-            np.array(gaia_for_obsid["ra"], dtype=float),
-            np.array(gaia_for_obsid["dec"], dtype=float),
-            unit="deg",
-        )
-
-        for detect_method in np.unique(obsid_xray["detect_method"].astype(str)):
-            sources = obsid_xray[
-                obsid_xray["detect_method"].astype(str) == detect_method
-            ]
-            xray_sc = coords.SkyCoord(
-                np.array(sources["ra"], dtype=float),
-                np.array(sources["dec"], dtype=float),
-                unit="deg",
+        try:
+            matches = cross_match.compute_cross_matches(
+                "gaia_agn",
+                astromon_obs=obspar,
+                astromon_xray_src=obsid_xray,
+                astromon_cat_src=gaia_for_obsid,
             )
-            xray_idx, _, _ = agn_sc.match_to_catalog_sky(xray_sc)
+        except (ValueError, KeyError) as exc:
+            logger.warning(f"OBSID={obsid_i} gaia_agn xcorr failed: {exc}")
+            continue
 
-            candidates = gaia_for_obsid.copy()
-            candidates["x_id"] = sources["id"][xray_idx].astype(np.int32)
-
-            try:
-                matches = cross_match.compute_cross_matches(
-                    "gaia_agn",
-                    astromon_obs=obspar,
-                    astromon_xray_src=sources,
-                    astromon_cat_src=candidates,
-                )
-            except Exception as exc:
-                logger.warning(f"OBSID={obsid_i} {detect_method} xcorr failed: {exc}")
-                continue
-
-            if len(matches):
-                matches["detect_method"] = detect_method
-                all_xcorr.append(matches[xcorr_cols])
+        if len(matches):
+            all_xcorr.append(matches[xcorr_cols])
 
     if all_xcorr:
         xcorr_result = vstack(all_xcorr)
