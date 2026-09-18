@@ -108,7 +108,8 @@ def build_varstar_cat_src(
     -------
     Table compatible with ASTROMON_CAT_SRC_DTYPE.
     """
-    # Use celldetect sources for x_id assignment; xcorr step re-matches per method.
+    # Use celldetect sources for the celldetect_x_id anchor. This is provenance
+    # only -- the xcorr step matches candidates to every detect_method by position.
     celldetect_xray = new_xray[new_xray["detect_method"] == "celldetect"]
 
     obs_by_id = {int(row["obsid"]): row for row in new_obs}
@@ -182,7 +183,7 @@ def build_varstar_cat_src(
             {
                 "obsid": np.full(len(nearby), obsid_i, dtype=np.int32),
                 "id": np.arange(len(nearby), dtype=np.int32) + id_offset,
-                "x_id": cd_sources["id"][xray_idx].astype(np.int32),
+                "celldetect_x_id": cd_sources["id"][xray_idx].astype(np.int32),
                 "catalog": np.full(len(nearby), "GaiaVarStar"),
                 "name": [f"GaiaVarStar-{sid}" for sid in nearby["source_id"]],
                 "ra": ra_corr,
@@ -206,9 +207,11 @@ def run_xcorr_for_obsids(
     new_xray: Table,
     new_obs: Table,
 ) -> Table:
-    """Run compute_cross_matches('gaia_var_star') for every (obsid, detect_method) pair.
+    """Run compute_cross_matches('gaia_var_star') once per obsid, all detect_methods.
 
-    For each detect_method, re-matches x_id so the join in simple_cross_match is correct.
+    simple_cross_match matches candidates to x-ray sources by position for every
+    detect_method present in `astromon_xray_src`, so it only needs to be called
+    once per obsid with the full (all-methods) xray slice.
 
     Returns
     -------
@@ -229,40 +232,23 @@ def run_xcorr_for_obsids(
             continue
 
         obsid_xray = new_xray[new_xray["obsid"] == obsid_i]
-        detect_methods = np.unique(obsid_xray["detect_method"])
-        cat_sc = coords.SkyCoord(cat_for_obsid["ra"], cat_for_obsid["dec"], unit="deg")
 
-        for detect_method in detect_methods:
-            sources = obsid_xray[obsid_xray["detect_method"] == detect_method]
-            xray_sc = coords.SkyCoord(
-                np.asarray(sources["ra"], dtype=float),
-                np.asarray(sources["dec"], dtype=float),
-                unit="deg",
+        try:
+            matches = cross_match.compute_cross_matches(
+                "gaia_var_star",
+                astromon_obs=obspar,
+                astromon_xray_src=obsid_xray,
+                astromon_cat_src=cat_for_obsid,
             )
-            xray_idx, _, _ = cat_sc.match_to_catalog_sky(xray_sc)
+        except (ValueError, KeyError) as exc:
+            logger.warning(f"OBSID={obsid_i} gaia_var_star xcorr failed: {exc}")
+            continue
 
-            candidates = cat_for_obsid.copy()
-            candidates["x_id"] = sources["id"][xray_idx].astype(np.int32)
+        if len(matches) == 0:
+            continue
 
-            try:
-                matches = cross_match.compute_cross_matches(
-                    "gaia_var_star",
-                    astromon_obs=obspar,
-                    astromon_xray_src=sources,
-                    astromon_cat_src=candidates,
-                )
-            except Exception as exc:
-                logger.warning(f"OBSID={obsid_i} {detect_method} xcorr failed: {exc}")
-                continue
-
-            if len(matches) == 0:
-                continue
-
-            matches["detect_method"] = detect_method
-            all_xcorr.append(matches[xcorr_cols])
-            logger.debug(
-                f"OBSID={obsid_i} {detect_method}: {len(matches)} gaia_var_star match(es)"
-            )
+        all_xcorr.append(matches[xcorr_cols])
+        logger.debug(f"OBSID={obsid_i}: {len(matches)} gaia_var_star match(es)")
 
     if not all_xcorr:
         return Table(names=xcorr_cols)

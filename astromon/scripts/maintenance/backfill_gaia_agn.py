@@ -110,7 +110,7 @@ def build_gaia_cat_src(
             {
                 "obsid": np.full(len(gaia_rows), obsid_i, dtype=np.int32),
                 "id": np.arange(len(gaia_rows), dtype=np.int32) + id_offset,
-                "x_id": cd_sources["id"][xray_idx].astype(np.int32),
+                "celldetect_x_id": cd_sources["id"][xray_idx].astype(np.int32),
                 "catalog": gaia_rows["catalog"],
                 "name": gaia_rows["name"],
                 "ra": np.array(gaia_rows["ra"], dtype=np.float64),
@@ -134,10 +134,11 @@ def run_xcorr_for_obsids(
     new_xray: Table,
     new_obs: Table,
 ) -> Table:
-    """Run compute_cross_matches('gaia_agn') for every (obsid, detect_method) pair.
+    """Run compute_cross_matches('gaia_agn') once per obsid, across all detect_methods.
 
-    For each detect_method, GaiaAGN x_id is re-matched to that method's xray source
-    IDs so the join in simple_cross_match works correctly.
+    simple_cross_match matches candidates to x-ray sources by position for every
+    detect_method present in `astromon_xray_src`, so it only needs to be called
+    once per obsid with the full (all-methods) xray slice.
 
     Returns
     -------
@@ -158,40 +159,23 @@ def run_xcorr_for_obsids(
             continue
 
         obsid_xray = new_xray[new_xray["obsid"] == obsid_i]
-        detect_methods = np.unique(obsid_xray["detect_method"])
 
-        agn_sc = coords.SkyCoord(
-            gaia_for_obsid["ra"], gaia_for_obsid["dec"], unit="deg"
-        )
-
-        for detect_method in detect_methods:
-            sources = obsid_xray[obsid_xray["detect_method"] == detect_method]
-
-            xray_sc = coords.SkyCoord(sources["ra"], sources["dec"], unit="deg")
-            xray_idx, _, _ = agn_sc.match_to_catalog_sky(xray_sc)
-
-            candidates = gaia_for_obsid.copy()
-            candidates["x_id"] = sources["id"][xray_idx].astype(np.int32)
-
-            try:
-                gaia_matches = cross_match.compute_cross_matches(
-                    "gaia_agn",
-                    astromon_obs=obspar,
-                    astromon_xray_src=sources,
-                    astromon_cat_src=candidates,
-                )
-            except Exception as exc:
-                logger.warning(f"OBSID={obsid_i} {detect_method} xcorr failed: {exc}")
-                continue
-
-            if len(gaia_matches) == 0:
-                continue
-
-            gaia_matches["detect_method"] = detect_method
-            all_xcorr.append(gaia_matches[xcorr_cols])
-            logger.debug(
-                f"OBSID={obsid_i} {detect_method}: {len(gaia_matches)} gaia_agn match(es)"
+        try:
+            gaia_matches = cross_match.compute_cross_matches(
+                "gaia_agn",
+                astromon_obs=obspar,
+                astromon_xray_src=obsid_xray,
+                astromon_cat_src=gaia_for_obsid,
             )
+        except (ValueError, KeyError) as exc:
+            logger.warning(f"OBSID={obsid_i} gaia_agn xcorr failed: {exc}")
+            continue
+
+        if len(gaia_matches) == 0:
+            continue
+
+        all_xcorr.append(gaia_matches[xcorr_cols])
+        logger.debug(f"OBSID={obsid_i}: {len(gaia_matches)} gaia_agn match(es)")
 
     if not all_xcorr:
         return Table(names=xcorr_cols)
