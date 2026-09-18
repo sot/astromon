@@ -1286,7 +1286,17 @@ class Observation:
                 self.file_path(f"sources/{self.obsid}_psf_size_{version}.fits")
             )
             pixel_size = 0.4920 if self.is_acis else 0.13175
-            sources["ecf_radius"] = ecf["R"] * pixel_size
+            # ecf was written for celldetect's full, unfiltered source list, but
+            # sources was just filtered above (r_angle < 180) -- pair rows by
+            # COMPONENT rather than trusting row order or length.
+            ecf_radius_by_component = {
+                int(component): float(r) * pixel_size
+                for component, r in zip(ecf["COMPONENT"], ecf["R"], strict=True)
+            }
+            sources["ecf_radius"] = [
+                ecf_radius_by_component[int(component)]
+                for component in sources["COMPONENT"]
+            ]
 
         sources["obsid"] = int(self.obsid)
         sources["caldb_version"] = self.get_calalign()["caldb_version"]
