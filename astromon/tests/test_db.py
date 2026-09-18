@@ -971,6 +971,61 @@ def test_migrate_db_refuses_unknown_extra_column():
             migrate_db.migrate(dbfile)
 
 
+def test_migrate_db_fills_all_columns_on_a_real_pre_stack_schema():
+    """migrate() succeeds against the actual old production schema.
+
+    The other migrate_db tests all build their "old" table from
+    db.ASTROMON_XRAY_SRC_DTYPE, which already has every column the current
+    code expects -- they never exercise a table genuinely missing one. This
+    builds the schema as it existed before psfratio/concentration_ratio/
+    peak_offset/grating_arm/brightest/detect_method were added, matching a
+    real pre-stack database, and confirms every new column gets its
+    documented default rather than migrate() raising
+    "No default defined for new column".
+    """
+    from astromon.scripts import migrate_db
+
+    added_columns = {
+        "psfratio",
+        "concentration_ratio",
+        "peak_offset",
+        "grating_arm",
+        "brightest",
+        "detect_method",
+    }
+    old_dtype = _stored_dtype(db.ASTROMON_XRAY_SRC_DTYPE)
+    old_dtype = np.dtype(
+        [
+            (name, old_dtype[name])
+            for name in old_dtype.names
+            if name not in added_columns
+        ]
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dbfile = Path(tmpdir) / "real_old_schema.h5"
+        import tables
+
+        xray = np.zeros(3, dtype=old_dtype)
+        xray["obsid"] = [1, 2, 3]
+        xray["ra"] = [10.0, 20.0, 30.0]
+        xcorr = np.zeros(1, dtype=_stored_dtype(db.ASTROMON_XCORR_DTYPE))
+        with tables.open_file(str(dbfile), "w") as h5:
+            h5.create_table("/", "astromon_xray_src", xray)
+            h5.create_table("/", "astromon_xcorr", xcorr)
+
+        migrate_db.migrate(dbfile)
+
+        result = db.get_table("astromon_xray_src", dbfile)
+        np.testing.assert_allclose(sorted(result["ra"]), [10.0, 20.0, 30.0])
+        assert np.all(np.isnan(result["psfratio"]))
+        assert np.all(np.isnan(result["concentration_ratio"]))
+        assert np.all(np.isnan(result["peak_offset"]))
+        assert np.all(result["grating_arm"] == 0)
+        assert np.all(result["brightest"] == 0)
+        assert np.all(result["detect_method"] == "celldetect")
+
+
 def test_migrate_db_up_to_date_is_noop():
     """A database already at the current schema is left untouched."""
     from astromon.scripts import migrate_db

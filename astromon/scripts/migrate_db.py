@@ -8,6 +8,8 @@ astromon_xray_src:
     psfratio           -> nan        (not computed for legacy rows)
     concentration_ratio -> nan       (not computed for legacy rows)
     peak_offset        -> nan       (not computed for legacy rows)
+    grating_arm        -> 0         (not evaluated for legacy rows)
+    brightest          -> 0         (not evaluated for legacy rows)
     detect_method      -> "celldetect"  (the only method used before this change)
 
 astromon_xcorr:
@@ -38,6 +40,8 @@ DEFAULTS = {
         "psfratio": float("nan"),
         "concentration_ratio": float("nan"),
         "peak_offset": float("nan"),
+        "grating_arm": 0,
+        "brightest": 0,
         "detect_method": "celldetect",
     },
     "astromon_xcorr": {
