@@ -526,9 +526,9 @@ def get_calalign_offsets(all_matches, ref_calalign=None, calalign_dir=None):
         raise RuntimeError("len(all_matches) != len(actual)")
     if len(all_matches) != len(reference):
         raise RuntimeError("len(all_matches) != len(reference)")
-    if np.all(reference["obsid"] != actual["obsid"]):
+    if not np.all(reference["obsid"] == actual["obsid"]):
         raise RuntimeError("reference.obsid != actual.obsid")
-    if np.all(reference["x_id"] != actual["x_id"]):
+    if not np.all(reference["x_id"] == actual["x_id"]):
         raise RuntimeError("reference.x_id != actual.x_id")
 
     result = join(
@@ -537,9 +537,9 @@ def get_calalign_offsets(all_matches, ref_calalign=None, calalign_dir=None):
         keys=["obsid", "x_id"],
     )
 
-    if np.all(all_matches["obsid"] != result["obsid"]):
+    if not np.all(all_matches["obsid"] == result["obsid"]):
         raise RuntimeError("all_matches.obsid != result.obsid")
-    if np.all(all_matches["x_id"] != result["x_id"]):
+    if not np.all(all_matches["x_id"] == result["x_id"]):
         raise RuntimeError("all_matches.x_id != result.x_id")
 
     # these are observations that happened after the reference calalign was added
