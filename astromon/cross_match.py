@@ -657,10 +657,10 @@ def simple_cross_match(
 
     - Observations done after `start`.
     - X-ray sources with signal-over-noise ratio > `snr`.
-    - X-ray sources at most `r_angle` off-axis (grating observations) or `r_angle_grating`
-      arcsec (non-grating observations).
+    - X-ray sources at most `r_angle` off-axis (non-grating observations) or `r_angle_grating`
+      arcsec (grating observations).
     - Angular separation between X-ray and catalog counterpart less than `dr` arcsec.
-    - X-ray sources that are at most `near_neighbor_dist` arcsec from the closest x-ray source.
+    - X-ray sources with no other x-ray source within `near_neighbor_dist` arcsec.
     - Counterparts from catalogs included in `catalog`.
 
     The selected pairs are sorted according to catalog and angular separation.
