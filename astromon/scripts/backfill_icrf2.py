@@ -13,14 +13,13 @@ no live observation reprocessing, no CIAO. For each obsid:
 
   1. Rough-match ICRF2 against that obsid's celldetect sources (mirrors the RFC/ICRF3
      rough_match call in astromon/scripts/get_cat_obs_data.py).
-  2. For each detect_method present, remap the rough-matched candidates' x_id to that
-     method's own source ids (:any:`astromon.cross_match.remap_x_id_to_sources`) before
-     cross-matching -- required because celldetect and gaussian_detect each number
-     their sources independently per obsid, so a candidate's x_id from step 1 (matched
-     to celldetect ids) does not carry over to gaussian_detect's ids. See the
-     remap_x_id_to_sources docstring: skipping this silently produces wrong or missing
-     matches for every detect_method beyond the one used to build the rough match.
-  3. Cross-match with :any:`astromon.cross_match.compute_cross_matches` (name="icrf2").
+  2. Stamp obsid/id/y_angle/z_angle and the celldetect anchor onto the candidates via
+     :any:`astromon.cross_match.assign_cat_src_ids` -- the same helper
+     `_add_obsid_and_anchor` in get_cat_obs_data.py uses. The anchor is provenance
+     only; it is not a match key.
+  3. Cross-match once with :any:`astromon.cross_match.compute_cross_matches`
+     (name="icrf2"), passing every detect_method present for the obsid together --
+     `simple_cross_match` handles the per-method pairing internally.
 
 Usage
 -----
@@ -32,7 +31,6 @@ import logging
 
 import numpy as np
 from astropy.table import Table, vstack
-from chandra_aca.transform import radec_to_yagzag
 from cxotime import CxoTime
 from Quaternion import Quat
 
@@ -44,8 +42,9 @@ logger = logging.getLogger("backfill_icrf2")
 def _build_icrf2_candidates(obsid: int, obs_row, celldetect_sources: Table) -> Table:
     """Rough-match ICRF2 against one obsid's celldetect sources.
 
-    Returns an astromon_cat_src-shaped Table (catalog="ICRF2"), x_id matched to
-    `celldetect_sources`; empty (but correctly shaped) if there are no candidates.
+    Returns an astromon_cat_src-shaped Table (catalog="ICRF2"), celldetect_x_id
+    anchored to `celldetect_sources`; empty (but correctly shaped) if there are no
+    candidates.
     """
     obs_time = CxoTime(str(obs_row["date_obs"]))
     candidates = cross_match.rough_match(
@@ -57,11 +56,7 @@ def _build_icrf2_candidates(obsid: int, obs_row, celldetect_sources: Table) -> T
     q = Quat(
         equatorial=(float(obs_row["ra"]), float(obs_row["dec"]), float(obs_row["roll"]))
     )
-    candidates["obsid"] = obsid
-    candidates["id"] = np.arange(len(candidates))
-    candidates["y_angle"], candidates["z_angle"] = radec_to_yagzag(
-        candidates["ra"], candidates["dec"], q
-    )
+    cross_match.assign_cat_src_ids(candidates, obsid, celldetect_sources, q)
     return candidates
 
 
@@ -104,27 +99,18 @@ def backfill(dbfile, limit: int | None = None) -> tuple[Table, Table]:
         n_obsids_with_candidates += 1
 
         obspar = Table([obs_row])
-        for detect_method in np.unique(obsid_xray["detect_method"]):
-            sources = obsid_xray[obsid_xray["detect_method"] == detect_method]
-            candidates_for_version = cross_match.remap_x_id_to_sources(
-                candidates, sources
+        try:
+            matches = cross_match.compute_cross_matches(
+                "icrf2",
+                astromon_obs=obspar,
+                astromon_xray_src=obsid_xray,
+                astromon_cat_src=candidates,
+                logging_tag=f"OBSID={obsid}",
             )
-            try:
-                matches = cross_match.compute_cross_matches(
-                    "icrf2",
-                    astromon_obs=obspar,
-                    astromon_xray_src=sources,
-                    astromon_cat_src=candidates_for_version,
-                    logging_tag=f"OBSID={obsid}",
-                )
-            except Exception as exc:
-                logger.warning(
-                    f"OBSID={obsid} {detect_method} icrf2 xcorr failed: {exc}"
-                )
-                continue
-            if len(matches) == 0:
-                continue
-            matches["detect_method"] = detect_method
+        except (ValueError, KeyError) as exc:
+            logger.warning(f"OBSID={obsid} icrf2 xcorr failed: {exc}")
+            continue
+        if len(matches):
             all_xcorr.append(matches[xcorr_cols])
 
         if (i + 1) % 200 == 0:
