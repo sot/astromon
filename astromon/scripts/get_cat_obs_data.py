@@ -105,6 +105,19 @@ def save(data, db_file):  # noqa: PLR0912
         logger.info("Nothing to save")
         return
 
+    # This entry point has no --skip-catalog-match: every obsid that made it this
+    # far (not skipped, not errored) went through a real catalog-match pass, so
+    # an empty astromon_cat_src for one of them is authoritative -- it found no
+    # candidates, not "didn't check". The vstack below silently drops any obsid
+    # whose table is empty (there is nothing to vstack), which for cat_src/xcorr
+    # means an obsid that used to have matches keeps its stale ones forever: it
+    # never appears in the data handed to db.save, so nothing tells save() to
+    # touch it. process_one_obsid.save_with_lock's replace_cat_src already solves
+    # this for the per-obsid path; this is the same fix for this bulk one.
+    stale_cat_src_obsids = [
+        d["obsid"] for d in data if d["ok"] and len(d["astromon_cat_src"]) == 0
+    ]
+
     names = ["astromon_obs", "astromon_xray_src", "astromon_cat_src", "astromon_xcorr"]
     # these following baroque lines are here because there are some columns we cannot vstack
     # so I decided to only vstack the columns that are in the dtype,
@@ -123,6 +136,22 @@ def save(data, db_file):  # noqa: PLR0912
         f"About to write {len(data['astromon_obs'])} observations to {db_file}"
     )
     with db.connect(db_file, mode="r+") as con:
+        if stale_cat_src_obsids:
+            xcorr = db.get_table("astromon_xcorr", con)
+            keep = ~np.isin(np.asarray(xcorr["obsid"]), stale_cat_src_obsids)
+            if not keep.all():
+                db.save("astromon_xcorr", xcorr[keep], con, ignore_obsid=True)
+
+            cat_src = db.get_table("astromon_cat_src", con)
+            keep = ~np.isin(np.asarray(cat_src["obsid"]), stale_cat_src_obsids)
+            if not keep.all():
+                db.save("astromon_cat_src", cat_src[keep], con, ignore_obsid=True)
+                logger.info(
+                    f"Removed stale astromon_cat_src/astromon_xcorr rows for "
+                    f"{len(stale_cat_src_obsids)} obsid(s) that found no "
+                    "candidates this run"
+                )
+
         for name in names:
             if len(data[name]):
                 db.save(name, data[name], con)
