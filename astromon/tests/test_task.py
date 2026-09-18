@@ -4,8 +4,14 @@ from pprint import pprint
 from unittest.mock import Mock
 
 import pytest
+from testr.test_helper import on_head_network
 
 from astromon import observation, stored_result, task
+
+ON_HEAD_NETWORK = on_head_network()
+NEEDS_HEAD_NETWORK = pytest.mark.skipif(
+    not ON_HEAD_NETWORK, reason="Requires HEAD network access (arc5gl)"
+)
 
 
 class MockTaskManager(task.TaskManager):
@@ -274,6 +280,7 @@ def test_should_run_four(test_pipeline):
     assert not four.should_run(obs), "Task four should not run again (2)"
 
 
+@NEEDS_HEAD_NETWORK
 def test_sequence_one(test_pipeline, test_obs):
     # test that a task should run once and only once
     test_pipeline.run_task(test_obs, "one")
@@ -286,6 +293,7 @@ def test_sequence_one(test_pipeline, test_obs):
     )
 
 
+@NEEDS_HEAD_NETWORK
 def test_sequence_two(test_pipeline, test_obs):
     # task two depends on task one, so both should run
     test_pipeline.run_task(test_obs, "two")
@@ -295,6 +303,7 @@ def test_sequence_two(test_pipeline, test_obs):
     ], "Task one and two should be run"
 
 
+@NEEDS_HEAD_NETWORK
 def test_sequence_five(test_pipeline, test_obs):
     # task five does not depend on any other task (this test a disconnected dependency graph)
     test_pipeline.run_task(test_obs, "five")
@@ -303,6 +312,7 @@ def test_sequence_five(test_pipeline, test_obs):
     )
 
 
+@NEEDS_HEAD_NETWORK
 def test_sequence_four(test_pipeline, test_obs):
     # checking a diamon dependency chain
     test_obs = get_obs("8007")
@@ -318,6 +328,7 @@ def test_sequence_four(test_pipeline, test_obs):
     )
 
 
+@NEEDS_HEAD_NETWORK
 def test_invalidate_result_output_1(test_pipeline, test_obs):
     # This tests checks that removing an output file invalidates the result.
     test_pipeline.run_task(test_obs, "four")
@@ -331,6 +342,7 @@ def test_invalidate_result_output_1(test_pipeline, test_obs):
     )
 
 
+@NEEDS_HEAD_NETWORK
 def test_invalidate_result_output_2(test_pipeline, test_obs):
     # this test checks that a missing output file that was not created when the task ran
     # does not invalidate the result
@@ -345,6 +357,7 @@ def test_invalidate_result_output_2(test_pipeline, test_obs):
     )
 
 
+@NEEDS_HEAD_NETWORK
 def test_invalidate_result(test_pipeline, test_obs):
     # This test checks the behaviour when a task is explicitly invalidated.
     test_pipeline.run_task(test_obs, "four")
@@ -358,6 +371,7 @@ def test_invalidate_result(test_pipeline, test_obs):
     )
 
 
+@NEEDS_HEAD_NETWORK
 def test_invalidate_result_input(test_pipeline, test_obs):
     # This test checks that removing the INPUT of a task does not invalidate the result.
     test_pipeline.run_task(test_obs, "four")
@@ -371,6 +385,7 @@ def test_invalidate_result_input(test_pipeline, test_obs):
     )
 
 
+@NEEDS_HEAD_NETWORK
 def test_invalidate_result_dependency_input(test_pipeline, test_obs):
     # This test invalidates a task (four), which STRICTLY depends on the output of another (three).
     # That means that task three should run if the file is missing.
@@ -392,6 +407,7 @@ def test_invalidate_result_dependency_input(test_pipeline, test_obs):
     )
 
 
+@NEEDS_HEAD_NETWORK
 def test_invalidate_result_dependency_input_2(test_pipeline, test_obs):
     # This test invalidates a task (six), which OPTIONALLY depends on the output of another (three).
     # That means that task three should run if the file is missing.
@@ -413,6 +429,7 @@ def test_invalidate_result_dependency_input_2(test_pipeline, test_obs):
     )
 
 
+@NEEDS_HEAD_NETWORK
 def test_invalidate_result_dependency_input_3(test_pipeline, test_obs):
     # This test invalidates task six, which OPTIONALLY depends on one output of task eight.
     # That means that task eight should run if the file is missing, unless we know that task eight
@@ -434,6 +451,7 @@ def test_invalidate_result_dependency_input_3(test_pipeline, test_obs):
     )
 
 
+@NEEDS_HEAD_NETWORK
 def test_invalidate_dependency(test_pipeline, test_obs):
     # this test invalidates one task (three), which has the side-effect of invalidating a dependent
     # task (four). It then runs both tasks separately
@@ -453,6 +471,7 @@ def test_invalidate_dependency(test_pipeline, test_obs):
     )
 
 
+@NEEDS_HEAD_NETWORK
 def test_invalidate_dependency_file(test_pipeline, test_obs):
     # this test invalidates one task (four) by removing its output,
     # it also removes an output of task three, but task four does not depend on it
@@ -471,6 +490,7 @@ def test_invalidate_dependency_file(test_pipeline, test_obs):
     )
 
 
+@NEEDS_HEAD_NETWORK
 def test_invalidate_dependency_two_steps(test_pipeline, test_obs):
     # this test invalidates one task (three), which has the side-effect of invalidating a dependent
     # task (four). It then runs both tasks separately
@@ -492,6 +512,7 @@ def test_invalidate_dependency_two_steps(test_pipeline, test_obs):
     ], "Task four should run again because the cache of task three was cleared"
 
 
+@NEEDS_HEAD_NETWORK
 def test_invalidate_archive(test_pipeline, test_obs):
     # running "four" to begin with
     test_pipeline.run_task(test_obs, "four")
@@ -573,6 +594,7 @@ def test_task_return_value(test_pipeline):
     assert rv.msg == ""
 
 
+@NEEDS_HEAD_NETWORK
 def test_download(test_pipeline):
     # check that some files are downloaded from the archive
     @test_pipeline.task(
