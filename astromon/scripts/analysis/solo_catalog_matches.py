@@ -6,8 +6,8 @@ impossible to compare catalog quality fairly: RFC wins contested sources,
 Tycho2 only sees the leftovers, etc.
 
 This script instead matches every catalog independently: for each X-ray
-source (celldetect only, since astromon_cat_src.x_id references celldetect
-sources) it finds the nearest counterpart in *each* catalog and records the
+source (celldetect only, since astromon_cat_src.celldetect_x_id references
+celldetect sources) it finds the nearest counterpart in *each* catalog and records the
 residuals.  The result is a CSV with one row per (obsid, x_id, catalog) so
 you can compare RFC vs Tycho2 vs GaiaAGN on the same footing.
 
@@ -49,7 +49,7 @@ def build_solo_matches(
         Full ``astromon_cat_src`` table.
     xray_src
         Full ``astromon_xray_src`` table (celldetect rows only are used, since
-        ``cat_src.x_id`` references celldetect source ids).
+        ``cat_src.celldetect_x_id`` references celldetect source ids).
     obs
         Full ``astromon_obs`` table.
     max_sep_arcsec
@@ -85,7 +85,7 @@ def build_solo_matches(
 
     # For each cat_src row, look up the matched xray source and compute dy/dz.
     cat_obsids = np.array(cat_sep_ok["obsid"], dtype=np.int32)
-    cat_x_ids = np.array(cat_sep_ok["x_id"], dtype=np.int32)
+    cat_x_ids = np.array(cat_sep_ok["celldetect_x_id"], dtype=np.int32)
     cat_y = np.array(cat_sep_ok["y_angle"], dtype=np.float32)
     cat_z = np.array(cat_sep_ok["z_angle"], dtype=np.float32)
     cat_catalogs = np.asarray(cat_sep_ok["catalog"])
