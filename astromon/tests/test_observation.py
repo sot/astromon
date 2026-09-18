@@ -506,14 +506,17 @@ def test_drop_crowded_seeds_three_sources_only_the_close_pair_goes():
 # already read.
 
 
-def _xy_sources(x_values, y_values):
+def _xy_sources(x_values, y_values, snr_values=None):
     """Minimal celldetect sources carrying only what the mask checks need."""
     n = len(x_values)
+    if snr_values is None:
+        snr_values = np.ones(n)
     return table.Table(
         {
             "COMPONENT": np.arange(1, n + 1, dtype=np.int32),
             "X": np.array(x_values, dtype=float),
             "Y": np.array(y_values, dtype=float),
+            "SNR": np.array(snr_values, dtype=float),
         }
     )
 
@@ -619,11 +622,35 @@ def test_drop_acis_streak_seeds_removes_a_source_on_a_streak(tmp_path):
     _write_acis_streaks(
         obs, [[(90.0, 95.0), (110.0, 95.0), (110.0, 105.0), (90.0, 105.0)]]
     )
-    sources = _xy_sources([100.0], [100.0])  # inside the streak polygon
+    # a second, brighter, off-streak source so the streak source is not also
+    # the observation's single brightest (which would exempt it -- see
+    # test_drop_acis_streak_seeds_keeps_the_brightest_source_despite_a_streak).
+    sources = _xy_sources(
+        [100.0, 300.0], [100.0, 300.0], snr_values=[5.0, 10.0]
+    )  # first source inside the streak polygon
 
     result = observation._drop_acis_streak_seeds(sources, obs)
 
-    assert len(result) == 0
+    assert list(result["COMPONENT"]) == [2]
+
+
+def test_drop_acis_streak_seeds_keeps_the_brightest_source_despite_a_streak(tmp_path):
+    """The observation's single brightest source is exempted from the streak
+    drop, mirroring simple_cross_match's celldetect policy in cross_match.py:
+    ``~astromon_xray_src["acis_streak"].astype(bool) | brightest_flag``. This
+    typically matters for the calibration target, which can be bright enough
+    for celldetect to also flag it as an ACIS readout streak.
+    """
+    obs = _make_observation(tmp_path)
+    _write_acis_streaks(
+        obs, [[(90.0, 95.0), (110.0, 95.0), (110.0, 105.0), (90.0, 105.0)]]
+    )
+    # both sources are on the streak; only the brighter one should survive.
+    sources = _xy_sources([100.0, 105.0], [100.0, 100.0], snr_values=[10.0, 5.0])
+
+    result = observation._drop_acis_streak_seeds(sources, obs)
+
+    assert list(result["COMPONENT"]) == [1]
 
 
 def test_drop_acis_streak_seeds_keeps_a_source_off_a_streak(tmp_path):
