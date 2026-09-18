@@ -3,7 +3,9 @@ import tempfile
 from pprint import pprint
 from unittest.mock import Mock
 
+import numpy as np
 import pytest
+from astropy import table
 from testr.test_helper import on_head_network
 
 from astromon import observation, stored_result, task
@@ -672,3 +674,42 @@ def test_dependencies():
     with pytest.raises(FileNotFoundError, match="do_bla.json"):
         data.method(name="bla")  # fails, file not found
     assert STACK == [("do", "1")], "Task do should be run exactly once"
+
+
+@NEEDS_HEAD_NETWORK
+def test_grating_arm_obsid13712(tmp_path):
+    """Obsid 13712 (GX 3+1, HETG/HRC-I): verify grating arm masking end-to-end.
+
+    Expected:
+      - tg_create_mask produces a mask with zero-order (TG_PART=0), HEG (TG_PART=1),
+        and MEG (TG_PART=2) regions.
+      - The vast majority of celldetect sources are flagged as grating_arm=1.
+      - The bright zero-order source (highest SNR) is NOT flagged.
+    """
+    obs = observation.Observation(
+        13712,
+        workdir=tmp_path / "work",
+        archive_dir=tmp_path / "archive",
+    )
+    rv = obs.process()
+    assert rv.return_code == observation.ReturnCode.OK
+
+    mask_file = obs.file_path("images/13712_grating_arm_mask.fits")
+    assert mask_file.exists(), "tg_create_mask output not found"
+    mask = table.Table.read(mask_file)
+    assert set(mask["TG_PART"]).issuperset({0, 1, 2}), (
+        "expected zero-order, HEG, and MEG rows"
+    )
+
+    sources = obs._get_sources(version="celldetect")
+    assert "grating_arm" in sources.colnames
+
+    # Most sources should be arm-flagged (dispersed spectra dominate this field).
+    n_arm = int(np.sum(sources["grating_arm"].astype(bool)))
+    assert n_arm >= 30, f"expected ≥30 arm-flagged sources, got {n_arm}"
+
+    # The brightest source is the zero-order and must NOT be flagged.
+    brightest = int(np.argmax(sources["snr"]))
+    assert not sources["grating_arm"][brightest], (
+        f"brightest source (SNR={sources['snr'][brightest]:.0f}) should not be arm-flagged"
+    )
