@@ -146,37 +146,63 @@ class Dependent:
                 "Dependent functions should not take positional arguments."
             )
 
-        if self._download:
-            obs.download(self._download)
+        # get_tasks_to_run() unconditionally computes get_parameters() -- which
+        # evaluates every task's "variables" callbacks -- for every registered
+        # task, on every call, regardless of what was actually requested. If
+        # some other task's variable callback calls back into this same
+        # Dependent (e.g. make_images's "band" variable reads obs.is_hrc,
+        # which calls this get_evt2_info), and this call is what triggered
+        # that other task's parameters being computed in the first place (via
+        # run_tasks() below), the result is infinite recursion: this method
+        # never gets to cache a result before it is asked to produce one
+        # again. A re-entrant call only ever happens strictly after the
+        # download step below already ran, so it is safe to skip straight to
+        # running the underlying function rather than resolving dependencies
+        # (and re-triggering the same run_tasks() call) all over again.
+        in_progress = getattr(obs, "_dependents_in_progress", None)
+        if in_progress is None:
+            in_progress = set()
+            obs._dependents_in_progress = in_progress
+        if self.name in in_progress:
+            return self.func(obs, **kwargs)
 
-        params = self.get_parameters(obs, **kwargs)
+        in_progress.add(self.name)
+        try:
+            if self._download:
+                obs.download(self._download)
 
-        requested_files = list(
-            set(params["required_files"].values())
-            | set(params["optional_files"].values())
-        )
+            params = self.get_parameters(obs, **kwargs)
 
-        rv = self._manager.run_tasks(obs=obs, requested_files=requested_files)
+            requested_files = list(
+                set(params["required_files"].values())
+                | set(params["optional_files"].values())
+            )
 
-        errors = {
-            name: value
-            for name, value in rv.items()
-            if value.return_code.value >= ReturnCode.ERROR.value
-        }
-        if errors:
-            msg = ", ".join(f"{name} {value.msg}" for name, value in errors.items())
-            raise RuntimeError(f"{self.name} failed. Dependency tasks failed: {msg}")
+            rv = self._manager.run_tasks(obs=obs, requested_files=requested_files)
 
-        missing = {
-            name: value
-            for name, value in params["required_files"].items()
-            if not obs.file_path(value).exists()
-        }
-        if missing:
-            msg = ", ".join(f"{value}" for value in missing.values())
-            raise FileNotFoundError(f"{self.name} failed. Missing files: {msg}")
+            errors = {
+                name: value
+                for name, value in rv.items()
+                if value.return_code.value >= ReturnCode.ERROR.value
+            }
+            if errors:
+                msg = ", ".join(f"{name} {value.msg}" for name, value in errors.items())
+                raise RuntimeError(
+                    f"{self.name} failed. Dependency tasks failed: {msg}"
+                )
 
-        return self.func(obs, **kwargs)
+            missing = {
+                name: value
+                for name, value in params["required_files"].items()
+                if not obs.file_path(value).exists()
+            }
+            if missing:
+                msg = ", ".join(f"{value}" for value in missing.values())
+                raise FileNotFoundError(f"{self.name} failed. Missing files: {msg}")
+
+            return self.func(obs, **kwargs)
+        finally:
+            in_progress.discard(self.name)
 
     def get_parameters(self, obs, **kwargs):
         """
@@ -795,24 +821,53 @@ class TaskManager:
 
         requested_files = set() if requested_files is None else set(requested_files)
         requested_tasks = set() if requested_tasks is None else set(requested_tasks)
+        # Captured before requested_tasks' own outputs are folded into requested_files
+        # below -- see the task_file_map scan further down, which must trigger on this,
+        # not on the union, or it would run unconditionally for any requested_tasks
+        # call (nearly every task has at least one output).
+        files_were_explicitly_requested = bool(requested_files)
 
         tasks = self.task_graph
+
+        # get_parameters(obs) evaluates a task's "variables" callbacks, which can read
+        # arbitrary Observation properties -- including ones backed by a real download
+        # (e.g. is_hrc -> get_evt2_info()). Memoizing per task name here, rather than
+        # eagerly computing it for every registered task up front, means a task nobody
+        # asked for and that isn't an ancestor of anything requested never has its
+        # variables evaluated at all: calling run_task(obs, "one") no longer has the
+        # side effect of resolving an unrelated task "five"'s parameters, which used to
+        # trigger "five"'s download even though "five" was never going to run.
+        params = {}
+
+        def get_params(name):
+            if name not in params:
+                params[name] = self.tasks[name].get_parameters(obs)
+            return params[name]
 
         requested_files |= {
             filename
             for name in requested_tasks
-            for filename in self.tasks[name].get_parameters(obs)["outputs"].values()
+            for filename in get_params(name)["outputs"].values()
         }
 
         # find out which tasks produce the requested files.
         # and create a dict mapping task names to filenames.
         # note that these are the filenames _after_ variable interpolation.
-        params = {name: task.get_parameters(obs) for name, task in self.tasks.items()}
-        task_file_map = {
-            name: set(params[name]["outputs"].values()) & requested_files
-            for name in self.tasks
-        }
-        task_file_map = {k: v for k, v in task_file_map.items() if v}
+        # Skipped when the caller requested tasks by name only (no requested_files
+        # argument): resolving a filename back to whichever task produces it is
+        # only needed for filenames the caller supplied without saying which task
+        # makes them -- requested_tasks are already included in `possible` directly,
+        # via the identity, not a filename match, so scanning every registered task's
+        # outputs here would just re-derive that same membership at the cost of
+        # resolving (and running the variables of) every task in the manager.
+        if files_were_explicitly_requested:
+            task_file_map = {
+                name: set(get_params(name)["outputs"].values()) & requested_files
+                for name in self.tasks
+            }
+            task_file_map = {k: v for k, v in task_file_map.items() if v}
+        else:
+            task_file_map = {}
 
         # define the set of tasks that are possible to run.
         # This includes the requested tasks, tasks that produce the requested files,
@@ -855,8 +910,8 @@ class TaskManager:
         for name in tasks_by_generation_bwd:
             should_run[name] = self.tasks[name].should_run(obs, requested_files)
             if should_run[name]:
-                requested_files |= set(params[name]["inputs"].values())
-                requested_files |= set(params[name]["optional_inputs"].values())
+                requested_files |= set(get_params(name)["inputs"].values())
+                requested_files |= set(get_params(name)["optional_inputs"].values())
 
         # the final result of whether each task should run is the logical OR of whether:
         #   - the stored result is invalid,
