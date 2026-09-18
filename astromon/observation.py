@@ -1933,7 +1933,7 @@ def _drop_grating_arm_seeds(input_sources, obs):
     return input_sources[~obs._on_grating_arm(input_sources)]
 
 
-def _drop_acis_streak_seeds(input_sources, obs):
+def _drop_acis_streak_seeds(input_sources, obs, brightest_component):
     """Remove celldetect sources that fall on an ACIS readout streak.
 
     A readout streak is instrumental, not astrophysical: a fit seeded on one
@@ -1942,17 +1942,38 @@ def _drop_acis_streak_seeds(input_sources, obs):
     one) -- see :meth:`Observation._on_acis_streak`, which this reuses
     directly.
 
+    The observation's single brightest source (by SNR) is exempted from the
+    drop even if it is streak-flagged: it is typically the calibration
+    target, and ``simple_cross_match`` in cross_match.py applies the same
+    override for celldetect sources
+    (``~acis_streak | brightest``). Without this exemption here, the
+    override could never take effect for gaussian_detect, because the
+    source's row would already be gone before the fit ran -- ``brightest``
+    itself is only computed later, in ``Observation._get_sources``, from a
+    fit's own output.
+
     Parameters
     ----------
     input_sources : astropy.table.Table
-        Celldetect sources with ``X`` and ``Y`` columns, as read from the
-        ``.src`` file.
+        Celldetect sources with ``COMPONENT``, ``X``, ``Y`` and ``SNR``
+        columns, as read from the ``.src`` file. May already have had
+        crowded and grating-arm seeds dropped.
     obs : Observation
         Used to locate this obsid's ``acis_streaks.fits``.
+    brightest_component
+        The ``COMPONENT`` id of the observation's single brightest celldetect
+        source (by SNR), computed by the caller from the *original*,
+        unfiltered celldetect table -- not from `input_sources` here, which
+        may already be missing that very source if an earlier crowded/
+        grating-arm drop removed it. Recomputing "brightest" from whatever
+        happens to remain in `input_sources` would silently promote a
+        dimmer, still-streak-flagged source to the exemption instead.
     """
     if len(input_sources) == 0:
         return input_sources
-    return input_sources[~obs._on_acis_streak(input_sources)]
+    on_streak = obs._on_acis_streak(input_sources)
+    brightest = input_sources["COMPONENT"] == brightest_component
+    return input_sources[~on_streak | brightest]
 
 
 def _seed_and_select_events(events_yag, events_zag, source, box_size, seed_from_peak):
@@ -2083,9 +2104,21 @@ def _fit_gaussian_sources(  # noqa: PLR0915
         # rows never enter matching, so filtering its input would only lose
         # coverage -- exactly the coverage that made it possible to check, for a
         # crowded pair, whether re-seeding from the peak recovers a usable fit.
+        #
+        # "brightest" is identified here, from the full unfiltered celldetect
+        # table, and carried through by COMPONENT id rather than recomputed
+        # after crowded/grating-arm seeds are dropped -- otherwise, if the true
+        # brightest source happened to be one of those drops, a dimmer,
+        # still-streak-flagged source left behind would wrongly inherit the
+        # "brightest" exemption in _drop_acis_streak_seeds.
+        brightest_component = None
+        if len(input_sources) > 0:
+            brightest_mask = _flag_brightest_source(input_sources["SNR"])
+            if brightest_mask.any():
+                brightest_component = input_sources["COMPONENT"][brightest_mask][0]
         input_sources = _drop_crowded_seeds(input_sources)
         input_sources = _drop_grating_arm_seeds(input_sources, obs)
-        input_sources = _drop_acis_streak_seeds(input_sources, obs)
+        input_sources = _drop_acis_streak_seeds(input_sources, obs, brightest_component)
         if len(input_sources) == 0:
             results = table.Table(dtype=dtype)
             results.write(outputs["src"], format="fits", overwrite=True)

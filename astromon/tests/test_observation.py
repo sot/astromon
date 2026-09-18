@@ -506,14 +506,17 @@ def test_drop_crowded_seeds_three_sources_only_the_close_pair_goes():
 # already read.
 
 
-def _xy_sources(x_values, y_values):
+def _xy_sources(x_values, y_values, snr_values=None):
     """Minimal celldetect sources carrying only what the mask checks need."""
     n = len(x_values)
+    if snr_values is None:
+        snr_values = np.ones(n)
     return table.Table(
         {
             "COMPONENT": np.arange(1, n + 1, dtype=np.int32),
             "X": np.array(x_values, dtype=float),
             "Y": np.array(y_values, dtype=float),
+            "SNR": np.array(snr_values, dtype=float),
         }
     )
 
@@ -614,14 +617,74 @@ def test_drop_grating_arm_seeds_handles_empty_input(tmp_path):
     assert len(result) == 0
 
 
+def _brightest_component(sources):
+    """The COMPONENT id of the brightest row, as the _fit_gaussian_sources caller
+    would compute it from the full, unfiltered celldetect table."""
+    mask = observation._flag_brightest_source(sources["SNR"])
+    return sources["COMPONENT"][mask][0] if mask.any() else None
+
+
 def test_drop_acis_streak_seeds_removes_a_source_on_a_streak(tmp_path):
     obs = _make_observation(tmp_path)
     _write_acis_streaks(
         obs, [[(90.0, 95.0), (110.0, 95.0), (110.0, 105.0), (90.0, 105.0)]]
     )
-    sources = _xy_sources([100.0], [100.0])  # inside the streak polygon
+    # a second, brighter, off-streak source so the streak source is not also
+    # the observation's single brightest (which would exempt it -- see
+    # test_drop_acis_streak_seeds_keeps_the_brightest_source_despite_a_streak).
+    sources = _xy_sources(
+        [100.0, 300.0], [100.0, 300.0], snr_values=[5.0, 10.0]
+    )  # first source inside the streak polygon
 
-    result = observation._drop_acis_streak_seeds(sources, obs)
+    result = observation._drop_acis_streak_seeds(
+        sources, obs, _brightest_component(sources)
+    )
+
+    assert list(result["COMPONENT"]) == [2]
+
+
+def test_drop_acis_streak_seeds_keeps_the_brightest_source_despite_a_streak(tmp_path):
+    """The observation's single brightest source is exempted from the streak
+    drop, mirroring simple_cross_match's celldetect policy in cross_match.py:
+    ``~astromon_xray_src["acis_streak"].astype(bool) | brightest_flag``. This
+    typically matters for the calibration target, which can be bright enough
+    for celldetect to also flag it as an ACIS readout streak.
+    """
+    obs = _make_observation(tmp_path)
+    _write_acis_streaks(
+        obs, [[(90.0, 95.0), (110.0, 95.0), (110.0, 105.0), (90.0, 105.0)]]
+    )
+    # both sources are on the streak; only the brighter one should survive.
+    sources = _xy_sources([100.0, 105.0], [100.0, 100.0], snr_values=[10.0, 5.0])
+
+    result = observation._drop_acis_streak_seeds(
+        sources, obs, _brightest_component(sources)
+    )
+
+    assert list(result["COMPONENT"]) == [1]
+
+
+def test_drop_acis_streak_seeds_does_not_promote_a_dimmer_survivor(tmp_path):
+    """The brightest-source exemption must be decided from the full,
+    unfiltered celldetect table, not recomputed from whatever remains after
+    an earlier crowded/grating-arm drop.
+
+    Here the observation's true brightest source (COMPONENT 1, SNR 10) was
+    already removed by an earlier filter and is not part of `sources` at
+    all. The one remaining source (COMPONENT 2, SNR 5, streak-flagged) is
+    not actually the calibration target -- recomputing "brightest" locally
+    would wrongly call it the brightest (it's the only one left) and exempt
+    it from the streak drop. Passing the true brightest_component (1, absent
+    here) must not exempt it.
+    """
+    obs = _make_observation(tmp_path)
+    _write_acis_streaks(
+        obs, [[(90.0, 95.0), (110.0, 95.0), (110.0, 105.0), (90.0, 105.0)]]
+    )
+    sources = _xy_sources([100.0], [100.0], snr_values=[5.0])
+    sources["COMPONENT"] = [2]
+
+    result = observation._drop_acis_streak_seeds(sources, obs, brightest_component=1)
 
     assert len(result) == 0
 
@@ -633,7 +696,9 @@ def test_drop_acis_streak_seeds_keeps_a_source_off_a_streak(tmp_path):
     )
     sources = _xy_sources([300.0], [300.0])  # nowhere near the streak
 
-    result = observation._drop_acis_streak_seeds(sources, obs)
+    result = observation._drop_acis_streak_seeds(
+        sources, obs, _brightest_component(sources)
+    )
 
     assert len(result) == 1
 
@@ -644,7 +709,9 @@ def test_drop_acis_streak_seeds_is_a_noop_without_a_mask_file(tmp_path):
     obs = _make_observation(tmp_path)
     sources = _xy_sources([100.0, 200.0], [100.0, 200.0])
 
-    result = observation._drop_acis_streak_seeds(sources, obs)
+    result = observation._drop_acis_streak_seeds(
+        sources, obs, _brightest_component(sources)
+    )
 
     assert len(result) == 2
 
@@ -653,6 +720,6 @@ def test_drop_acis_streak_seeds_handles_empty_input(tmp_path):
     obs = _make_observation(tmp_path)
     sources = _xy_sources([], [])
 
-    result = observation._drop_acis_streak_seeds(sources, obs)
+    result = observation._drop_acis_streak_seeds(sources, obs, brightest_component=None)
 
     assert len(result) == 0
