@@ -504,19 +504,25 @@ def test_get_gaia_agn_returns_catalog_rows_once_for_multiple_positions():
     assert len(result) == 1
 
 
-def test_get_gaia_agn_catalog_failure_returns_empty():
-    """A cached-catalog load/download failure returns an empty table without raising."""
+def test_get_gaia_agn_catalog_failure_raises():
+    """A cached-catalog load/download failure raises rather than reporting an empty sky.
+
+    This used to degrade gracefully to an empty table. It is deliberately no longer
+    graceful, for the same reason as GaiaVarStar and DESI: an unmeasured field and
+    an empty one are different facts, and writing the second when the first is true
+    is how astromon_cat_src lost catalogs.
+    """
     pos = coords.SkyCoord([187.2779], [2.0524], unit="deg")
 
-    with patch.object(
-        cross_match,
-        "get_gaia_agn_catalog",
-        side_effect=RuntimeError("catalog unavailable"),
+    with (
+        patch.object(
+            cross_match,
+            "get_gaia_agn_catalog",
+            side_effect=RuntimeError("catalog unavailable"),
+        ),
+        pytest.raises(cross_match.CatalogQueryFailed, match="GaiaAGN"),
     ):
-        result = cross_match.get_gaia_agn(pos, radius=3 * u.arcsec)
-
-    assert len(result) == 0
-    assert set(cross_match.CROSS_MATCH_DTYPE.names).issubset(set(result.colnames))
+        cross_match.get_gaia_agn(pos, radius=3 * u.arcsec)
 
 
 def test_compute_cross_matches_gaia_agn():
@@ -794,19 +800,25 @@ def test_get_gaia_qso_candidates_returns_catalog_rows_once_for_multiple_position
     assert len(result) == 1
 
 
-def test_get_gaia_qso_candidates_catalog_failure_returns_empty():
-    """A cached-catalog load/download failure returns an empty table without raising."""
+def test_get_gaia_qso_candidates_catalog_failure_raises():
+    """A cached-catalog load/download failure raises rather than reporting an empty sky.
+
+    This used to degrade gracefully to an empty table. It is deliberately no longer
+    graceful, for the same reason as GaiaVarStar and DESI: an unmeasured field and
+    an empty one are different facts, and writing the second when the first is true
+    is how astromon_cat_src lost catalogs.
+    """
     pos = coords.SkyCoord([_3C273_RA], [_3C273_DEC], unit="deg")
 
-    with patch.object(
-        cross_match,
-        "get_gaia_qso_catalog",
-        side_effect=RuntimeError("catalog unavailable"),
+    with (
+        patch.object(
+            cross_match,
+            "get_gaia_qso_catalog",
+            side_effect=RuntimeError("catalog unavailable"),
+        ),
+        pytest.raises(cross_match.CatalogQueryFailed, match="GaiaQSO"),
     ):
-        result = cross_match.get_gaia_qso_candidates(pos, radius=3 * u.arcsec)
-
-    assert len(result) == 0
-    assert set(cross_match.CROSS_MATCH_DTYPE.names).issubset(set(result.colnames))
+        cross_match.get_gaia_qso_candidates(pos, radius=3 * u.arcsec)
 
 
 def test_compute_cross_matches_gaia_qso():
