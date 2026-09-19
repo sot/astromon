@@ -1445,8 +1445,10 @@ def get_gaia_agn(
     try:
         catalog = get_gaia_agn_catalog()
     except Exception as exc:
-        logger.warning(f"{logging_tag}GaiaAGN catalog unavailable: {exc}")
-        return table.Table(dtype=CROSS_MATCH_DTYPE)
+        # Returning an empty table here reports an absence that was never measured.
+        raise CatalogQueryFailed(
+            f"{logging_tag}GaiaAGN catalog unavailable: {exc}"
+        ) from exc
     return _local_catalog_near(catalog, "GaiaAGN", pos, radius, logging_tag)
 
 
@@ -1489,8 +1491,10 @@ def get_gaia_qso_candidates(
     try:
         catalog = get_gaia_qso_catalog()
     except Exception as exc:
-        logger.warning(f"{logging_tag}GaiaQSO catalog unavailable: {exc}")
-        return table.Table(dtype=CROSS_MATCH_DTYPE)
+        # Returning an empty table here reports an absence that was never measured.
+        raise CatalogQueryFailed(
+            f"{logging_tag}GaiaQSO catalog unavailable: {exc}"
+        ) from exc
     return _local_catalog_near(catalog, "GaiaQSO", pos, radius, logging_tag)
 
 
