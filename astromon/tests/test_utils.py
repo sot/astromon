@@ -52,6 +52,28 @@ def test_ciao_env_cache_not_polluted_by_workdir(tmp_path, clean_ciao_env_cache):
     assert "PFILES" not in ciao_b.env
 
 
+def test_ciao_env_cache_avoids_repeat_getenv_call(tmp_path, clean_ciao_env_cache):
+    """A cached prefix must not re-invoke the expensive `source ciao.sh` call.
+
+    CIAO_ENV.get(prefix, Ska.Shell.getenv(...)) evaluates the default argument
+    eagerly, so the subprocess call ran on every Ciao() construction regardless
+    of whether prefix was already cached.
+    """
+    prefix = tmp_path / "ciao"
+    (prefix / "param").mkdir(parents=True)
+
+    with patch.object(
+        utils.Ska.Shell, "getenv", return_value=_fake_ciao_env(prefix)
+    ) as mock_getenv:
+        utils.Ciao(prefix=prefix, logger="astromon")
+        assert mock_getenv.call_count == 1
+
+        utils.Ciao(prefix=prefix, logger="astromon")
+        assert mock_getenv.call_count == 1, (
+            "a cached prefix must not re-invoke Ska.Shell.getenv"
+        )
+
+
 def _fake_calalign_table():
     """A single-version calalign table, as calalign_from_files would return."""
     aca_misalign = np.tile(np.eye(3), (1, 1, 1))

@@ -124,9 +124,12 @@ class Ciao:
                 "different ciao_prefix (--ciao-prefix on the command line)."
             )
 
-        self.env = CIAO_ENV.get(
-            prefix, Ska.Shell.getenv(f"source {prefix}/bin/ciao.sh")
-        ).copy()
+        # dict.get's default argument is evaluated eagerly, so writing this as
+        # CIAO_ENV.get(prefix, Ska.Shell.getenv(...)) would source ciao.sh on
+        # every call regardless of whether prefix is already cached.
+        if prefix not in CIAO_ENV:
+            CIAO_ENV[prefix] = Ska.Shell.getenv(f"source {prefix}/bin/ciao.sh")
+        self.env = CIAO_ENV[prefix].copy()
 
         if "ASCDS_INSTALL" not in self.env:
             # conda-packaged CIAO: ciao.sh is a no-op so getenv returns an
