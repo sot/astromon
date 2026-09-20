@@ -50,6 +50,13 @@ def build_backfill_rows(dbfile) -> Table:
     n_sources = Counter(np.asarray(xray_src["obsid"]).tolist())
     n_xcorr = Counter(np.asarray(xcorr["obsid"]).tolist())
 
+    versions_done_by_obsid: dict[int, str] = {}
+    xray_obsids = np.asarray(xray_src["obsid"])
+    xray_methods = np.asarray(xray_src["detect_method"]).astype(str)
+    for obsid in np.unique(xray_obsids):
+        methods = sorted(set(xray_methods[xray_obsids == obsid]))
+        versions_done_by_obsid[int(obsid)] = ",".join(methods)
+
     try:
         existing = db.get_table("astromon_status", dbfile)
         already_tracked = set(np.asarray(existing["obsid"]).tolist())
@@ -65,6 +72,7 @@ def build_backfill_rows(dbfile) -> Table:
             "note": f"{n_sources[int(obsid)]} sources, {n_xcorr[int(obsid)]} xcorr "
             "(backfilled from existing astromon_obs)",
             "ascdsver": ascdsver,
+            "versions_done": versions_done_by_obsid.get(int(obsid), ""),
         }
         for obsid, ascdsver in zip(obsids, ascdsvers, strict=True)
         if int(obsid) not in already_tracked
@@ -85,8 +93,14 @@ def build_backfill_rows(dbfile) -> Table:
             "note": [row["note"] for row in to_add],
             "ascdsver": [row["ascdsver"] for row in to_add],
             "timestamp": [timestamp] * len(to_add),
+            "versions_done": [row["versions_done"] for row in to_add],
+            # This backfill only runs for obsids that reached astromon_obs via
+            # the pre-status-tracking pipeline, which had no --skip-catalog-match
+            # option -- every one of them went through a real catalog-match
+            # attempt, so True is the correct backfilled value, not a guess.
+            "catalog_matched": [1] * len(to_add),
         },
-        dtype=[np.int32, "S24", "S200", "S32", "S32"],
+        dtype=[np.int32, "S24", "S200", "S32", "S32", "S128", np.int32],
     )
 
 
