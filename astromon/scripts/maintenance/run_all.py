@@ -336,25 +336,6 @@ def main():  # noqa: PLR0915
                 cleanup=args.cleanup,
                 worker_timeout=args.worker_timeout,
             )
-
-            if args.preserve_workdir is not None:
-                # Mirror the Observation workdir layout: {base}/obs{obsid//1000:02d}/{obsid}
-                slot = f"obs{obsid // 1000:02d}"
-                src = args.workdir / slot / str(obsid)
-                dst = args.preserve_workdir / slot / str(obsid)
-                if src.exists():
-                    dst.parent.mkdir(parents=True, exist_ok=True)
-                    if dst.exists():
-                        # An older copy is already there (e.g. from a prior rsync or an
-                        # earlier run). The tree we just produced is the newer one, so
-                        # it wins -- keeping the stale copy would silently discard this
-                        # reprocessing and let a later rerun reuse the old cache/images.
-                        print(
-                            f"  obsid {obsid}: replacing stale {dst} with the "
-                            "workdir from this run"
-                        )
-                        shutil.rmtree(str(dst))
-                    shutil.move(str(src), str(dst))
         except Exception as exc:
             # This must never escape: a single obsid's own cleanup/bookkeeping
             # going wrong (e.g. os.killpg raising something other than
@@ -381,6 +362,38 @@ def main():  # noqa: PLR0915
                 "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
                 "log_file": "",
             }
+        else:
+            if args.preserve_workdir is not None:
+                try:
+                    # Mirror the Observation workdir layout:
+                    # {base}/obs{obsid//1000:02d}/{obsid}
+                    slot = f"obs{obsid // 1000:02d}"
+                    src = args.workdir / slot / str(obsid)
+                    dst = args.preserve_workdir / slot / str(obsid)
+                    if src.exists():
+                        dst.parent.mkdir(parents=True, exist_ok=True)
+                        if dst.exists():
+                            # An older copy is already there (e.g. from a prior rsync
+                            # or an earlier run). The tree we just produced is the
+                            # newer one, so it wins -- keeping the stale copy would
+                            # silently discard this reprocessing and let a later
+                            # rerun reuse the old cache/images.
+                            print(
+                                f"  obsid {obsid}: replacing stale {dst} with the "
+                                "workdir from this run"
+                            )
+                            shutil.rmtree(str(dst))
+                        shutil.move(str(src), str(dst))
+                except Exception as exc:
+                    # A workdir-preservation failure is orchestrator bookkeeping,
+                    # not the obsid's actual processing outcome -- run_one already
+                    # succeeded and recorded its real result in the DB, so `result`
+                    # (and this obsid's recorded status) must not be overwritten.
+                    print(
+                        f"  obsid {obsid}: preserve_workdir failed ({exc!r}); "
+                        f"processing result ({result['status']}) is unaffected"
+                    )
+                    traceback.print_exc()
 
         with write_lock:
             csv_writer.writerow(result)

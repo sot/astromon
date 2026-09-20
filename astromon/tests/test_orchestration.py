@@ -118,6 +118,72 @@ def test_preserve_workdir_replaces_stale_destination(tmp_path, monkeypatch):
     assert not (workdir / "obs14" / "14321").exists()
 
 
+def test_preserve_workdir_failure_does_not_overwrite_a_successful_result(
+    tmp_path, monkeypatch
+):
+    """A --preserve-workdir failure must not clobber run_one's real result.
+
+    run_one() and the preserve-workdir move used to share one try/except: if
+    run_one() succeeded (and the DB already durably recorded that success) but
+    the follow-up shutil.move then raised, the broad except overwrote the
+    genuine success result with a fabricated failure, so tracking.csv
+    permanently misrepresented a successful obsid as failed and a later run
+    would silently reprocess it.
+    """
+    workdir = tmp_path / "work"
+    preserve = tmp_path / "preserve"
+    _make_tree(workdir, "fresh")
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_all",
+            "--db-file",
+            str(tmp_path / "astromon.h5"),
+            "--workdir",
+            str(workdir),
+            "--obsid-list",
+            str(tmp_path / "obsids.txt"),
+            "--log-dir",
+            str(tmp_path / "logs"),
+            "--tracking-csv",
+            str(tmp_path / "tracking.csv"),
+            "--preserve-workdir",
+            str(preserve),
+        ],
+    )
+    (tmp_path / "obsids.txt").write_text("14321\n")
+
+    with (
+        patch.object(
+            run_all,
+            "run_one",
+            return_value={
+                "obsid": 14321,
+                "status": "success",
+                "note": "",
+                "returncode": 0,
+                "elapsed_sec": 1.0,
+                "timestamp": "2026-08-21T00:00:00",
+                "log_file": "x.log",
+            },
+        ),
+        patch.object(
+            run_all.shutil, "move", side_effect=OSError("destination is read-only")
+        ),
+    ):
+        run_all.main()
+
+    with open(tmp_path / "tracking.csv") as f:
+        rows = list(csv.DictReader(f))
+
+    assert len(rows) == 1
+    assert rows[0]["status"] == "success", (
+        "a preserve-workdir failure must not overwrite run_one's real result"
+    )
+
+
 def test_kill_process_group_swallows_permission_error(monkeypatch):
     """os.killpg raising EPERM is treated the same as ESRCH: nothing left to kill.
 
