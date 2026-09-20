@@ -378,11 +378,20 @@ def save(  # noqa: PLR0912
                         ]
                 elif has_detect:
                     # Key on (obsid, detect_method) so different methods coexist.
+                    # Rows stored before this table had a detect_method column were
+                    # backfilled to b"" by _cast_to_dtype above and can never match a
+                    # real method value on this key, so they would otherwise never be
+                    # replaced. Also drop any same-obsid row with a blank
+                    # detect_method: it predates per-method tracking and is
+                    # superseded by any new write for that obsid.
                     for obsid, method in np.unique(data[["obsid", "detect_method"]]):
                         data_out = data_out[
                             ~(
                                 (data_out["obsid"] == obsid)
-                                & (data_out["detect_method"] == method)
+                                & (
+                                    (data_out["detect_method"] == method)
+                                    | (data_out["detect_method"] == b"")
+                                )
                             )
                         ]
                 else:

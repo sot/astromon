@@ -786,6 +786,55 @@ def test_save_schema_migration_zero_fills_new_column():
     assert int(new_row_result["brightest"][0]) == 1
 
 
+def test_save_detect_method_key_replaces_pre_migration_rows():
+    """save() must not leave a stale duplicate row behind for a pre-detect_method obsid.
+
+    Before detect_method existed, an obsid had exactly one row per source. save()
+    now keys replacement on (obsid, detect_method) once that column is present, but
+    _cast_to_dtype backfills old rows with detect_method=b"" -- which can never
+    match a new row's real method value. Saving new data for that obsid must still
+    replace the old row instead of leaving it alongside the new one.
+    """
+    import tables as tb
+
+    old_dtype = np.dtype(
+        [
+            (n, db.ASTROMON_XRAY_SRC_DTYPE[n])
+            for n in db.ASTROMON_XRAY_SRC_DTYPE.names
+            if n != "detect_method"
+        ]
+    )
+    new_dtype = db.ASTROMON_XRAY_SRC_DTYPE
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dbfile = Path(tmpdir) / "detect_method_migration_test.h5"
+
+        old_row = np.zeros(1, dtype=old_dtype)
+        old_row["obsid"] = 3333
+        old_row["id"] = 1
+        old_row["snr"] = 5.0
+        with tb.open_file(str(dbfile), "a") as h5:
+            h5.create_table("/", "astromon_xray_src", old_dtype, "xray src")
+            node = h5.root.astromon_xray_src
+            node.append(old_row)
+
+        new_row = Table(np.zeros(1, dtype=new_dtype))
+        new_row["obsid"] = 3333
+        new_row["id"] = 1
+        new_row["snr"] = 9.0
+        new_row["detect_method"] = "celldetect"
+        db.save("astromon_xray_src", new_row, dbfile)
+
+        result = db.get_table("astromon_xray_src", dbfile)
+
+    obsid_rows = result[result["obsid"] == 3333]
+    assert len(obsid_rows) == 1, (
+        "pre-migration row with blank detect_method must be replaced, not "
+        f"duplicated: got {len(obsid_rows)} rows"
+    )
+    assert float(obsid_rows["snr"][0]) == 9.0
+
+
 def _xcorr_row(
     *,
     select_name: str,
