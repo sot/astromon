@@ -659,3 +659,48 @@ def test_stale_seq_summary_cache_is_refreshed_for_missing_fields(tmp_path, monke
     assert seq["instr"] == "ACIS-S"
     assert seq["mode"] == "TE"
     assert seq["d_cyc"] == "N"
+
+
+def test_transient_ocat_failure_is_not_cached(tmp_path, monkeypatch):
+    """A transient ocat outage must not permanently poison the seq_summary cache.
+
+    _get_sequence_summary used to be the @stored_result-decorated method itself,
+    so when both get_ocat_local and get_ocat_web raised, the "Unknown"/instr=""
+    fallback it returned got cached to disk exactly like a real result. Every
+    later call (network back up or not) then read that stale fallback forever --
+    is_selected() reads instr=="" as not-selected, so the obsid was silently
+    dropped from processing until someone manually deleted the cache file.
+    """
+
+    def _raise(obsid):
+        raise ConnectionError("ocat unreachable")
+
+    obs = _obs(tmp_path)
+    monkeypatch.setattr(observation.cda, "get_ocat_local", _raise)
+    monkeypatch.setattr(observation.cda, "get_ocat_web", _raise)
+
+    seq = obs._get_sequence_summary()
+    assert seq["instr"] == ""
+    assert seq["category_id"] == 200
+
+    # The network recovers. A second call must retry, not read a cached failure.
+    monkeypatch.setattr(
+        observation.cda,
+        "get_ocat_local",
+        lambda obsid: {
+            "category": "BH AND NS BINARIES",
+            "prop_title": "new",
+            "pi_name": "new",
+            "observer": "new",
+            "obs_cycle": "23",
+            "instr": "ACIS-S",
+            "mode": "TE",
+            "d_cyc": "N",
+        },
+    )
+
+    seq = obs._get_sequence_summary()
+    assert seq["instr"] == "ACIS-S", (
+        "a transient ocat failure must not be cached -- the next call should "
+        "retry the real fetch, not read back a stale 'Unknown' result"
+    )
