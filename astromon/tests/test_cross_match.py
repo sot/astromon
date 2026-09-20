@@ -1,5 +1,6 @@
 import contextlib
 import os
+import threading
 import time
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -57,6 +58,163 @@ def skip_on_gaia_outage():
 
     if tap_errors:
         pytest.skip(f"Gaia archive unreachable: {tap_errors[0]!r}")
+
+
+def test_gaia_tap_retry_joins_in_flight_attempt_instead_of_duplicating(monkeypatch):
+    """A retry for the same query must not launch a second concurrent TAP job.
+
+    _run_with_timeout's daemon thread is not cancelled on timeout -- it keeps
+    running the real Gaia.launch_job/get_results() call server-side. Retrying
+    immediately used to start a brand new thread for the identical query,
+    submitting a second concurrent job to ESA's servers while the first was
+    still in flight.
+    """
+    monkeypatch.setattr(cross_match, "_GAIA_TAP_TIMEOUT_S", 0.05)
+    cross_match._GAIA_TAP_IN_FLIGHT.clear()
+
+    release = threading.Event()
+    launch_calls = []
+
+    class FakeJob:
+        def get_results(self):
+            release.wait(timeout=5)
+            return "the-real-result"
+
+    def fake_launch_job(query, **kwargs):
+        launch_calls.append(query)
+        return FakeJob()
+
+    query = "SELECT 1"
+    # retry's functools.wraps preserves the undecorated function, so the retry
+    # loop's own (slow) delay doesn't need to run for this test.
+    undecorated = cross_match._execute_gaia_tap_query.__wrapped__
+
+    with patch("astroquery.gaia.Gaia.launch_job", side_effect=fake_launch_job):
+        with pytest.raises(cross_match._CallTimeoutError):
+            undecorated(query)  # first attempt times out; its thread keeps running
+
+        # A retry for the SAME query must join the still-running attempt.
+        release.set()
+        result = undecorated(query)
+
+    assert result == "the-real-result"
+    assert len(launch_calls) == 1, "must not launch a duplicate concurrent TAP job"
+
+
+def test_gaia_tap_concurrent_callers_do_not_race_the_registry():
+    """Multiple genuinely concurrent callers for the same query must not crash
+    removing the shared in-flight registry entry.
+
+    Without a lock around the check-then-insert and the final delete, several
+    threads can all join the same in-flight thread and then all reach
+    ``del _GAIA_TAP_IN_FLIGHT[query]`` once it completes: the first delete
+    succeeds and every other one raises KeyError.
+    """
+    cross_match._GAIA_TAP_IN_FLIGHT.clear()
+
+    launch_calls = []
+
+    class FakeJob:
+        def get_results(self):
+            time.sleep(0.05)
+            return "the-real-result"
+
+    def fake_launch_job(query, **kwargs):
+        launch_calls.append(query)
+        return FakeJob()
+
+    query = "SELECT 1"
+    undecorated = cross_match._execute_gaia_tap_query.__wrapped__
+
+    results = []
+    errors = []
+
+    def call():
+        try:
+            results.append(undecorated(query))
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    with patch("astroquery.gaia.Gaia.launch_job", side_effect=fake_launch_job):
+        threads = [threading.Thread(target=call) for _ in range(5)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=5)
+
+    assert not errors, f"concurrent callers raised: {errors!r}"
+    assert results == ["the-real-result"] * 5
+    assert len(launch_calls) == 1, "must not launch a duplicate concurrent TAP job"
+
+
+def test_gaia_tap_entry_is_removed_after_the_only_caller_times_out(monkeypatch):
+    """A query whose only caller times out must not leave its entry behind forever.
+
+    Registry cleanup used to happen only inside a caller that successfully
+    joins the worker thread. If every caller for a query times out (e.g. all
+    three @retry attempts), no caller is left to remove the entry once the
+    worker eventually completes -- the finished thread and its result table
+    stayed resident in _GAIA_TAP_IN_FLIGHT for the rest of the process's
+    life. The worker must remove its own entry once it finishes, regardless
+    of whether anyone is still waiting on it.
+    """
+    monkeypatch.setattr(cross_match, "_GAIA_TAP_TIMEOUT_S", 0.05)
+    cross_match._GAIA_TAP_IN_FLIGHT.clear()
+
+    release = threading.Event()
+
+    class FakeJob:
+        def get_results(self):
+            release.wait(timeout=5)
+            return "the-real-result"
+
+    def fake_launch_job(query, **kwargs):
+        return FakeJob()
+
+    query = "SELECT 1"
+    undecorated = cross_match._execute_gaia_tap_query.__wrapped__
+
+    with patch("astroquery.gaia.Gaia.launch_job", side_effect=fake_launch_job):
+        with pytest.raises(cross_match._CallTimeoutError):
+            undecorated(query)  # the only caller times out; the worker keeps running
+
+        entry = cross_match._GAIA_TAP_IN_FLIGHT[query]
+
+        # No caller is left waiting on this query. Release the worker and wait
+        # for it to actually finish -- there is no other caller to join it, so
+        # the test does that directly instead of calling undecorated() again.
+        release.set()
+        entry["thread"].join(timeout=5)
+
+    assert query not in cross_match._GAIA_TAP_IN_FLIGHT, (
+        "the worker must remove its own entry once it completes, even when "
+        "every caller for this query already gave up waiting on it"
+    )
+
+
+def test_apply_proper_motion_near_pole_stays_bounded():
+    """A source at the celestial pole must not get a wildly corrupted corrected RA.
+
+    ra_corr divides by cos(dec), which is ~6e-17 (not exactly 0, so this never
+    raises ZeroDivisionError or produces literal inf) at dec = 90. Chandra does
+    observe near-polar declinations, so a nonzero proper motion there used to
+    produce a nonsensical ~10-arcmin-scale-times-a-billion RA offset instead of
+    a bounded, physically plausible correction.
+    """
+    ra_corr, dec_corr = cross_match._apply_proper_motion(
+        ra=10.0,
+        dec=90.0,
+        pmra=5.0,
+        pmdec=-2.0,
+        obs_epoch_yr=2026.0,
+        catalog_epoch_yr=2016.0,
+    )
+    # Unclipped, cos(radians(90)) ~ 6e-17 sends this into the hundreds of
+    # billions of degrees -- RA is genuinely degenerate exactly at the pole, so
+    # a large-but-bounded correction is expected; an astronomically huge one is
+    # the bug.
+    assert abs(ra_corr - 10.0) < 1000
+    assert np.isfinite(dec_corr)
 
 
 def _get_table(name, *args, **kawargs):

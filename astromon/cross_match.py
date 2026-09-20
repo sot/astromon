@@ -24,31 +24,7 @@ logger = logging.getLogger("astromon")
 
 
 class _CallTimeoutError(Exception):
-    """Raised by `_run_with_timeout` when the call doesn't finish in time."""
-
-
-def _run_with_timeout(func, args=(), kwargs=None, timeout=120):
-    """Run func in a daemon thread; raise _CallTimeoutError if it exceeds timeout seconds."""
-    if kwargs is None:
-        kwargs = {}
-    outcome = {}
-
-    def _target():
-        try:
-            outcome["value"] = func(*args, **kwargs)
-        except BaseException as e:
-            outcome["error"] = e
-
-    thread = threading.Thread(target=_target, daemon=True)
-    thread.start()
-    thread.join(timeout=timeout)
-    if thread.is_alive():
-        raise _CallTimeoutError(
-            f"{getattr(func, '__name__', func)} did not complete within {timeout}s"
-        )
-    if "error" in outcome:
-        raise outcome["error"]
-    return outcome["value"]
+    """Raised by `_execute_gaia_tap_query` when the call doesn't finish in time."""
 
 
 SIM_Z = {"ACIS-I": -233.587, "ACIS-S": -190.143, "HRC-I": 126.983, "HRC-S": 250.466}
@@ -921,6 +897,19 @@ VIZIER_CATALOGS = {
 }
 
 
+# Threads from a timed-out attempt are daemon threads, not cancelled -- they keep
+# running the actual TAP job server-side. Tracked here by query text so a retry
+# for the *same* query joins the still-running attempt instead of launching a
+# second concurrent job against the shared Gaia client.
+_GAIA_TAP_IN_FLIGHT = {}
+_GAIA_TAP_TIMEOUT_S = 120
+# Guards every read, insert and removal of _GAIA_TAP_IN_FLIGHT: two concurrent
+# callers for the same query text must not both decide to start a new thread
+# (the check-then-insert is not atomic without it), and must not both delete
+# the same completed entry (the second delete would raise KeyError).
+_GAIA_TAP_LOCK = threading.Lock()
+
+
 @retry(
     exceptions=(
         requests.exceptions.HTTPError,
@@ -946,7 +935,46 @@ def _execute_gaia_tap_query(query):
         job = Gaia.launch_job(query, verbose=False, upload_resource=None)
         return job.get_results()
 
-    return _run_with_timeout(_query, timeout=120)
+    with _GAIA_TAP_LOCK:
+        entry = _GAIA_TAP_IN_FLIGHT.get(query)
+        if entry is None or not entry["thread"].is_alive():
+            outcome = {}
+
+            def _target():
+                try:
+                    outcome["value"] = _query()
+                except BaseException as e:  # noqa: BLE001
+                    outcome["error"] = e
+                finally:
+                    # The worker removes its own entry once it finishes,
+                    # rather than leaving that to whichever caller joins it:
+                    # if every caller for this query times out (all three
+                    # retries), no caller is left to do it, and the completed
+                    # thread plus its result table would otherwise stay
+                    # resident in _GAIA_TAP_IN_FLIGHT for the rest of the
+                    # process's life. Guarded the same way a caller's cleanup
+                    # would be -- only remove the entry that is still this
+                    # worker's own, since a caller may have since started a
+                    # fresh one for the same query text after this thread
+                    # was (wrongly) judged dead by an is_alive() race.
+                    with _GAIA_TAP_LOCK:
+                        if _GAIA_TAP_IN_FLIGHT.get(query) is entry:
+                            del _GAIA_TAP_IN_FLIGHT[query]
+
+            thread = threading.Thread(target=_target, daemon=True)
+            entry = {"thread": thread, "outcome": outcome}
+            _GAIA_TAP_IN_FLIGHT[query] = entry
+            thread.start()
+
+    thread, outcome = entry["thread"], entry["outcome"]
+    thread.join(timeout=_GAIA_TAP_TIMEOUT_S)
+    if thread.is_alive():
+        raise _CallTimeoutError(
+            f"Gaia TAP query did not complete within {_GAIA_TAP_TIMEOUT_S}s: {query}"
+        )
+    if "error" in outcome:
+        raise outcome["error"]
+    return outcome["value"]
 
 
 def _apply_proper_motion(ra, dec, pmra, pmdec, obs_epoch_yr, catalog_epoch_yr=2016.0):
@@ -970,7 +998,11 @@ def _apply_proper_motion(ra, dec, pmra, pmdec, obs_epoch_yr, catalog_epoch_yr=20
     pmdec = np.where(np.isfinite(pmdec), pmdec, 0.0)
     delta_yr = obs_epoch_yr - catalog_epoch_yr
     mas_to_deg = 1.0 / 3_600_000.0
-    ra_corr = ra + pmra * delta_yr * mas_to_deg / np.cos(np.radians(dec))
+    # cos(dec) is always >= 0 for dec in [-90, 90], but reaches 0 at the poles.
+    # Chandra does observe near-polar declinations, so floor it rather than
+    # divide by (near-)zero and produce inf/NaN for a real source.
+    cos_dec = np.clip(np.cos(np.radians(dec)), 1e-6, None)
+    ra_corr = ra + pmra * delta_yr * mas_to_deg / cos_dec
     dec_corr = dec + pmdec * delta_yr * mas_to_deg
     return ra_corr, dec_corr
 
