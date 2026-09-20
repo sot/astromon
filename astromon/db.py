@@ -732,7 +732,13 @@ def get_regions(obsid=None, dbfile=None, radius=5 * u.arcmin):
     regions = get_table("astromon_regions", dbfile)
     if obsid is not None:
         astromon_obs = get_table("astromon_obs", dbfile)
-        obs_row = astromon_obs[astromon_obs["obsid"] == obsid][0]
+        matches = astromon_obs[astromon_obs["obsid"] == obsid]
+        if len(matches) == 0:
+            raise ValueError(
+                f"obsid {obsid} is not in astromon_obs; get_regions needs its "
+                "pointing to have already been processed into the database."
+            )
+        obs_row = matches[0]
         obs_loc = SkyCoord(obs_row["ra"] * u.deg, obs_row["dec"] * u.deg)
 
         loc = SkyCoord(regions["ra"] * u.deg, regions["dec"] * u.deg)
