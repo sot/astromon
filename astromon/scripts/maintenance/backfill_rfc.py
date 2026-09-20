@@ -209,6 +209,22 @@ def run_xcorr_for_obsids(
     return vstack(all_xcorr)
 
 
+def _drop_stale_xcorr_for_obsids(dbfile, obsids, select_names) -> None:
+    """Remove xcorr rows for `obsids` in any of `select_names`, if any exist."""
+    if not len(obsids):
+        return
+    xcorr = db.get_table("astromon_xcorr", dbfile=dbfile)
+    stale = np.isin(np.asarray(xcorr["obsid"]), obsids) & np.isin(
+        np.asarray(xcorr["select_name"]), select_names
+    )
+    if stale.any():
+        db.save("astromon_xcorr", xcorr[~stale], dbfile=dbfile, ignore_obsid=True)
+        logger.info(
+            f"  Dropped {int(stale.sum())} stale xcorr row(s) for {len(obsids):,} "
+            "obsid(s) that lost their ICRS/RFC candidate"
+        )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", required=True, type=Path)
@@ -235,6 +251,10 @@ def main() -> None:
     logger.info(
         f"  Removing {n_old:,} existing ICRS/RFC cat_src rows before RFC rebuild"
     )
+    old_rfc_obsids = np.unique(
+        existing_cat["obsid"][np.isin(existing_cat["catalog"], ["ICRS", "RFC"])]
+    )
+
     non_rfc_cat = existing_cat[~np.isin(existing_cat["catalog"], ["ICRS", "RFC"])]
 
     logger.info("Pass 1: building RFC cat_src")
@@ -290,9 +310,23 @@ def main() -> None:
     )
     logger.info(f"  {len(new_xcorr):,} total xcorr rows across all select_names")
 
+    # Obsids that had an ICRS/RFC row before this run but got none this time
+    # (no in-FOV RFC source, or their celldetect sources are gone) are not in
+    # rfc_obsids, so run_xcorr_for_obsids never touches them. But merged_cat
+    # (built from non_rfc_cat, which already excludes them) drops their old row
+    # regardless, leaving their xcorr row(s) for every RFC-including select_name
+    # pointing at a now-deleted cat_src id.
+    dropped_rfc_obsids = np.setdiff1d(old_rfc_obsids, rfc_obsids)
+
     if args.dry_run:
-        logger.info("  (dry-run: not writing to database)")
+        logger.info(
+            f"  (dry-run: not writing to database; would also drop stale xcorr "
+            f"for {len(dropped_rfc_obsids):,} obsid(s) that lost their ICRS/RFC "
+            "candidate)"
+        )
         return
+
+    _drop_stale_xcorr_for_obsids(args.db, dropped_rfc_obsids, select_names_with_rfc)
 
     if not len(new_rfc_cat):
         logger.warning("No RFC cat_src rows produced — nothing to save")
