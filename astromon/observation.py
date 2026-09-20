@@ -494,13 +494,15 @@ class Observation:
                 return ap
         return wp
 
-    @stored_result("seq_summary", fmt="json", subdir="cache")
-    def _get_sequence_summary(self, _cache_schema_version=2):
+    def _get_sequence_summary(self):
         """Get observation metadata (title, PI, category) from the Chandra ocat.
 
         Tries the local HDF5 ocat first (fast, available at CXC), then falls
-        back to the public CDA web service (works anywhere).  If both fail,
-        returns a default with category_id=200 (Unknown).
+        back to the public CDA web service (works anywhere).  If both fail
+        (e.g. a transient network/ocat outage), returns an in-memory default
+        with category_id=200 (Unknown) -- NOT cached, so the next call retries
+        the real fetch instead of being stuck with "Unknown" forever. Only a
+        genuine ocat response is cached, by :any:`_get_sequence_summary_cached`.
 
         Returns a dict with keys Title, PI, Observer, Subject Category, Cycle,
         category_id, instr (the ocat detector label, e.g. "ACIS-S"), mode (readout
@@ -510,6 +512,33 @@ class Observation:
         segments come back from the ocat with a blank or "NONE" instr, and mode/d_cyc
         line up with readmode/dtycycle (TE<->TIMED, CC<->CONTINUOUS) to better than
         99.99% across the archive.
+        """
+        summary = self._get_sequence_summary_cached()
+        if summary is not None:
+            return summary
+
+        logger.warning(f"{self} could not fetch ocat data; using Unknown category")
+        return {
+            "Title": "",
+            "PI": "",
+            "Observer": "",
+            "Subject Category": "NO MATCH",
+            "Cycle": "",
+            "category_id": 200,
+            "instr": "",
+            "mode": "",
+            "d_cyc": "",
+        }
+
+    @stored_result("seq_summary", fmt="json", subdir="cache")
+    def _get_sequence_summary_cached(self, _cache_schema_version=2) -> dict | None:
+        """Fetch ocat data and cache it, or return None (never cached) on failure.
+
+        ``@stored_result`` caches whatever this returns unconditionally, so a
+        transient fetch failure must never produce a value here -- returning
+        None means "no cached value" to StoredResult.__call__ just as much as
+        a genuine cache miss does, so the next call retries the real fetch
+        instead of trusting a stale failure forever.
 
         ``_cache_schema_version`` is never passed by a caller -- it exists only so
         @stored_result's argument hash (and therefore its cache filename) changes
@@ -532,18 +561,7 @@ class Observation:
                 logger.debug(f"{self} ocat fetch failed: {exc}")
 
         if ocat_row is None:
-            logger.warning(f"{self} could not fetch ocat data; using Unknown category")
-            return {
-                "Title": "",
-                "PI": "",
-                "Observer": "",
-                "Subject Category": "NO MATCH",
-                "Cycle": "",
-                "category_id": 200,
-                "instr": "",
-                "mode": "",
-                "d_cyc": "",
-            }
+            return None
 
         cda_category = str(ocat_row.get("category", "")).upper()
         category_id = CDA_CATEGORY_ID_MAP[cda_category]
