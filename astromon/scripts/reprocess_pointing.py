@@ -176,9 +176,13 @@ def recompute_angles(table_name, pointing):
     ra = np.asarray(t["RA" if "RA" in t.colnames else "ra"], dtype=float)
     dec = np.asarray(t["DEC" if "DEC" in t.colnames else "dec"], dtype=float)
 
-    y_angle = np.zeros(len(t), dtype=np.float32)
-    z_angle = np.zeros(len(t), dtype=np.float32)
-    n_updated = 0
+    # Start from the stored values, not zero: an obsid missing from `pointing`
+    # (get_corrected_pointing logs these as n_missing) must keep its existing
+    # angles rather than have them overwritten with 0.0, which reads as "source
+    # located exactly at the aimpoint" instead of "not recomputed".
+    y_angle = np.asarray(t["y_angle"], dtype=np.float32).copy()
+    z_angle = np.asarray(t["z_angle"], dtype=np.float32).copy()
+    updated = np.zeros(len(t), dtype=bool)
     for oid in np.unique(obsids):
         p = pointing.get(int(oid))
         if p is None:
@@ -186,13 +190,15 @@ def recompute_angles(table_name, pointing):
         sel = obsids == oid
         q = Quat(equatorial=p)
         y_angle[sel], z_angle[sel] = radec_to_yagzag(ra[sel], dec[sel], q)
-        n_updated += int(sel.sum())
+        updated |= sel
 
     t["y_angle"] = y_angle
     t["z_angle"] = z_angle
     if "r_angle" in t.colnames:
-        t["r_angle"] = np.sqrt(y_angle**2 + z_angle**2)
-    print(f"{table_name}: {n_updated} of {len(t)} rows recomputed")
+        r_angle = np.asarray(t["r_angle"], dtype=np.float32).copy()
+        r_angle[updated] = np.sqrt(y_angle[updated] ** 2 + z_angle[updated] ** 2)
+        t["r_angle"] = r_angle
+    print(f"{table_name}: {int(updated.sum())} of {len(t)} rows recomputed")
 
     if not DRY_RUN:
         db.save(table_name, t, DBFILE, ignore_obsid=True)
