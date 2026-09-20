@@ -810,6 +810,130 @@ def test_dependent_call_does_not_recurse_via_an_unrelated_tasks_variable():
     assert calls.count("download") == 1
 
 
+def test_dependent_reentrant_call_with_different_kwargs_still_checks_required_files():
+    """A re-entrant call with DIFFERENT kwargs than the in-progress outer call
+    must not skip its own required-files check.
+
+    The re-entrancy guard that stops the infinite-recursion case above is only
+    safe when the re-entrant call is the same parameterization as the outer
+    call: it was keyed on task name alone, so a re-entrant call to the same
+    Dependent with different kwargs (a different required_files set) took the
+    short-circuit branch too, silently skipping the missing-file check for its
+    own parameterization instead of raising FileNotFoundError.
+    """
+    TASKS = task.TaskManager()
+    TMPDIR = tempfile.TemporaryDirectory()
+
+    @TASKS.task(
+        name="do",
+        outputs={"do": "do_nothing.json"},
+    )
+    def do(obs, inputs=None, outputs=None):
+        with open(outputs["do"], "w") as f:
+            f.write("placeholder")
+
+    @TASKS.task(
+        name="unrelated_task",
+        outputs={"out": "unrelated_{flag}.json"},
+        variables={"flag": lambda obs: obs.method(name="bla")},
+    )
+    def unrelated_task(obs, inputs=None, outputs=None):
+        pass
+
+    class Data:
+        def __init__(self):
+            self.storage = stored_result.Storage(workdir=TMPDIR.name)
+            self.obsid = "1"
+
+        @property
+        def workdir(self):
+            return self.storage.workdir
+
+        def file_path(self, *args, **kwargs):
+            return self.storage.path(*args, **kwargs)
+
+        def file_glob(self, *args, **kwargs):
+            return self.storage.glob(*args, **kwargs)
+
+        def download(self, *args, **kwargs):
+            pass
+
+        @TASKS.dependencies(
+            download=["source"], required_files={"do": "do_{name}.json"}
+        )
+        def method(self, name="nothing"):
+            return {"name": name}
+
+    data = Data()
+
+    # The outer call (name="nothing") is in progress when unrelated_task's
+    # "flag" variable re-enters with name="bla" -- a different parameterization
+    # with no do_bla.json produced by any task. That must still raise, not
+    # silently short-circuit past the required-files check.
+    with pytest.raises(FileNotFoundError, match="do_bla.json"):
+        data.method(name="nothing")
+
+
+def test_dependent_reentrant_call_with_same_kwargs_still_checks_required_files():
+    """A re-entrant call with the SAME kwargs as the in-progress outer call
+    must still check its own required_files before running func(), not skip
+    straight to it.
+
+    The short-circuit branch skips run_tasks() (to avoid the infinite-recursion
+    case above), but the re-entrant call happens strictly *before* the outer
+    call reaches its own missing-files check (which only runs after run_tasks()
+    returns). Without also checking here, the re-entrant call would run func()
+    against a required file that may not exist, and any side effect or
+    exception it raises directly (rather than the intended, clear
+    FileNotFoundError) is what the caller of the re-entering task -- here,
+    unrelated_task's own "flag" variable -- actually observes.
+    """
+    TASKS = task.TaskManager()
+    TMPDIR = tempfile.TemporaryDirectory()
+
+    @TASKS.task(
+        name="unrelated_task",
+        outputs={"out": "unrelated_{flag}.json"},
+        variables={"flag": lambda obs: obs.method()},
+    )
+    def unrelated_task(obs, inputs=None, outputs=None):
+        pass
+
+    class Data:
+        def __init__(self):
+            self.storage = stored_result.Storage(workdir=TMPDIR.name)
+            self.obsid = "1"
+
+        @property
+        def workdir(self):
+            return self.storage.workdir
+
+        def file_path(self, *args, **kwargs):
+            return self.storage.path(*args, **kwargs)
+
+        def file_glob(self, *args, **kwargs):
+            return self.storage.glob(*args, **kwargs)
+
+        def download(self, *args, **kwargs):
+            pass
+
+        @TASKS.dependencies(
+            download=["source"], required_files={"do": "never_produced.json"}
+        )
+        def method(self):
+            # Should never run before required_files exist -- opening it
+            # directly crashes with a raw, unhelpful FileNotFoundError from
+            # open() instead of the clear "Missing files" one the guard is
+            # meant to raise first.
+            with open(self.file_path("never_produced.json")) as f:
+                return f.read()
+
+    data = Data()
+
+    with pytest.raises(FileNotFoundError, match="method failed. Missing files"):
+        data.method()
+
+
 @NEEDS_HEAD_NETWORK
 def test_grating_arm_obsid13712(tmp_path):
     """Obsid 13712 (GX 3+1, HETG/HRC-I): verify grating arm masking end-to-end.

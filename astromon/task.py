@@ -155,18 +155,27 @@ class Dependent:
         # that other task's parameters being computed in the first place (via
         # run_tasks() below), the result is infinite recursion: this method
         # never gets to cache a result before it is asked to produce one
-        # again. A re-entrant call only ever happens strictly after the
-        # download step below already ran, so it is safe to skip straight to
-        # running the underlying function rather than resolving dependencies
-        # (and re-triggering the same run_tasks() call) all over again.
+        # again. A re-entrant call skips straight to the missing-files check
+        # and then the underlying function, rather than resolving dependencies
+        # (and re-triggering the same run_tasks() call) all over again -- but
+        # it still runs that check itself: the re-entrant call happens from
+        # inside run_tasks(), strictly before the outer call reaches its own
+        # check below, so skipping it too would let the inner call run against
+        # a required file that does not exist yet.
+        # Keyed on (name, kwargs), not name alone: a re-entrant call with
+        # different kwargs than the in-progress outer call is a different
+        # parameterization (e.g. a different required_files set), and skipping
+        # its dependency/required-files checks would be unsafe.
+        in_progress_key = (self.name, tuple(sorted(kwargs.items())))
         in_progress = getattr(obs, "_dependents_in_progress", None)
         if in_progress is None:
             in_progress = set()
             obs._dependents_in_progress = in_progress
-        if self.name in in_progress:
+        if in_progress_key in in_progress:
+            self._raise_if_missing_required_files(obs, **kwargs)
             return self.func(obs, **kwargs)
 
-        in_progress.add(self.name)
+        in_progress.add(in_progress_key)
         try:
             if self._download:
                 obs.download(self._download)
@@ -191,18 +200,30 @@ class Dependent:
                     f"{self.name} failed. Dependency tasks failed: {msg}"
                 )
 
-            missing = {
-                name: value
-                for name, value in params["required_files"].items()
-                if not obs.file_path(value).exists()
-            }
-            if missing:
-                msg = ", ".join(f"{value}" for value in missing.values())
-                raise FileNotFoundError(f"{self.name} failed. Missing files: {msg}")
+            self._raise_if_missing_required_files(obs, params=params, **kwargs)
 
             return self.func(obs, **kwargs)
         finally:
-            in_progress.discard(self.name)
+            in_progress.discard(in_progress_key)
+
+    def _raise_if_missing_required_files(self, obs, params=None, **kwargs):
+        """Raise FileNotFoundError if any of this call's required_files is missing.
+
+        Pass `params` when the caller already computed it (the outer call, right
+        after run_tasks() resolved dependencies); otherwise it is computed fresh
+        from `kwargs` -- used by the re-entrant path in __call__, which must not
+        call run_tasks() again.
+        """
+        if params is None:
+            params = self.get_parameters(obs, **kwargs)
+        missing = {
+            name: value
+            for name, value in params["required_files"].items()
+            if not obs.file_path(value).exists()
+        }
+        if missing:
+            msg = ", ".join(f"{value}" for value in missing.values())
+            raise FileNotFoundError(f"{self.name} failed. Missing files: {msg}")
 
     def get_parameters(self, obs, **kwargs):
         """
