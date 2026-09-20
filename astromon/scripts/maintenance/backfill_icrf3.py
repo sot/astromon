@@ -214,6 +214,10 @@ def main() -> None:
     n_old_icrs = np.sum(existing_cat["catalog"] == "ICRS")
     logger.info(f"  Existing ICRS cat_src rows: {n_old_icrs:,}")
 
+    old_icrs_obsids = np.unique(
+        existing_cat["obsid"][existing_cat["catalog"] == "ICRS"]
+    )
+
     non_icrs_cat = existing_cat[existing_cat["catalog"] != "ICRS"]
 
     # Pass 1: build new ICRS cat_src from ICRF3.
@@ -232,9 +236,35 @@ def main() -> None:
     new_xcorr = run_xcorr_for_obsids(icrs_obsids, merged_cat, new_xray, new_obs)
     logger.info(f"  {len(new_xcorr):,} astromon_21 xcorr rows")
 
+    # Obsids that had an ICRS row before this run but got none this time (no
+    # in-FOV ICRF3 source, or their celldetect sources are gone) are not in
+    # icrs_obsids, so run_xcorr_for_obsids never touches them. But the
+    # replace_keys=("catalog",) save below deletes their old ICRS row anyway
+    # (it matches on catalog alone, not obsid), leaving their astromon_21 xcorr
+    # row(s) pointing at a now-deleted cat_src id.
+    dropped_icrs_obsids = np.setdiff1d(old_icrs_obsids, icrs_obsids)
+
     if args.dry_run:
+        if len(dropped_icrs_obsids):
+            logger.info(
+                f"  (dry-run: would also drop stale astromon_21 xcorr for "
+                f"{len(dropped_icrs_obsids):,} obsid(s) that lost their ICRS "
+                "candidate)"
+            )
         logger.info("  (dry-run: not writing to database)")
         return
+
+    if len(dropped_icrs_obsids):
+        xcorr = db.get_table("astromon_xcorr", dbfile=args.db)
+        stale = np.isin(np.asarray(xcorr["obsid"]), dropped_icrs_obsids) & (
+            np.asarray(xcorr["select_name"]) == "astromon_21"
+        )
+        if stale.any():
+            db.save("astromon_xcorr", xcorr[~stale], dbfile=args.db, ignore_obsid=True)
+            logger.info(
+                f"  Dropped {int(stale.sum())} stale astromon_21 xcorr row(s) for "
+                f"{len(dropped_icrs_obsids):,} obsid(s) that lost their ICRS candidate"
+            )
 
     if not len(new_icrs_cat):
         logger.warning("No ICRS cat_src rows produced — nothing to save")
