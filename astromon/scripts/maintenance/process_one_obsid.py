@@ -61,15 +61,33 @@ def _start_parent_watchdog() -> None:
         while True:
             time.sleep(5)
             if os.getppid() != expected_ppid:
-                # Parent is gone — kill our entire process group.
-                for sig in (signal.SIGTERM, signal.SIGKILL):
-                    try:
-                        os.killpg(os.getpgrp(), sig)
-                    except Exception:
-                        pass
-                    time.sleep(3)
+                _self_kill_process_group()
 
     threading.Thread(target=_watch, daemon=True).start()
+
+
+def _self_kill_process_group() -> None:
+    """Send SIGTERM then SIGKILL to this process's own process group.
+
+    Called once the watchdog thread has detected that the orchestrating
+    parent is gone. Both ProcessLookupError (ESRCH: already gone) and
+    PermissionError (EPERM: macOS has been observed to raise this instead of
+    ESRCH for a pgid whose leader already exited) are expected outcomes --
+    nothing left to kill. Anything else is a real, unexpected failure to
+    self-kill after the orchestrator has already vanished, and is worth a
+    trace: the alternative is an orphaned worker (and its CIAO grandchildren)
+    left running with no record of why the self-kill didn't take effect.
+    """
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(os.getpgrp(), sig)
+        except (ProcessLookupError, PermissionError):
+            pass
+        except Exception:
+            logging.getLogger("astromon").exception(
+                "watchdog: os.killpg failed unexpectedly"
+            )
+        time.sleep(3)
 
 
 def emit_result(**fields):
