@@ -91,3 +91,27 @@ def test_main_drops_stale_xcorr_for_an_obsid_that_lost_its_icrs_candidate(
         "astromon_21 xcorr row"
     )
     assert OBSID_DROP not in np.asarray(cat_src["obsid"])
+
+
+def test_build_icrs_cat_src_matches_across_ra_meridian():
+    """A real ICRF3 match just across RA=0/360 must not be dropped by the cone filter.
+
+    The cone pre-filter computed dra = (cat_ra - aimpoint_ra) * cos_dec with no
+    wraparound handling: an obsid at ra=0.05 and a catalog source at ra=359.98
+    are ~0.07 deg apart on the sky, but the unwrapped difference is ~-359.93,
+    so the cone check silently rejected the match.
+    """
+    obsid = 1003
+    aimpoint_ra, dec = 0.05, 10.0
+    source_ra = 359.98
+
+    obspar = _obs_row(obsid, ra=aimpoint_ra, dec=dec)
+    celldetect_xray = _xray_row(obsid, 1, aimpoint_ra, dec)
+    icrf3 = Table({"name": ["ICRF3-meridian"], "ra": [source_ra], "dec": [dec]})
+    existing_cat = Table(dtype=db.ASTROMON_CAT_SRC_DTYPE)
+
+    new_cat = bf.build_icrs_cat_src(icrf3, celldetect_xray, obspar, existing_cat)
+
+    assert len(new_cat) == 1, (
+        "a source ~0.07 deg away across the RA=0/360 meridian must be matched"
+    )

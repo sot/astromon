@@ -79,6 +79,26 @@ def test_build_icrf3_cat_src_anchors_to_celldetect_not_x_id():
     assert list(new_cat["celldetect_x_id"]) == [3]
 
 
+def test_build_icrf3_cat_src_matches_across_ra_meridian():
+    """A real ICRF3 match just across RA=0/360 must not be dropped by the cone filter."""
+    obsid = 88202
+    aimpoint_ra, dec = 0.05, 10.0
+    source_ra = 359.98
+
+    obspar = _obs_row(obsid, ra=aimpoint_ra, dec=dec)
+    celldetect_xray = _xray_row(obsid, 1, "celldetect", aimpoint_ra, dec)
+    icrf3 = _icrf3_catalog(source_ra, dec, name="ICRF3-meridian")
+    existing_cat = Table(dtype=db.ASTROMON_CAT_SRC_DTYPE)
+
+    new_cat = bf.build_icrf3_cat_src(
+        icrf3, celldetect_xray, obspar, np.array([obsid]), existing_cat
+    )
+
+    assert len(new_cat) == 1, (
+        "a source ~0.07 deg away across the RA=0/360 meridian must be matched"
+    )
+
+
 def test_run_icrf3_xcorr_populates_both_detect_methods():
     """The exact failure mode from review: xcorr populated for only one method."""
     ra, dec = 150.0, 2.0

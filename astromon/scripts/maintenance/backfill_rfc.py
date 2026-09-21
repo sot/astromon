@@ -88,7 +88,11 @@ def build_rfc_cat_src(
         aimpoint_dec = float(obs_row["dec"])
 
         cos_dec = np.cos(np.radians(aimpoint_dec))
-        dra = (cat_ra - aimpoint_ra) * cos_dec
+        # Wrap into (-180, 180] before scaling: without this, a source just
+        # across the RA=0/360 meridian looks ~360 deg away instead of ~0, and
+        # every counterpart on the other side of the meridian is silently
+        # dropped (cross_match.rows_near_positions has the same fix).
+        dra = ((cat_ra - aimpoint_ra + 180.0) % 360.0 - 180.0) * cos_dec
         ddec = cat_dec - aimpoint_dec
         in_fov = np.sqrt(dra**2 + ddec**2) < _FOV_RADIUS_DEG
 
