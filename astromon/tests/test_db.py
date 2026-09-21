@@ -3,7 +3,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from astropy.table import Table
+from astropy.table import Table, vstack
 
 from astromon import db, utils
 
@@ -652,3 +652,484 @@ def test_region_sync_2_1_rm():
         result[cols].pprint(max_width=-1, max_lines=-1)
         for col in cols:
             assert np.all(result[col] == ref_4[col]), f"{col} after rsync 1 -> 3"
+
+
+# ---------------------------------------------------------------------------
+# _cast_to_dtype tests
+# ---------------------------------------------------------------------------
+
+
+def test_cast_to_dtype_identity_when_dtypes_match():
+    """Returns the input array unchanged when the dtype already matches."""
+    dtype = np.dtype([("obsid", np.int32), ("snr", np.float32)])
+    arr = np.zeros(3, dtype=dtype)
+    arr["obsid"] = [10, 20, 30]
+    arr["snr"] = [5.0, 8.0, 3.0]
+
+    result = db._cast_to_dtype(arr, dtype)
+
+    assert result is arr  # same object, not a copy
+
+
+def test_cast_to_dtype_zero_fills_missing_field():
+    """New fields not present in the source array are zero-filled."""
+    old_dtype = np.dtype([("obsid", np.int32), ("snr", np.float32)])
+    new_dtype = np.dtype(
+        [("obsid", np.int32), ("snr", np.float32), ("brightest", np.int32)]
+    )
+
+    arr = np.zeros(4, dtype=old_dtype)
+    arr["obsid"] = [1, 2, 3, 4]
+    arr["snr"] = [5.0, 10.0, 3.0, 7.0]
+
+    result = db._cast_to_dtype(arr, new_dtype)
+
+    assert result.dtype == new_dtype
+    np.testing.assert_array_equal(result["obsid"], [1, 2, 3, 4])
+    np.testing.assert_array_almost_equal(result["snr"], [5.0, 10.0, 3.0, 7.0])
+    np.testing.assert_array_equal(result["brightest"], [0, 0, 0, 0])
+
+
+def test_cast_to_dtype_preserves_existing_values():
+    """Columns present in both old and new dtype keep their values."""
+    old_dtype = np.dtype(
+        [("obsid", np.int32), ("snr", np.float32), ("acis_streak", np.int32)]
+    )
+    new_dtype = np.dtype(
+        [
+            ("obsid", np.int32),
+            ("snr", np.float32),
+            ("acis_streak", np.int32),
+            ("brightest", np.int32),
+        ]
+    )
+
+    arr = np.zeros(3, dtype=old_dtype)
+    arr["obsid"] = [10, 20, 30]
+    arr["snr"] = [2.0, 9.0, 4.0]
+    arr["acis_streak"] = [0, 1, 0]
+
+    result = db._cast_to_dtype(arr, new_dtype)
+
+    np.testing.assert_array_equal(result["obsid"], [10, 20, 30])
+    np.testing.assert_array_almost_equal(result["snr"], [2.0, 9.0, 4.0])
+    np.testing.assert_array_equal(result["acis_streak"], [0, 1, 0])
+    np.testing.assert_array_equal(result["brightest"], [0, 0, 0])
+
+
+def test_save_schema_migration_zero_fills_new_column():
+    """save() correctly migrates an existing HDF5 table that lacks a new column.
+
+    Simulates the real scenario: DB written before 'brightest' was added,
+    then save() is called with data conforming to the new dtype. Existing rows
+    must have the new column zero-filled, while the newly saved rows carry
+    the real values.
+    """
+    import tables as tb
+
+    # Old dtype: astromon_xray_src minus 'brightest'
+    old_dtype = np.dtype(
+        [
+            (n, db.ASTROMON_XRAY_SRC_DTYPE[n])
+            for n in db.ASTROMON_XRAY_SRC_DTYPE.names
+            if n != "brightest"
+        ]
+    )
+    new_dtype = db.ASTROMON_XRAY_SRC_DTYPE
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dbfile = Path(tmpdir) / "migration_test.h5"
+
+        # Write a row for obsid=1111 directly with the OLD schema.
+        old_row = np.zeros(1, dtype=old_dtype)
+        old_row["obsid"] = 1111
+        old_row["id"] = 1
+        old_row["snr"] = 12.0
+        old_row["acis_streak"] = 1
+        with tb.open_file(str(dbfile), "a") as h5:
+            h5.create_table("/", "astromon_xray_src", old_dtype, "xray src")
+            node = h5.root.astromon_xray_src
+            node.append(old_row)
+
+        # Now save new data for obsid=2222 using the current (new) dtype.
+        new_row = Table(np.zeros(1, dtype=new_dtype))
+        new_row["obsid"] = 2222
+        new_row["id"] = 1
+        new_row["snr"] = 8.0
+        new_row["brightest"] = 1
+        db.save("astromon_xray_src", new_row, dbfile)
+
+        result = db.get_table("astromon_xray_src", dbfile)
+
+    # Both obsids present.
+    assert set(result["obsid"]) == {1111, 2222}
+
+    # Non-string column names must match exactly (HDF5 returns Unicode strings
+    # for byte-string columns, so skip those — same caveat as test_dtypes above).
+    non_string_names = [n for n in new_dtype.names if new_dtype[n].char != "S"]
+    assert result.dtype.names == new_dtype.names, "column names and order must match"
+    mismatched = [
+        (n, result.dtype[n], new_dtype[n])
+        for n in non_string_names
+        if result.dtype[n] != new_dtype[n]
+    ]
+    assert not mismatched, f"non-string dtypes differ: {mismatched}"
+
+    old_row_result = result[result["obsid"] == 1111]
+    new_row_result = result[result["obsid"] == 2222]
+
+    # Old row: 'brightest' was not in the original table, must be zero-filled.
+    assert int(old_row_result["brightest"][0]) == 0
+    assert int(old_row_result["acis_streak"][0]) == 1
+
+    # New row: 'brightest' was explicitly set to 1.
+    assert int(new_row_result["brightest"][0]) == 1
+
+
+def test_save_detect_method_key_replaces_pre_migration_rows():
+    """save() must not leave a stale duplicate row behind for a pre-detect_method obsid.
+
+    Before detect_method existed, an obsid had exactly one row per source. save()
+    now keys replacement on (obsid, detect_method) once that column is present, but
+    _cast_to_dtype backfills old rows with detect_method=b"" -- which can never
+    match a new row's real method value. Saving new data for that obsid must still
+    replace the old row instead of leaving it alongside the new one.
+    """
+    import tables as tb
+
+    old_dtype = np.dtype(
+        [
+            (n, db.ASTROMON_XRAY_SRC_DTYPE[n])
+            for n in db.ASTROMON_XRAY_SRC_DTYPE.names
+            if n != "detect_method"
+        ]
+    )
+    new_dtype = db.ASTROMON_XRAY_SRC_DTYPE
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dbfile = Path(tmpdir) / "detect_method_migration_test.h5"
+
+        old_row = np.zeros(1, dtype=old_dtype)
+        old_row["obsid"] = 3333
+        old_row["id"] = 1
+        old_row["snr"] = 5.0
+        with tb.open_file(str(dbfile), "a") as h5:
+            h5.create_table("/", "astromon_xray_src", old_dtype, "xray src")
+            node = h5.root.astromon_xray_src
+            node.append(old_row)
+
+        new_row = Table(np.zeros(1, dtype=new_dtype))
+        new_row["obsid"] = 3333
+        new_row["id"] = 1
+        new_row["snr"] = 9.0
+        new_row["detect_method"] = "celldetect"
+        db.save("astromon_xray_src", new_row, dbfile)
+
+        result = db.get_table("astromon_xray_src", dbfile)
+
+    obsid_rows = result[result["obsid"] == 3333]
+    assert len(obsid_rows) == 1, (
+        "pre-migration row with blank detect_method must be replaced, not "
+        f"duplicated: got {len(obsid_rows)} rows"
+    )
+    assert float(obsid_rows["snr"][0]) == 9.0
+
+
+def _xcorr_row(
+    *,
+    select_name: str,
+    obsid: int = 7001,
+    detect_method: str = "celldetect",
+    c_id: int = 10,
+    x_id: int = 20,
+    dy: float = 0.1,
+    dz: float = 0.2,
+    dr: float = 0.3,
+) -> Table:
+    """Build a one-row astromon_xcorr table using the current DB dtype."""
+    row = Table(np.zeros(1, dtype=db.ASTROMON_XCORR_DTYPE))
+    row["select_name"] = select_name
+    row["obsid"] = obsid
+    row["c_id"] = c_id
+    row["x_id"] = x_id
+    row["dy"] = dy
+    row["dz"] = dz
+    row["dr"] = dr
+    row["detect_method"] = detect_method
+    return row
+
+
+def test_save_xcorr_select_name_key_preserves_other_select_names():
+    """select_name_key=True only replaces the matching select_name rows.
+
+    When saving a partial astromon_xcorr backfill (e.g. gaia_agn only), rows for
+    other select_names with the same obsid+detect_method must remain untouched.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dbfile = Path(tmpdir) / "select_name_key_test.h5"
+
+        original = vstack(
+            [
+                _xcorr_row(select_name="astromon_21", dy=1.1, dz=1.2, dr=1.3),
+                _xcorr_row(select_name="gaia_agn", dy=2.1, dz=2.2, dr=2.3),
+            ],
+            metadata_conflicts="silent",
+        )
+        db.save("astromon_xcorr", original, dbfile)
+
+        updated = _xcorr_row(select_name="gaia_agn", dy=9.1, dz=9.2, dr=9.3)
+        db.save("astromon_xcorr", updated, dbfile, select_name_key=True)
+
+        result = db.get_table("astromon_xcorr", dbfile)
+
+    assert len(result) == 2
+
+    astromon_21 = result[result["select_name"] == "astromon_21"]
+    gaia_agn = result[result["select_name"] == "gaia_agn"]
+
+    assert len(astromon_21) == 1
+    assert len(gaia_agn) == 1
+    np.testing.assert_allclose(astromon_21["dy"], [1.1])
+    np.testing.assert_allclose(astromon_21["dz"], [1.2])
+    np.testing.assert_allclose(astromon_21["dr"], [1.3])
+    np.testing.assert_allclose(gaia_agn["dy"], [9.1])
+    np.testing.assert_allclose(gaia_agn["dz"], [9.2])
+    np.testing.assert_allclose(gaia_agn["dr"], [9.3])
+
+
+def test_save_xcorr_without_select_name_key_replaces_all_select_names_for_method():
+    """Default save() behavior still replaces all rows for obsid+detect_method."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dbfile = Path(tmpdir) / "detect_method_key_test.h5"
+
+        original = vstack(
+            [
+                _xcorr_row(select_name="astromon_21", dy=1.1),
+                _xcorr_row(select_name="gaia_agn", dy=2.2),
+            ],
+            metadata_conflicts="silent",
+        )
+        db.save("astromon_xcorr", original, dbfile)
+
+        replacement = _xcorr_row(select_name="gaia_agn", dy=7.7)
+        db.save("astromon_xcorr", replacement, dbfile)
+
+        result = db.get_table("astromon_xcorr", dbfile)
+
+    assert len(result) == 1
+    assert result["select_name"].tolist() == ["gaia_agn"]
+    np.testing.assert_allclose(result["dy"], [7.7])
+
+
+def _stored_dtype(dtype: np.dtype, extra_fields=()) -> np.dtype:
+    """On-disk (pytables) form of a DB dtype: unicode columns become bytes."""
+    fields = [
+        (
+            name,
+            f"S{dtype[name].itemsize // 4}" if dtype[name].kind == "U" else dtype[name],
+        )
+        for name in dtype.names
+    ]
+    return np.dtype(fields + list(extra_fields))
+
+
+def _write_raw_db(dbfile, xray_extra_fields=(), xray_extra_values=None):
+    """Create an astromon HDF5 file directly, bypassing db.save's dtype cast.
+
+    This is how a database written by an older code version looks: it can carry
+    columns that the current schema no longer has.
+    """
+    import tables
+
+    xray_dtype = _stored_dtype(db.ASTROMON_XRAY_SRC_DTYPE, xray_extra_fields)
+    xray = np.zeros(3, dtype=xray_dtype)
+    xray["obsid"] = [1, 2, 3]
+    xray["ra"] = [10.0, 20.0, 30.0]
+    for name, values in (xray_extra_values or {}).items():
+        xray[name] = values
+
+    xcorr = np.zeros(1, dtype=_stored_dtype(db.ASTROMON_XCORR_DTYPE))
+
+    with tables.open_file(str(dbfile), "w") as h5:
+        h5.create_table("/", "astromon_xray_src", xray)
+        h5.create_table("/", "astromon_xcorr", xcorr)
+
+
+def test_migrate_db_drops_retired_columns(monkeypatch):
+    """migrate() removes a retired column and preserves other data.
+
+    Nothing is currently retired (neither the production nor the dev database
+    has a column that isn't in the target schema), so this exercises the
+    drop mechanism itself via a placeholder column rather than a real one.
+    """
+    from astromon.scripts import migrate_db
+
+    monkeypatch.setitem(
+        migrate_db.RETIRED_COLUMNS, "astromon_xray_src", {"example_retired_column"}
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dbfile = Path(tmpdir) / "old_schema.h5"
+        _write_raw_db(
+            dbfile,
+            xray_extra_fields=[("example_retired_column", "<f4")],
+            xray_extra_values={"example_retired_column": [7.0, 8.0, 9.0]},
+        )
+
+        migrate_db.migrate(dbfile)
+
+        result = db.get_table("astromon_xray_src", dbfile)
+        assert "example_retired_column" not in result.colnames
+        np.testing.assert_allclose(sorted(result["ra"]), [10.0, 20.0, 30.0])
+        # A backup of the pre-migration file is left next to the original.
+        assert dbfile.with_suffix(".h5.pre_migrate").exists()
+
+
+def test_migrate_db_dry_run_leaves_file_unchanged(monkeypatch):
+    """migrate(dry_run=True) reports but does not modify the database."""
+    from astromon.scripts import migrate_db
+
+    monkeypatch.setitem(
+        migrate_db.RETIRED_COLUMNS, "astromon_xray_src", {"example_retired_column"}
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dbfile = Path(tmpdir) / "old_schema.h5"
+        _write_raw_db(
+            dbfile,
+            xray_extra_fields=[("example_retired_column", "<f4")],
+            xray_extra_values={"example_retired_column": [7.0, 8.0, 9.0]},
+        )
+        before = dbfile.read_bytes()
+
+        migrate_db.migrate(dbfile, dry_run=True)
+
+        assert dbfile.read_bytes() == before
+        assert not dbfile.with_suffix(".h5.pre_migrate").exists()
+
+
+def test_migrate_db_refuses_unknown_extra_column():
+    """A stored column not in the schema or the retired list raises instead of dropping."""
+    from astromon.scripts import migrate_db
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dbfile = Path(tmpdir) / "unknown_extra.h5"
+        _write_raw_db(dbfile, xray_extra_fields=[("mystery_column", "<f8")])
+
+        with pytest.raises(ValueError, match="mystery_column"):
+            migrate_db.migrate(dbfile)
+
+
+def test_migrate_db_fills_all_columns_on_a_real_pre_stack_schema():
+    """migrate() succeeds against the actual old production schema.
+
+    The other migrate_db tests all build their "old" table from
+    db.ASTROMON_XRAY_SRC_DTYPE, which already has every column the current
+    code expects -- they never exercise a table genuinely missing one. This
+    builds the schema as it existed before psfratio/concentration_ratio/
+    peak_offset/grating_arm/brightest/detect_method were added, matching a
+    real pre-stack database, and confirms every new column gets its
+    documented default rather than migrate() raising
+    "No default defined for new column".
+    """
+    from astromon.scripts import migrate_db
+
+    added_columns = {
+        "psfratio",
+        "concentration_ratio",
+        "peak_offset",
+        "grating_arm",
+        "brightest",
+        "detect_method",
+    }
+    old_dtype = _stored_dtype(db.ASTROMON_XRAY_SRC_DTYPE)
+    old_dtype = np.dtype(
+        [
+            (name, old_dtype[name])
+            for name in old_dtype.names
+            if name not in added_columns
+        ]
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dbfile = Path(tmpdir) / "real_old_schema.h5"
+        import tables
+
+        xray = np.zeros(3, dtype=old_dtype)
+        xray["obsid"] = [1, 2, 3]
+        xray["ra"] = [10.0, 20.0, 30.0]
+        xcorr = np.zeros(1, dtype=_stored_dtype(db.ASTROMON_XCORR_DTYPE))
+        with tables.open_file(str(dbfile), "w") as h5:
+            h5.create_table("/", "astromon_xray_src", xray)
+            h5.create_table("/", "astromon_xcorr", xcorr)
+
+        migrate_db.migrate(dbfile)
+
+        result = db.get_table("astromon_xray_src", dbfile)
+        np.testing.assert_allclose(sorted(result["ra"]), [10.0, 20.0, 30.0])
+        assert np.all(np.isnan(result["psfratio"]))
+        assert np.all(np.isnan(result["concentration_ratio"]))
+        assert np.all(np.isnan(result["peak_offset"]))
+        assert np.all(result["grating_arm"] == 0)
+        assert np.all(result["brightest"] == 0)
+        assert np.all(result["detect_method"] == "celldetect")
+
+
+def test_migrate_db_up_to_date_is_noop():
+    """A database already at the current schema is left untouched."""
+    from astromon.scripts import migrate_db
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dbfile = Path(tmpdir) / "current_schema.h5"
+        _write_raw_db(dbfile)
+        before = dbfile.read_bytes()
+
+        migrate_db.migrate(dbfile)
+
+        assert dbfile.read_bytes() == before
+
+
+def test_get_cross_matches_joins_legacy_blank_detect_method_rows():
+    """A legacy blank detect_method on one table must still join a real value
+    on the other.
+
+    astromon_xcorr and astromon_xray_src are saved independently, so one
+    table's rows for an obsid can carry a real detect_method (e.g.
+    "celldetect") while the other's are still blank ("") from before the
+    column existed. The keyed join in get_cross_matches() used to compare
+    detect_method literally, so a blank xcorr row for an obsid whose
+    xray_src row already has "celldetect" was silently dropped from the
+    result instead of being paired with it.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dbfile = Path(tmpdir) / "cross_matches_legacy.h5"
+
+        obs_row = Table(np.zeros(1, dtype=db.ASTROMON_OBS_DTYPE))
+        obs_row["obsid"] = 5555
+        obs_row["date_obs"] = "2020-01-01T00:00:00"
+        obs_row["category_id"] = 10
+        db.save("astromon_obs", obs_row, dbfile)
+
+        xray_row = Table(np.zeros(1, dtype=db.ASTROMON_XRAY_SRC_DTYPE))
+        xray_row["obsid"] = 5555
+        xray_row["id"] = 1
+        xray_row["detect_method"] = "celldetect"
+        db.save("astromon_xray_src", xray_row, dbfile)
+
+        cat_row = Table(np.zeros(1, dtype=db.ASTROMON_CAT_SRC_DTYPE))
+        cat_row["obsid"] = 5555
+        cat_row["id"] = 1
+        db.save("astromon_cat_src", cat_row, dbfile)
+
+        # Legacy xcorr row: written before detect_method existed, so it is
+        # backfilled to blank ("") rather than "celldetect".
+        xcorr_row = Table(np.zeros(1, dtype=db.ASTROMON_XCORR_DTYPE))
+        xcorr_row["select_name"] = "astromon_21"
+        xcorr_row["obsid"] = 5555
+        xcorr_row["c_id"] = 1
+        xcorr_row["x_id"] = 1
+        db.save("astromon_xcorr", xcorr_row, dbfile)
+
+        result = db.get_cross_matches("astromon_21", dbfile)
+
+    assert len(result) == 1

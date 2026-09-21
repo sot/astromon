@@ -102,6 +102,37 @@ Mapping between observation category names and numerical values.
 ARCHIVE_DIR = Path(os.environ["SKA"]) / "data" / "astromon" / "xray_observations"
 
 
+def _flag_brightest_source(snr_arr: np.ndarray) -> np.ndarray:
+    """Return a bool array with True for the single highest-SNR source.
+
+    NaN values are ignored. If all values are NaN, returns all False.
+
+    Parameters
+    ----------
+    snr_arr : np.ndarray
+        1-D array of SNR values (any float dtype, may contain NaN).
+
+    Returns
+    -------
+    np.ndarray
+        Boolean array of the same length; exactly one element is True
+        (the argmax over finite values), or all False if no finite values exist.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> _flag_brightest_source(np.array([3.0, 10.0, 5.0]))
+    array([False,  True, False])
+    >>> _flag_brightest_source(np.array([float('nan'), float('nan')]))
+    array([False, False])
+    """
+    snr = np.asarray(snr_arr, dtype=float)
+    result = np.zeros(len(snr), dtype=bool)
+    if np.any(np.isfinite(snr)):
+        result[int(np.argmax(np.where(np.isfinite(snr), snr, -np.inf)))] = True
+    return result
+
+
 @functools.cache
 def ciao_fails(ciao_prefix, workdir):
     try:
@@ -733,8 +764,9 @@ class Observation:
     @dependencies(
         optional_files={
             "sources": "sources/{obsid}_{version}.src",
-            "pileup": "images/{obsid}_pileup_smeared.img",
+            "pileup": "images/{obsid}_pileup_max.img",
             "acis_streaks": "images/{obsid}_acis_streaks.fits",
+            "grating_arm_mask": "images/{obsid}_grating_arm_mask.fits",
             "psf_size": "sources/{obsid}_psf_size_{version}.fits",
         },
     )
@@ -786,6 +818,17 @@ class Observation:
         sources["caldb_version"] = self.get_calalign()["caldb_version"]
         sources["pileup"] = self._pileup_value(sources)
         sources["acis_streak"] = self._on_acis_streak(sources)
+        sources["grating_arm"] = self._on_grating_arm(sources)
+
+        # Flag the single brightest source (highest SNR) in the observation.
+        # This is typically the calibration target; the flag lets downstream
+        # cross-matching include it even if it is also flagged acis_streak=True
+        # (e.g. when the grating dispersed spectrum triggers a streak detection).
+        snr_col = "SNR" if "SNR" in sources.colnames else "snr"
+        sources["brightest"] = _flag_brightest_source(sources[snr_col])
+
+        # Computed before the COMPONENT -> id rename below.
+        sources["peak_offset"] = self._peak_offset(sources)
 
         columns = [
             c
@@ -822,9 +865,14 @@ class Observation:
                 ("snr", ">f4"),
                 ("near_neighbor_dist", ">f8"),
                 ("psfratio", ">f4"),
+                ("concentration_ratio", ">f4"),
                 ("pileup", ">f4"),
                 ("acis_streak", "?"),
-                ("caldb_version", "<U6"),
+                ("grating_arm", "?"),
+                ("brightest", "?"),
+                ("caldb_version", "<U20"),
+                ("detect_method", "<U24"),
+                ("peak_offset", ">f4"),
             ]
         )
 
@@ -839,6 +887,16 @@ class Observation:
         if len(sources) == 0:
             return table.Table(dtype=dtype)
 
+        sources["detect_method"] = version
+
+        # Fill columns present in dtype but not produced by this detection version
+        # (e.g. concentration_ratio and psfratio are only computed by gaussian_detect
+        # and peak_gaussian_detect, not celldetect).
+        for col in dtype.names:
+            if col not in sources.colnames:
+                fill = np.nan if dtype[col].kind == "f" else 0
+                sources[col] = np.full(len(sources), fill, dtype=dtype[col])
+
         return (
             table.Table(sources[dtype.names], dtype=dtype)
             if astromon_format
@@ -846,7 +904,7 @@ class Observation:
         )
 
     def _pileup_value(self, src):
-        pileup_file = self.file_path(f"images/{self.obsid}_pileup_smeared.img")
+        pileup_file = self.file_path(f"images/{self.obsid}_pileup_max.img")
         if not pileup_file.exists():
             return np.zeros(len(src))
         hdus = fits.open(pileup_file)
@@ -872,7 +930,98 @@ class Observation:
                 polygons.append(regions.PolygonPixelRegion(vertices=vertices))
             pos = regions.PixCoord(x=src["X"], y=src["Y"])
             for pol in polygons:
-                result += pol.contains(pos)
+                result |= pol.contains(pos)
+        return result
+
+    def _peak_offset(self, src):
+        """Angular distance from each source to the peak-seeded Gaussian fit, arcsec.
+
+        The peak-seeded fit re-seeds from the local emission maximum instead of
+        the detection centroid, so how far it moves is a measure of how stable
+        the centroid is: a large offset means extended, confused, or faint
+        emission. Storing that distance is what lets peak_gaussian_detect stop
+        being persisted as its own detect_method.
+
+        Sources are paired on ``COMPONENT``, which every ``.src`` file in the
+        chain carries with the same values -- it is the celldetect component
+        number, threaded through both Gaussian fits.
+
+        Returns NaN where the offset is not measurable: no peak fit on disk, no
+        COMPONENT column, or a component the peak fit has no row for (the fit
+        can fail on a source celldetect found). NaN rather than 0 because 0 is a
+        meaningful value here -- perfect agreement -- and must not be
+        indistinguishable from "never measured".
+        """
+        result = np.full(len(src), np.nan)
+        peak_file = self.file_path(f"sources/{self.obsid}_peak_gaussian_detect.src")
+        if "COMPONENT" not in src.colnames or not peak_file.exists():
+            return result
+
+        peak = table.Table.read(peak_file)
+        if len(peak) == 0:
+            return result
+        peak_pos = {
+            int(component): (float(ra), float(dec))
+            for component, ra, dec in zip(
+                peak["COMPONENT"], peak["RA"], peak["DEC"], strict=True
+            )
+        }
+
+        rows = [
+            (i, peak_pos[int(component)])
+            for i, component in enumerate(src["COMPONENT"])
+            if int(component) in peak_pos
+        ]
+        if not rows:
+            return result
+
+        idx = [i for i, _ in rows]
+        here = SkyCoord(
+            np.asarray(src["RA"], dtype=float)[idx] * u.deg,
+            np.asarray(src["DEC"], dtype=float)[idx] * u.deg,
+        )
+        there = SkyCoord(
+            [p[0] for _, p in rows] * u.deg, [p[1] for _, p in rows] * u.deg
+        )
+        result[idx] = here.separation(there).arcsec
+        return result
+
+    def _on_grating_arm(self, src):
+        """Return bool array: True if source falls inside a grating arm corridor.
+
+        Sources within the zero-order circle (TG_PART=0) are not flagged; only
+        sources inside a dispersed-arm rotbox (TG_PART=1 for HEG, 2 for MEG,
+        3 for LETG) but outside the zero-order circle are marked.
+        """
+        mask_file = self.file_path(f"images/{self.obsid}_grating_arm_mask.fits")
+        result = np.zeros(len(src), dtype=bool)
+        if not mask_file.exists():
+            return result
+
+        mask_regions = table.Table.read(mask_file)
+        pos = regions.PixCoord(x=src["X"], y=src["Y"])
+
+        # Identify the zero-order circle row (TG_PART=0) to build the exclusion zone.
+        zo_rows = mask_regions[mask_regions["TG_PART"] == 0]
+        on_zero_order = np.zeros(len(src), dtype=bool)
+        for row in zo_rows:
+            zo_center = regions.PixCoord(x=row["X"], y=row["Y"])
+            zo_circle = regions.CirclePixelRegion(
+                center=zo_center, radius=float(row["R"][0])
+            )
+            on_zero_order |= zo_circle.contains(pos)
+
+        # Flag sources inside any arm rotbox that are not in the zero-order circle.
+        arm_rows = mask_regions[mask_regions["TG_PART"] != 0]
+        for row in arm_rows:
+            arm_rect = regions.RectanglePixelRegion(
+                center=regions.PixCoord(x=row["X"], y=row["Y"]),
+                width=2.0 * float(row["R"][0]),
+                height=2.0 * float(row["R"][1]),
+                angle=float(row["ROTANG"]) * u.deg,
+            )
+            result |= arm_rect.contains(pos) & ~on_zero_order
+
         return result
 
     @property
@@ -1119,6 +1268,7 @@ def make_images(obs, inputs, outputs):
                 bkgroot=outputs["acis_streaks_bkg"],
                 regfile=acis_streaks_file_ascii,
                 msigma="4",
+                ssigma="3",
                 clobber="yes",
                 logging_tag=logging_tag,
             )
