@@ -101,6 +101,27 @@ def parse_result_line(stdout: str) -> dict | None:
     return None
 
 
+def _communicate_after_kill(proc: subprocess.Popen, obsid: int) -> tuple[str, str]:
+    """Collect output after _kill_process_group, capped at 30s.
+
+    A grandchild _kill_process_group could not reach (stuck in uninterruptible
+    D-state I/O, or detached into its own session) would otherwise leave a
+    plain communicate() -- with no timeout of its own -- hanging forever,
+    defeating the whole point of the timeout: every remaining obsid in the
+    run stalls right along with this one.
+    """
+    try:
+        raw_stdout, raw_stderr = proc.communicate(timeout=30)
+        return raw_stdout.decode(errors="replace"), raw_stderr.decode(errors="replace")
+    except subprocess.TimeoutExpired:
+        print(
+            f"  obsid {obsid}: worker did not exit within 30s of being "
+            "killed; a grandchild may be unkillable. Giving up on "
+            "collecting its output and moving on."
+        )
+        return "", ""
+
+
 def run_one(  # noqa: PLR0917
     obsid: int,
     db_file: Path,
@@ -157,9 +178,7 @@ def run_one(  # noqa: PLR0917
         timed_out = True
         # Kill the entire process group; proc.pid == pgid with start_new_session.
         _kill_process_group(proc.pid)
-        raw_stdout, raw_stderr = proc.communicate()
-        stdout = raw_stdout.decode(errors="replace")
-        stderr = raw_stderr.decode(errors="replace")
+        stdout, stderr = _communicate_after_kill(proc, obsid)
 
     elapsed = time.time() - start
 
