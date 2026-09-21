@@ -155,6 +155,11 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    existing_cat = db.get_table("astromon_cat_src", args.dbfile)
+    old_icrf2_obsids = np.unique(
+        existing_cat["obsid"][existing_cat["catalog"] == "ICRF2"]
+    )
+
     cat_src, xcorr = backfill(args.dbfile, limit=args.limit)
     n_obsids_cat = len(np.unique(cat_src["obsid"])) if len(cat_src) else 0
     n_obsids_xcorr = len(np.unique(xcorr["obsid"])) if len(xcorr) else 0
@@ -165,9 +170,41 @@ def main() -> None:
         f"Built {len(xcorr):,} icrf2 xcorr rows across {n_obsids_xcorr:,} obsids"
     )
 
+    # Obsids that had an ICRF2 row before this run but got none this time (no
+    # rough-match candidate, or no celldetect sources at all) are not among the
+    # obsids cat_src covers now, so the replace_keys=("catalog",) save below
+    # still deletes their old row (it matches on catalog alone, not obsid),
+    # leaving their icrf2 xcorr row(s) pointing at a now-deleted cat_src id.
+    new_icrf2_obsids = np.unique(cat_src["obsid"]) if len(cat_src) else np.array([])
+    dropped_icrf2_obsids = np.setdiff1d(old_icrf2_obsids, new_icrf2_obsids)
+
     if args.dry_run:
+        if len(dropped_icrf2_obsids):
+            logger.info(
+                f"(dry-run: would also drop stale icrf2 xcorr for "
+                f"{len(dropped_icrf2_obsids):,} obsid(s) that lost their ICRF2 "
+                "candidate)"
+            )
         logger.info("(dry-run: not writing to database)")
         return
+
+    if len(dropped_icrf2_obsids):
+        existing_xcorr = db.get_table("astromon_xcorr", args.dbfile)
+        stale = np.isin(np.asarray(existing_xcorr["obsid"]), dropped_icrf2_obsids) & (
+            np.asarray(existing_xcorr["select_name"]) == "icrf2"
+        )
+        if stale.any():
+            db.save(
+                "astromon_xcorr",
+                existing_xcorr[~stale],
+                dbfile=args.dbfile,
+                ignore_obsid=True,
+            )
+            logger.info(
+                f"Dropped {int(stale.sum())} stale icrf2 xcorr row(s) for "
+                f"{len(dropped_icrf2_obsids):,} obsid(s) that lost their ICRF2 "
+                "candidate"
+            )
 
     if len(cat_src):
         db.save(
