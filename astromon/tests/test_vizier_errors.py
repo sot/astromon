@@ -114,6 +114,26 @@ def test_server_error_message_carries_what_the_server_said():
         _query(ERROR_VOTABLE)
 
 
+def test_server_error_with_bom_is_caught_by_the_query_status_check():
+    """A UTF-8 BOM before the XML declaration must not defeat the sniff check.
+
+    _votable_query_info's "is this even a VOTable" check compared the first 5
+    bytes to b"<?xml" with no allowance for a leading BOM, so a real server
+    error response prefixed with one was sniffed as "not a VOTable" and its
+    QUERY_STATUS never read. The call still raised VizierServerError either
+    way -- via the unrelated "could not be parsed as a VOTable" fallback
+    further down, whose message happens to embed the raw response bytes
+    (and so the word "overloaded" too) -- so matching on the exception type
+    or the server's message text is not enough to tell the two paths apart.
+    Matching the *specific wording* of the intended path is what a
+    regression here actually breaks.
+    """
+    with pytest.raises(
+        cross_match.VizierServerError, match="rather than returning results"
+    ):
+        _query(b"\xef\xbb\xbf" + ERROR_VOTABLE)
+
+
 def test_a_genuinely_empty_field_is_still_empty():
     """The distinction only means something if the honest empty case survives."""
     result = _query(OK_EMPTY_VOTABLE)

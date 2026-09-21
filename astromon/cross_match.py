@@ -116,7 +116,12 @@ def _votable_query_info(content: bytes) -> tuple[str | None, str]:
     Returns ``(None, "")`` for a payload that carries no such INFO element,
     including anything that is not a VOTable at all.
     """
-    if content[:5] != b"<?xml":
+    # A UTF-8 BOM or leading whitespace before the XML declaration is still a
+    # valid VOTable -- without stripping it here, a server error response with
+    # either would be sniffed as "not a VOTable" and its QUERY_STATUS never
+    # read, reintroducing the exact "server error looks like an empty sky"
+    # confusion this function exists to prevent.
+    if content.lstrip(b"\xef\xbb\xbf \t\r\n")[:5] != b"<?xml":
         return None, ""
     try:
         vo_tree = votable_io.parse(BytesIO(content), verify="warn")
