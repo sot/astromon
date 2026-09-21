@@ -10,6 +10,70 @@ from cxotime import CxoTime
 from astromon import utils
 
 
+def _fake_ciao_env(prefix):
+    """A CIAO environment delta as Ska.Shell.getenv would return it."""
+    return {"ASCDS_INSTALL": str(prefix), "PATH": "/usr/bin:/bin"}
+
+
+@pytest.fixture
+def clean_ciao_env_cache():
+    """Isolate the module-level CIAO_ENV cache from other tests."""
+    saved = dict(utils.CIAO_ENV)
+    utils.CIAO_ENV.clear()
+    yield utils.CIAO_ENV
+    utils.CIAO_ENV.clear()
+    utils.CIAO_ENV.update(saved)
+
+
+def test_ciao_env_cache_not_polluted_by_workdir(tmp_path, clean_ciao_env_cache):
+    """The cached CIAO environment holds no instance-specific parameter paths.
+
+    Ciao caches the expensive `source ciao.sh` result per prefix. Storing the live
+    instance dict let the per-observation ASCDS_WORK_PATH and PFILES leak into the
+    cache, so a later Ciao(prefix) with no workdir inherited a param directory that
+    Observation.get_ciao had already removed.
+    """
+    prefix = tmp_path / "ciao"
+    (prefix / "param").mkdir(parents=True)
+    workdir_a = tmp_path / "obs_a" / "param"
+
+    with patch.object(utils.Ska.Shell, "getenv", return_value=_fake_ciao_env(prefix)):
+        ciao_a = utils.Ciao(prefix=prefix, workdir=workdir_a, logger="astromon")
+
+        assert ciao_a.env["ASCDS_WORK_PATH"] == str(workdir_a)
+        cached = clean_ciao_env_cache[prefix]
+        assert "ASCDS_WORK_PATH" not in cached
+        assert "PFILES" not in cached
+
+        # A later instance with no workdir must not inherit obs_a's param path.
+        ciao_b = utils.Ciao(prefix=prefix, logger="astromon")
+
+    assert "ASCDS_WORK_PATH" not in ciao_b.env
+    assert "PFILES" not in ciao_b.env
+
+
+def test_ciao_env_cache_avoids_repeat_getenv_call(tmp_path, clean_ciao_env_cache):
+    """A cached prefix must not re-invoke the expensive `source ciao.sh` call.
+
+    CIAO_ENV.get(prefix, Ska.Shell.getenv(...)) evaluates the default argument
+    eagerly, so the subprocess call ran on every Ciao() construction regardless
+    of whether prefix was already cached.
+    """
+    prefix = tmp_path / "ciao"
+    (prefix / "param").mkdir(parents=True)
+
+    with patch.object(
+        utils.Ska.Shell, "getenv", return_value=_fake_ciao_env(prefix)
+    ) as mock_getenv:
+        utils.Ciao(prefix=prefix, logger="astromon")
+        assert mock_getenv.call_count == 1
+
+        utils.Ciao(prefix=prefix, logger="astromon")
+        assert mock_getenv.call_count == 1, (
+            "a cached prefix must not re-invoke Ska.Shell.getenv"
+        )
+
+
 def _fake_calalign_table():
     """A single-version calalign table, as calalign_from_files would return."""
     aca_misalign = np.tile(np.eye(3), (1, 1, 1))
@@ -60,4 +124,31 @@ def test_get_calalign_offsets_row_order():
         utils, "calalign_from_files", return_value=_fake_calalign_table()
     ):
         with pytest.raises(RuntimeError, match="all_matches.obsid != result.obsid"):
+            utils.get_calalign_offsets(all_matches)
+
+
+def test_get_calalign_offsets_raises_on_malformed_version_string():
+    """A non-numeric version segment must raise rather than being silently dropped.
+
+    get_calalign_offsets used to build the caldb_version/calalign_version
+    comparison tuples with ``if f.isdigit()``, which drops any non-numeric
+    dot-separated segment instead of raising. A truncated tuple then compares
+    incorrectly (lexicographically shorter-vs-longer) against a full-length
+    one, silently picking the wrong CalDB row as "actual" or "reference"
+    instead of failing loudly on the unexpected input.
+    """
+    all_matches = Table(
+        {
+            "obsid": [1],
+            "x_id": [1],
+            "detector": ["ACIS-S"],
+            "time": CxoTime(["2015:001:00:00:00"]),
+            "caldb_version": ["4.N0.0"],
+        }
+    )
+
+    with patch.object(
+        utils, "calalign_from_files", return_value=_fake_calalign_table()
+    ):
+        with pytest.raises(ValueError):
             utils.get_calalign_offsets(all_matches)
