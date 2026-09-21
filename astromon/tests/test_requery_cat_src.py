@@ -656,3 +656,54 @@ def test_requery_does_not_mark_catalog_matched_in_dry_run(tmp_path, monkeypatch)
 
     status = db.get_table("astromon_status", dbfile)
     assert status["catalog_matched"][0] == 0
+
+
+def test_requery_marks_db_before_recording_progress_file_completion(
+    tmp_path, monkeypatch
+):
+    """A crash between the two must leave the DB correct, not the progress file.
+
+    record_completed used to run before db.mark_catalog_matched. A crash in
+    between left the obsid permanently recorded as done in the progress file
+    -- so --resume would skip it on every future run, via is_complete() --
+    while astromon_status.catalog_matched stayed False forever, with no way
+    to notice or recover. Doing mark_catalog_matched first means the same
+    crash instead costs a redundant (but safe) reprocessing on --resume.
+    """
+    dbfile = _seeded_db(tmp_path)
+    _seed_xray_src(dbfile, obsid=7001)
+    db.save_status(
+        dbfile, 7001, "success", versions_done="celldetect", catalog_matched=False
+    )
+    progress = tmp_path / "done.txt"
+
+    monkeypatch.setattr(
+        requery_cat_src, "obspar_pointing", lambda obsid: (QUAT, "2020:001")
+    )
+
+    def raise_crash(*args, **kwargs):
+        raise RuntimeError("simulated crash")
+
+    monkeypatch.setattr(db, "mark_catalog_matched", raise_crash)
+    fake_getters = dict.fromkeys(requery_cat_src.ALL_CATALOGS, _empty_getter)
+
+    with (
+        patch.dict(requery_cat_src.CATALOG_GETTERS, fake_getters, clear=False),
+        patch.dict(
+            requery_cat_src.BATCHED_GETTERS,
+            {"DESIV161": _empty_batched_getter},
+            clear=False,
+        ),
+        pytest.raises(RuntimeError, match="simulated crash"),
+    ):
+        requery_cat_src.requery(
+            dbfile,
+            [7001],
+            catalogs=requery_cat_src.ALL_CATALOGS,
+            progress_file=progress,
+        )
+
+    assert not progress.exists(), (
+        "record_completed must not have run before the (simulated) crash in "
+        "mark_catalog_matched"
+    )

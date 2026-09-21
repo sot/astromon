@@ -671,11 +671,14 @@ def requery(  # noqa: PLR0917, PLR0912, PLR0915
             summary["added_rows"] += written["added_rows"]
             summary["replaced_obsids"].extend(written["replaced_obsids"])
 
-        # Only after the rows are safely written, so a resume never skips an obsid
-        # whose candidates never landed.
-        if completed and progress_file is not None and not dry_run:
-            record_completed(progress_file, dict.fromkeys(completed, catalogs))
-
+        # mark_catalog_matched (a real DB state change) runs before
+        # record_completed (a resume-progress optimization written to a plain
+        # file), not after: a crash between the two must leave the DB correct
+        # at the cost of redundant reprocessing on --resume, not the other way
+        # around. record_completed after would make a crash here permanently
+        # skip these obsids on every future --resume (is_complete() already
+        # sees them as done) while astromon_status.catalog_matched stays False
+        # forever, with no way to notice or recover.
         if completed and covers_full_catalog_set and not dry_run:
             marked = db.mark_catalog_matched(dbfile, completed)
             if marked["skipped_no_row"]:
@@ -685,6 +688,11 @@ def requery(  # noqa: PLR0917, PLR0912, PLR0915
                     "detection-stage tracking): "
                     f"{', '.join(str(o) for o in marked['skipped_no_row'])}"
                 )
+
+        # Only after the rows are safely written, so a resume never skips an obsid
+        # whose candidates never landed.
+        if completed and progress_file is not None and not dry_run:
+            record_completed(progress_file, dict.fromkeys(completed, catalogs))
 
         logger.info(
             f"{min(start + chunk_size, len(obsids)):,}/{len(obsids):,} obsids -- "
