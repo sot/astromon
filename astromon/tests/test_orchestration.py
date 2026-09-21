@@ -1,6 +1,7 @@
 """Tests for the bulk rerun orchestration scripts and the CIAO environment cache."""
 
 import csv
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -55,6 +56,53 @@ def test_run_one_timeout_note_uses_configured_timeout(tmp_path, monkeypatch):
 
     log_text = (log_dir / "7001.log").read_text()
     assert "TIMED OUT after 1s" in log_text
+
+
+class _UnkillableProcess:
+    """A fake Popen result whose communicate() times out every time it's called.
+
+    Simulates a worker whose process group _kill_process_group could not fully
+    reach (a grandchild stuck in uninterruptible D-state I/O, or detached into
+    its own session) -- the process never actually exits, no matter how many
+    times it is signalled.
+    """
+
+    pid = 4242
+    returncode = None
+
+    def communicate(self, timeout=None):
+        raise subprocess.TimeoutExpired(cmd="worker", timeout=timeout)
+
+
+def test_run_one_gives_up_rather_than_hanging_on_an_unkillable_worker(
+    tmp_path, monkeypatch
+):
+    """The post-kill communicate() must have its own timeout.
+
+    It used to be called with no timeout at all, so a grandchild
+    _kill_process_group could not reach left this call -- and so run_one,
+    and every remaining obsid in the run -- hanging forever instead of just
+    recording this one obsid as a failure and moving on.
+    """
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+
+    monkeypatch.setattr(
+        run_all.subprocess, "Popen", lambda *args, **kwargs: _UnkillableProcess()
+    )
+    monkeypatch.setattr(run_all, "_kill_process_group", lambda pgid: None)
+    monkeypatch.setattr(run_all.time, "sleep", lambda _: None)
+
+    result = run_all.run_one(
+        obsid=7002,
+        db_file=tmp_path / "astromon.h5",
+        workdir=tmp_path / "work",
+        log_dir=log_dir,
+        worker_timeout=1,
+    )
+
+    assert result["status"] == "failure"
+    assert "timed out after 1s" in result["note"]
 
 
 def _make_tree(root: Path, marker: str) -> Path:
@@ -519,3 +567,48 @@ def test_replace_cat_src_with_rows_present_behaves_as_before():
         cat = db.get_table("astromon_cat_src", dbfile)
         assert list(np.asarray(cat["catalog"]).astype(str)) == ["Tycho2"]
         assert len(db.get_table("astromon_xcorr", dbfile)) == 0
+
+
+def test_self_kill_process_group_swallows_expected_errors(monkeypatch):
+    """ProcessLookupError and PermissionError are still treated as "already gone"."""
+    from astromon.scripts.maintenance import process_one_obsid
+
+    def raise_esrch(pgid, sig):
+        raise ProcessLookupError(3, "No such process")
+
+    monkeypatch.setattr(process_one_obsid.os, "killpg", raise_esrch)
+    monkeypatch.setattr(process_one_obsid.time, "sleep", lambda _: None)
+
+    process_one_obsid._self_kill_process_group()  # must not raise
+
+
+def test_self_kill_process_group_logs_an_unexpected_failure(monkeypatch):
+    """Any other exception from os.killpg must be traced, not silently dropped.
+
+    The watchdog thread's self-kill loop used to catch bare Exception and pass,
+    so a real, unexpected failure to kill the process group after the
+    orchestrator had already vanished left no record anywhere of why an
+    orphaned worker (and its CIAO grandchildren) was still running.
+    """
+    from astromon.scripts.maintenance import process_one_obsid
+
+    def raise_oserror(pgid, sig):
+        raise OSError("something unexpected")
+
+    logged = []
+    real_get_logger = process_one_obsid.logging.getLogger
+
+    class _RecordingLogger:
+        def exception(self, msg, *args, **kwargs):
+            logged.append(msg)
+
+    def fake_get_logger(name=None):
+        return _RecordingLogger() if name == "astromon" else real_get_logger(name)
+
+    monkeypatch.setattr(process_one_obsid.os, "killpg", raise_oserror)
+    monkeypatch.setattr(process_one_obsid.time, "sleep", lambda _: None)
+    monkeypatch.setattr(process_one_obsid.logging, "getLogger", fake_get_logger)
+
+    process_one_obsid._self_kill_process_group()  # must not raise
+
+    assert any("killpg failed unexpectedly" in msg for msg in logged)
