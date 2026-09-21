@@ -323,6 +323,57 @@ def requery_obsid(  # noqa: PLR0917
     )
 
 
+_CAT_SRC_CONTENT_COLS = (
+    "celldetect_x_id",
+    "name",
+    "ra",
+    "dec",
+    "separation",
+    "mag",
+    "y_angle",
+    "z_angle",
+)
+
+
+def _sort_key(rows: Table) -> np.ndarray:
+    """A stable sort order for one (obsid, catalog) group's rows, by content."""
+    return np.lexsort(
+        (
+            np.asarray(rows["dec"]),
+            np.asarray(rows["ra"]),
+            np.asarray(rows["name"]).astype(str),
+        )
+    )
+
+
+def _content_unchanged(old_rows: Table, new_rows: Table) -> bool:
+    """Whether `new_rows` carries the same candidates as `old_rows`, ignoring id.
+
+    Rows are matched by sorting both groups into the same order rather than by
+    position in the query result, since a catalog API re-run can legitimately
+    return the same candidates in a different order.
+    """
+    if len(old_rows) != len(new_rows):
+        return False
+    old_sorted = old_rows[_sort_key(old_rows)]
+    new_sorted = new_rows[_sort_key(new_rows)]
+    for col in _CAT_SRC_CONTENT_COLS:
+        old_col = np.asarray(old_sorted[col])
+        new_col = np.asarray(new_sorted[col])
+        if old_col.dtype.kind == "f":
+            if not np.allclose(old_col, new_col, equal_nan=True):
+                return False
+        elif old_col.dtype.kind in "SU" or new_col.dtype.kind in "SU":
+            # db.get_table() decodes byte-string columns to unicode; a freshly
+            # built candidates Table has not gone through that, so comparing
+            # dtypes directly (e.g. b"RFC" vs "RFC") would always disagree.
+            if not np.array_equal(old_col.astype(str), new_col.astype(str)):
+                return False
+        elif not np.array_equal(old_col, new_col):
+            return False
+    return True
+
+
 def write_candidates(dbfile: Path, candidates: Table, dry_run: bool = False) -> dict:
     """Write `candidates` into astromon_cat_src, one (obsid, catalog) key at a time.
 
@@ -344,24 +395,39 @@ def write_candidates(dbfile: Path, candidates: Table, dry_run: bool = False) -> 
     replaced_obsids: set[int] = set()
     replaced_pairs = 0
     if stored is not None and len(stored):
+        stored_obsid = np.asarray(stored["obsid"])
+        stored_catalog = np.asarray(stored["catalog"]).astype(str)
+        cand_obsid = np.asarray(candidates["obsid"])
+        cand_catalog = np.asarray(candidates["catalog"]).astype(str)
+
         stored_pairs = set(
-            zip(
-                np.asarray(stored["obsid"]).tolist(),
-                np.asarray(stored["catalog"]).astype(str).tolist(),
-                strict=True,
-            )
+            zip(stored_obsid.tolist(), stored_catalog.tolist(), strict=True)
         )
         incoming_pairs = set(
-            zip(
-                np.asarray(candidates["obsid"]).tolist(),
-                np.asarray(candidates["catalog"]).astype(str).tolist(),
-                strict=True,
-            )
+            zip(cand_obsid.tolist(), cand_catalog.tolist(), strict=True)
         )
         for obsid, catalog in incoming_pairs:
-            if (obsid, catalog) in stored_pairs:
-                replaced_obsids.add(int(obsid))
-                replaced_pairs += 1
+            if (obsid, catalog) not in stored_pairs:
+                continue
+
+            old_group_mask = (stored_obsid == obsid) & (stored_catalog == catalog)
+            new_group_mask = (cand_obsid == obsid) & (cand_catalog == catalog)
+            old_rows = stored[old_group_mask]
+            new_rows = candidates[new_group_mask]
+
+            if _content_unchanged(old_rows, new_rows):
+                # Same candidates as already stored, just possibly in a
+                # different order: reuse the existing ids instead of the
+                # freshly assigned ones so this write is a true no-op --
+                # otherwise every rerun over an unchanged catalog renumbers
+                # these rows and forces a needless rebuild_xcorr pass.
+                candidates["id"][new_group_mask] = old_rows["id"][_sort_key(old_rows)][
+                    np.argsort(_sort_key(new_rows))
+                ]
+                continue
+
+            replaced_obsids.add(int(obsid))
+            replaced_pairs += 1
 
     result = {
         "added_rows": len(candidates),

@@ -285,6 +285,43 @@ def test_write_candidates_reports_obsids_needing_an_xcorr_rebuild(tmp_path):
     assert result["added_rows"] == 2
 
 
+def test_write_candidates_rerun_with_unchanged_data_is_a_true_noop(tmp_path):
+    """Re-running with byte-identical candidates must not renumber ids.
+
+    write_candidates used to treat any incoming (obsid, catalog) pair that
+    already had stored rows as "replaced", regardless of whether the actual
+    candidate data changed. A plain rerun with no upstream change then
+    renumbered every row for that pair and reported it as needing an xcorr
+    rebuild that was never actually necessary.
+    """
+    dbfile = _seeded_db(tmp_path)
+    # Same (obsid, catalog, name) -- and same default ra/dec/mag -- as the
+    # already-stored RFC row, just under a different freshly-assigned id.
+    unchanged = _cat_src_rows([(7001, 99, "RFC", "stale-rfc")])
+
+    result = requery_cat_src.write_candidates(dbfile, unchanged)
+
+    assert result["replaced_obsids"] == []
+    assert result["replaced_pairs"] == 0
+    stored = db.get_table("astromon_cat_src", dbfile)
+    row = stored[np.asarray(stored["name"]).astype(str) == "stale-rfc"][0]
+    assert int(row["id"]) == 1, "the original id must survive an unchanged rerun"
+
+
+def test_write_candidates_rerun_with_changed_data_still_replaces(tmp_path):
+    """A real content change for an existing (obsid, catalog) is still replaced."""
+    dbfile = _seeded_db(tmp_path)
+    changed = _cat_src_rows([(7001, 99, "RFC", "different-name")])
+
+    result = requery_cat_src.write_candidates(dbfile, changed)
+
+    assert result["replaced_obsids"] == [7001]
+    assert result["replaced_pairs"] == 1
+    stored = db.get_table("astromon_cat_src", dbfile)
+    assert "different-name" in list(np.asarray(stored["name"]).astype(str))
+    assert "stale-rfc" not in list(np.asarray(stored["name"]).astype(str))
+
+
 # ─── resuming a long run ─────────────────────────────────────────────────────
 
 
