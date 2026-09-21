@@ -765,20 +765,26 @@ def mark_catalog_matched(dbfile, obsids):
         updated, and those with no existing astromon_status row.
     """
     obsids = [int(o) for o in obsids]
-    try:
-        status = get_table("astromon_status", dbfile)
-    except (MissingTableException, FileNotFoundError):
-        return {"updated": [], "skipped_no_row": obsids}
+    # Read and write through the SAME connection, held open for the whole
+    # read-modify-write: get_table()+save() as two separate connect() calls
+    # would let a concurrent writer (e.g. save_status() for one of these same
+    # obsids) land in the gap between them, and this function's save() would
+    # then overwrite it with the stale snapshot it read before that write.
+    with connect(dbfile, mode="r+") as h5:
+        try:
+            status = get_table("astromon_status", h5)
+        except MissingTableException:
+            return {"updated": [], "skipped_no_row": obsids}
 
-    present = set(np.asarray(status["obsid"]).tolist())
-    to_update = [o for o in obsids if o in present]
-    skipped = [o for o in obsids if o not in present]
-    if not to_update:
-        return {"updated": [], "skipped_no_row": skipped}
+        present = set(np.asarray(status["obsid"]).tolist())
+        to_update = [o for o in obsids if o in present]
+        skipped = [o for o in obsids if o not in present]
+        if not to_update:
+            return {"updated": [], "skipped_no_row": skipped}
 
-    rows = status[np.isin(np.asarray(status["obsid"]), to_update)]
-    rows["catalog_matched"] = 1
-    save("astromon_status", rows, dbfile, expect_existing=True)
+        rows = status[np.isin(np.asarray(status["obsid"]), to_update)]
+        rows["catalog_matched"] = 1
+        save("astromon_status", rows, h5, expect_existing=True)
     return {"updated": to_update, "skipped_no_row": skipped}
 
 

@@ -1231,6 +1231,38 @@ def test_mark_catalog_matched_reports_obsids_with_no_existing_row():
         assert sorted(status["obsid"]) == [111]  # 999 was not invented
 
 
+def test_mark_catalog_matched_opens_the_file_exactly_once(monkeypatch):
+    """mark_catalog_matched must hold one open file handle across the whole
+    read-modify-write, not open the file separately for the read and the write.
+
+    get_table() and save() as separate connect() calls (each opening the file
+    anew) let a concurrent save_status() for the same obsid land in the gap
+    between them; this function's save() would then overwrite it with the
+    stale snapshot read before that write, silently losing the concurrent
+    update. Patches tables_open_file itself (not connect()) since connect()
+    is also called -- as a no-op passthrough -- when already handed an open
+    tables.file.File, which save() does internally.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dbfile = Path(tmpdir) / "fresh.h5"
+        db.save_status(dbfile, 7001, "success", catalog_matched=False)
+
+        open_calls = []
+        real_open = db.tables_open_file
+
+        def counting_open(*args, **kwargs):
+            open_calls.append(1)
+            return real_open(*args, **kwargs)
+
+        monkeypatch.setattr(db, "tables_open_file", counting_open)
+        db.mark_catalog_matched(dbfile, [7001])
+
+        assert len(open_calls) == 1, (
+            "mark_catalog_matched must open the DB file exactly once, holding "
+            "it open across the whole read-modify-write"
+        )
+
+
 def test_mark_catalog_matched_against_a_file_with_no_status_table_at_all():
     with tempfile.TemporaryDirectory() as tmpdir:
         dbfile = Path(tmpdir) / "fresh.h5"
