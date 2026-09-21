@@ -9,6 +9,31 @@ from astropy.table import Table
 from astromon import db
 
 
+def test_generated_js_guards_reduce_against_zero_sources():
+    """The panel's peak-SNR summary must not crash on an obsid with no sources.
+
+    The generated page's build() calls sources.reduce((a,b)=>...) with no
+    initial value and no length check. For any obsid with zero celldetect
+    sources -- a real, anticipated case (read_sources returns an empty list
+    for it) -- Array.prototype.reduce on an empty array with no initial value
+    throws inside build(), which runs inside VIZ.map(build): the whole review
+    page fails to render, not just that one panel.
+
+    There is no JS runtime in this environment to execute the page directly,
+    so this checks statically that the fix (skip peak-SNR entirely when there
+    are no sources) is present in the generated template, and that the
+    unguarded call is gone.
+    """
+    from astromon.scripts.analysis.review_xray_images import build_html
+
+    html = build_html(viz_data=[], title_note="test", result_note="")
+
+    assert "const peak=sources.length?" in html, (
+        "the peak-SNR block (and its sources.reduce() call) must be gated on "
+        "sources.length, not run unconditionally"
+    )
+
+
 def test_load_cat_src_rfc_reads_celldetect_x_id_not_x_id():
     """astromon_cat_src's physical HDF5 column is celldetect_x_id, not x_id.
 

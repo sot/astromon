@@ -301,9 +301,9 @@ function build(d){
     ctx.restore();
   });
   const ns=sources.filter(s=>s.streak).length,na=sources.filter(s=>s.arm).length,nr=sources.filter(s=>s.rfc).length;
-  const br=sources.reduce((a,b)=>b.snr>a.snr?b:a);
+  const peak=sources.length?(()=>{const br=sources.reduce((a,b)=>b.snr>a.snr?b:a);return `<span>peak SNR <span class="sv">${br.snr}&times;</span> id ${br.id} <span style="color:${br.streak?'#e05050':'#4fa8d8'}">${br.streak?'streak':'ok'}</span></span>`;})():'';
   const ps=document.createElement('div');ps.className='ps';
-  ps.innerHTML=`<span>n=<span class="sv">${sources.length}</span></span><span>streak <span class="sv" style="color:#e05050">${ns}</span></span><span>arm <span class="sv" style="color:#c89020">${na}</span></span><span>RFC <span class="sv" style="color:#38c87a">${nr}</span></span><span>peak SNR <span class="sv">${br.snr}&times;</span> id ${br.id} <span style="color:${br.streak?'#e05050':'#4fa8d8'}">${br.streak?'streak':'ok'}</span></span>`;
+  ps.innerHTML=`<span>n=<span class="sv">${sources.length}</span></span><span>streak <span class="sv" style="color:#e05050">${ns}</span></span><span>arm <span class="sv" style="color:#c89020">${na}</span></span><span>RFC <span class="sv" style="color:#38c87a">${nr}</span></span>${peak}`;
   panel.appendChild(ps);
   const tt=document.getElementById('tt');
   cw.addEventListener('mousemove',e=>{
