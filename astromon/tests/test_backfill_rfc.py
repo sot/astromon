@@ -99,3 +99,21 @@ def test_main_drops_stale_xcorr_for_an_obsid_that_lost_its_rfc_candidate(
         "the obsid that lost its RFC candidate must not keep a dangling xcorr row"
     )
     assert OBSID_DROP not in np.asarray(cat_src["obsid"])
+
+
+def test_build_rfc_cat_src_matches_across_ra_meridian():
+    """A real RFC match just across RA=0/360 must not be dropped by the cone filter."""
+    obsid = 2003
+    aimpoint_ra, dec = 0.05, 10.0
+    source_ra = 359.98
+
+    obspar = _obs_row(obsid, ra=aimpoint_ra, dec=dec)
+    celldetect_xray = _xray_row(obsid, 1, aimpoint_ra, dec)
+    rfc = Table({"name": ["RFC-meridian"], "ra": [source_ra], "dec": [dec]})
+    non_rfc_cat = Table(dtype=db.ASTROMON_CAT_SRC_DTYPE)
+
+    new_cat = bf.build_rfc_cat_src(rfc, celldetect_xray, obspar, non_rfc_cat)
+
+    assert len(new_cat) == 1, (
+        "a source ~0.07 deg away across the RA=0/360 meridian must be matched"
+    )
