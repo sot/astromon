@@ -957,12 +957,15 @@ def test_is_selected_rejects_ocat_prefilter_without_downloading_evt2(
     assert not calls, "an ocat-rejected obsid must not download evt2"
 
 
-def _write_evt2(obs, *, dtycycle):
+def _write_evt2(obs, *, dtycycle, include_sim=True):
     """A minimal real evt2 FITS file with a header at HDU 1, as get_evt2_info reads.
 
     dtycycle is written as-is into the DTYCYCLE header card, so passing a string
     like "" reproduces a header value fits.getheader hands back unparseable by
     int() -- the case get_evt2_info must not raise on.
+
+    include_sim=False omits SIM_X/SIM_Y/SIM_Z entirely, reproducing the
+    missing-header case for those columns' own None-when-missing bug.
     """
     from astropy.io import fits
 
@@ -979,14 +982,15 @@ def _write_evt2(obs, *, dtycycle):
             "INSTRUME": "ACIS",
             "READMODE": "TIMED",
             "DTYCYCLE": dtycycle,
-            # sim_x/y/z have the same None-when-missing pattern DTYCYCLE used to,
-            # and aren't the column under test here -- set them so this fixture
-            # doesn't also trip that (separate, still-open) bug.
-            "SIM_X": 0.0,
-            "SIM_Y": 0.0,
-            "SIM_Z": -190.0,
         }
     )
+    if include_sim:
+        # sim_x/y/z have the same None-when-missing pattern DTYCYCLE used to,
+        # and aren't the column under test here -- set them so this fixture
+        # doesn't also trip that (separate) bug.
+        header["SIM_X"] = 0.0
+        header["SIM_Y"] = 0.0
+        header["SIM_Z"] = -190.0
     hdul = fits.HDUList([fits.PrimaryHDU(), fits.BinTableHDU(header=header)])
     hdul.writeto(primary_dir / f"acisf{obs.obsid}N001_evt2.fits", overwrite=True)
 
@@ -1057,4 +1061,24 @@ def test_obspar_table_with_unknown_dtycycle_is_fits_writable(tmp_path, monkeypat
     obspar = table.Table([info])
 
     assert obspar["dtycycle"].dtype.kind == "f"
+    obspar.write(tmp_path / "astromon_obs.fits")
+
+
+def test_obspar_table_with_missing_sim_coords_is_fits_writable(tmp_path, monkeypatch):
+    """Same bug class as test_obspar_table_with_unknown_dtycycle_is_fits_writable,
+    for sim_x/sim_y/sim_z: get_evt2_info() used to fall back to a bare None when
+    SIM_X/SIM_Y/SIM_Z are absent from the evt2 header, which makes those columns
+    object-dtype in Table([observation.get_info()]) and blows up at write() time
+    with "unsupported object types or mixed types".
+    """
+    obs = _make_observation(tmp_path, obsid=1234)
+    monkeypatch.setattr(obs, "download", lambda *a, **k: None)
+    _write_evt2(obs, dtycycle=0, include_sim=False)
+
+    info = obs.get_evt2_info()
+    obspar = table.Table([info])
+
+    assert obspar["sim_x"].dtype.kind == "f"
+    assert obspar["sim_y"].dtype.kind == "f"
+    assert obspar["sim_z"].dtype.kind == "f"
     obspar.write(tmp_path / "astromon_obs.fits")
