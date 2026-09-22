@@ -818,7 +818,7 @@ def test_fit_gaussian_sources_matches_ecf_radius_by_component(tmp_path, monkeypa
     """
     obs = Mock()
     obs.is_acis = False  # pixel_size = 0.13175
-    obs.get_info.return_value = {"ra_nom": 0.0, "dec_nom": 0.0, "roll_nom": 0.0}
+    obs.get_info.return_value = {"ra_pnt": 0.0, "dec_pnt": 0.0, "roll_pnt": 0.0}
     # COMPONENT 2 is on a streak and is not the brightest (SNR=3 < 10), so it
     # is dropped; COMPONENTs 1 and 3 (SNR 5 and 10) survive, in that order.
     obs._on_acis_streak.return_value = np.array([False, True, False])
@@ -955,6 +955,74 @@ def test_is_selected_rejects_ocat_prefilter_without_downloading_evt2(
 
     assert obs.is_selected is False
     assert not calls, "an ocat-rejected obsid must not download evt2"
+
+
+# ---------------------------------------------------------------------------
+# Observation._get_sources: ecf_radius must also be joined by COMPONENT here,
+# for the same reason as in _fit_gaussian_sources above -- this method filters
+# `sources` to `r_angle < 180` before assigning ecf_radius, but the psf_size
+# file was written for the full, unfiltered celldetect source list.
+# ---------------------------------------------------------------------------
+
+_GET_SOURCES_RAW_FUNC = observation.Observation.__dict__["_get_sources"].func
+
+
+def _write_src_with_yagzag(path, *, component, y_angle, z_angle, ra, dec, snr):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    table.Table(
+        {
+            "COMPONENT": np.array(component, dtype=np.int32),
+            "RA": np.array(ra, dtype=float),
+            "DEC": np.array(dec, dtype=float),
+            "y_angle": np.array(y_angle, dtype=float),
+            "z_angle": np.array(z_angle, dtype=float),
+            "SNR": np.array(snr, dtype=float),
+        }
+    ).write(path, format="fits", overwrite=True)
+
+
+def test_get_sources_matches_ecf_radius_by_component_after_r_angle_filter(
+    tmp_path, monkeypatch
+):
+    """A source beyond r_angle=180" (COMPONENT 2) is filtered out before
+    ecf_radius is assigned, leaving COMPONENT [1, 3] -- those must still get
+    ecf_radius from THEIR OWN row in the (unfiltered, 3-row) psf_size file,
+    not from whatever ends up in position 0/1 after filtering.
+    """
+    obs = _make_observation(tmp_path)
+    monkeypatch.setattr(obs, "get_evt2_info", lambda: {"instrument": "acis"})
+    monkeypatch.setattr(obs, "get_calalign", lambda: {"caldb_version": "4.10.0"})
+    monkeypatch.setattr(obs, "_pileup_value", lambda src: np.zeros(len(src)))
+    monkeypatch.setattr(
+        obs, "_on_acis_streak", lambda src: np.zeros(len(src), dtype=bool)
+    )
+    monkeypatch.setattr(
+        obs, "_on_grating_arm", lambda src: np.zeros(len(src), dtype=bool)
+    )
+    monkeypatch.setattr(obs, "_peak_offset", lambda src: np.full(len(src), np.nan))
+
+    src_path = obs.file_path(f"sources/{obs.obsid}_celldetect.src")
+    _write_src_with_yagzag(
+        src_path,
+        component=[1, 2, 3],
+        # COMPONENT 2 sits well beyond the 180" cut; 1 and 3 stay.
+        y_angle=[0.0, 200.0, 10.0],
+        z_angle=[0.0, 0.0, 0.0],
+        ra=[10.0, 20.0, 30.0],
+        dec=[-5.0, -5.0, -5.0],
+        snr=[5, 3, 10],
+    )
+    psf_size_path = obs.file_path(f"sources/{obs.obsid}_psf_size_celldetect.fits")
+    _write_psf_size(psf_size_path, component=[1, 2, 3], r=[10.0, 20.0, 30.0])
+
+    sources = _GET_SOURCES_RAW_FUNC(obs, version="celldetect")
+
+    # COMPONENT is renamed to "id" by the time _get_sources returns.
+    assert sorted(sources["id"].tolist()) == [1, 3]
+    pixel_size = 0.4920  # obs.is_acis is True
+    expected_ecf_radius = {1: 10.0 * pixel_size, 3: 30.0 * pixel_size}
+    for row in sources:
+        assert row["ecf_radius"] == pytest.approx(expected_ecf_radius[int(row["id"])])
 
 
 def _write_evt2(obs, *, dtycycle, include_sim=True):
