@@ -2143,7 +2143,16 @@ def _fit_gaussian_sources(  # noqa: PLR0915
 
     ecf = table.Table.read(inputs["psf_size"])
     pixel_size = 0.4920 if obs.is_acis else 0.13175
-    results["ecf_radius"] = ecf["R"] * pixel_size
+    # ecf was written for every celldetect source, but results only has the
+    # (possibly filtered and reordered) subset that got a fit attempted --
+    # pair rows by COMPONENT rather than trusting row order or length.
+    ecf_radius_by_component = {
+        int(component): float(r) * pixel_size
+        for component, r in zip(ecf["COMPONENT"], ecf["R"], strict=True)
+    }
+    results["ecf_radius"] = [
+        ecf_radius_by_component[int(component)] for component in results["COMPONENT"]
+    ]
     results["PSFRATIO"] = (
         np.sqrt(results["sigma"][:, 0] * results["sigma"][:, 1]) / results["ecf_radius"]
     )
