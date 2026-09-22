@@ -4,6 +4,7 @@ from unittest.mock import Mock, patch
 import numpy as np
 import pytest
 from astropy import table
+from astropy.io import fits
 
 from astromon import observation
 
@@ -723,3 +724,164 @@ def test_drop_acis_streak_seeds_handles_empty_input(tmp_path):
     result = observation._drop_acis_streak_seeds(sources, obs, brightest_component=None)
 
     assert len(result) == 0
+
+
+# ---------------------------------------------------------------------------
+# _fit_gaussian_sources: ecf_radius/PSFRATIO must be joined by COMPONENT, not
+# by row position, because a psf_size file is written for celldetect's full,
+# unfiltered source list while `results` can be a filtered subset (dropped by
+# _drop_crowded_seeds/_drop_grating_arm_seeds/_drop_acis_streak_seeds).
+# ---------------------------------------------------------------------------
+
+
+def _identity_wcs():
+    """A stand-in for get_wcs_from_fits_header: pixel and world coords are equal.
+
+    _fit_gaussian_sources only uses the WCS to convert between RA/DEC and X/Y;
+    for a test of the ecf_radius/COMPONENT join, the actual sky geometry does
+    not matter, so an identity mapping keeps the fixture simple.
+    """
+    wcs = Mock()
+    wcs.pixel_to_world_values = lambda x, y: (
+        np.asarray(x, dtype=float),
+        np.asarray(y, dtype=float),
+    )
+    wcs.world_to_pixel_values = lambda ra, dec: (
+        np.asarray(ra, dtype=float),
+        np.asarray(dec, dtype=float),
+    )
+    return wcs
+
+
+def _fake_fit_gaussian_2d(events, source, box_size=4):
+    """A stand-in for source_detection.fit_gaussian_2d that always "succeeds".
+
+    Only COMPONENT and the fitted position matter for the ecf_radius/COMPONENT
+    join under test; the rest just needs to satisfy the dtype/shape that
+    _fit_gaussian_sources expects from a real fit result.
+    """
+    return {
+        "params": np.zeros(6),
+        "hess_inv": np.eye(6),
+        "ndof": max(len(events) - 6, 0),
+        "fit_ok": True,
+        "p_signal": 0.9,
+        "y_angle": float(source["y_angle"]),
+        "z_angle": float(source["z_angle"]),
+        "sigma": (2.0, 2.0),
+        "rot_angle": 0.0,
+        "sigma_y_angle": 1.0,
+        "sigma_z_angle": 1.0,
+        "corr_y_angle_z_angle": 0.0,
+        "source_area": 1.0,
+        "n": 100,
+        "signal": 90.0,
+        "background": 10.0,
+        "snr": 9.0,
+        "ks_y_angle": 0.0,
+        "ks_z_angle": 0.0,
+        "ks_p_value_y_angle": 1.0,
+        "ks_p_value_z_angle": 1.0,
+        "ks_sign_y_angle": 0,
+        "ks_sign_z_angle": 0,
+        "COMPONENT": source["COMPONENT"],
+    }
+
+
+def _write_celldetect_src(path, *, component, ra, dec, snr):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    table.Table(
+        {
+            "COMPONENT": np.array(component, dtype=np.int32),
+            "RA": np.array(ra, dtype=float),
+            "DEC": np.array(dec, dtype=float),
+            "SNR": np.array(snr, dtype=float),
+        }
+    ).write(path, format="fits", overwrite=True)
+
+
+def _write_events(path, *, x, y):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    hdu = fits.BinTableHDU.from_columns(
+        [
+            fits.Column(name="x", format="D", array=np.asarray(x, dtype=float)),
+            fits.Column(name="y", format="D", array=np.asarray(y, dtype=float)),
+        ]
+    )
+    fits.HDUList([fits.PrimaryHDU(), hdu]).writeto(path, overwrite=True)
+
+
+def _write_psf_size(path, *, component, r):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    table.Table(
+        {
+            "COMPONENT": np.array(component, dtype=np.int32),
+            "R": np.array(r, dtype=float),
+        }
+    ).write(path, format="fits", overwrite=True)
+
+
+def test_fit_gaussian_sources_matches_ecf_radius_by_component(tmp_path, monkeypatch):
+    """A source list filtered down to COMPONENT [1, 3] (skipping 2, which is
+    dropped as an acis_streak seed) must still get ecf_radius/PSFRATIO from
+    ITS OWN row in the (unfiltered, 3-row) psf_size file -- not from whatever
+    ends up in position 0/1 after filtering.
+    """
+    obs = Mock()
+    obs.is_acis = False  # pixel_size = 0.13175
+    obs.get_info.return_value = {"ra_nom": 0.0, "dec_nom": 0.0, "roll_nom": 0.0}
+    # COMPONENT 2 is on a streak and is not the brightest (SNR=3 < 10), so it
+    # is dropped; COMPONENTs 1 and 3 (SNR 5 and 10) survive, in that order.
+    obs._on_acis_streak.return_value = np.array([False, True, False])
+    obs._on_grating_arm.return_value = np.array([False, False, False])
+
+    src_path = tmp_path / "sources" / "1234_celldetect.src"
+    _write_celldetect_src(
+        src_path,
+        component=[1, 2, 3],
+        ra=[0.0, 20.0, 40.0],
+        dec=[0.0, 0.0, 0.0],
+        snr=[5, 3, 10],
+    )
+    events_path = tmp_path / "primary" / "1234_evt2_filtered.fits.gz"
+    rng = np.random.default_rng(0)
+    x = np.concatenate([rng.normal(pos, 0.5, 30) for pos in (0.0, 20.0, 40.0)])
+    y = rng.normal(0.0, 0.5, len(x))
+    _write_events(events_path, x=x, y=y)
+    psf_size_path = tmp_path / "sources" / "1234_psf_size_celldetect.fits"
+    _write_psf_size(psf_size_path, component=[1, 2, 3], r=[10.0, 20.0, 30.0])
+    out_src_path = tmp_path / "sources" / "1234_gaussian_detect.src"
+    out_psf_size_path = tmp_path / "sources" / "1234_psf_size_gaussian_detect.fits"
+
+    monkeypatch.setattr(
+        observation.utils, "get_wcs_from_fits_header", lambda *a, **k: _identity_wcs()
+    )
+    monkeypatch.setattr(observation, "radec_to_yagzag", lambda ra, dec, att: (ra, dec))
+    monkeypatch.setattr(
+        observation, "yagzag_to_radec", lambda yag, zag, att: (yag, zag)
+    )
+    monkeypatch.setattr(
+        observation.source_detection, "fit_gaussian_2d", _fake_fit_gaussian_2d
+    )
+
+    observation._fit_gaussian_sources(
+        obs,
+        inputs={
+            "src": src_path,
+            "events": events_path,
+            "psf_size": psf_size_path,
+        },
+        outputs={"src": out_src_path, "psf_size": out_psf_size_path},
+        seed_from_peak=False,
+    )
+
+    results = table.Table.read(out_src_path)
+    results.sort("COMPONENT")
+    assert list(results["COMPONENT"]) == [1, 3]
+
+    pixel_size = 0.13175
+    expected_ecf_radius = {1: 10.0 * pixel_size, 3: 30.0 * pixel_size}
+    for row in results:
+        assert row["ecf_radius"] == pytest.approx(expected_ecf_radius[row["COMPONENT"]])
+        expected_psfratio = 2.0 / expected_ecf_radius[row["COMPONENT"]]
+        assert row["PSFRATIO"] == pytest.approx(expected_psfratio)
