@@ -1,0 +1,26 @@
+# %ECSV 1.0
+# ---
+# delimiter: ','
+# datatype:
+# - {name: excl_type, datatype: string, description: "Exclusion granularity: 'target' matches
+#     observation target name prefix; 'cat_source' excludes a specific catalog source by name
+#     across all obsids; 'obsid_src' excludes a specific detected X-ray source in one obsid."}
+# - {name: target_prefix, datatype: string, description: "For excl_type='target': prefix matched
+#     against the target name after removing spaces and lowercasing (startswith). Empty otherwise."}
+# - {name: obsid, datatype: int32, description: "For excl_type='obsid_src': obsid. -1 otherwise."}
+# - {name: x_id, datatype: int32, description: "For excl_type='obsid_src': X-ray source id
+#     in astromon_xray_src. -1 otherwise."}
+# - {name: cat_name, datatype: string, description: "For excl_type='cat_source': exact catalog
+#     source name (matches astromon_cat_src.name). Empty otherwise."}
+# - {name: reason, datatype: string, description: "Human-readable explanation of the exclusion."}
+# schema: astropy-2.0
+excl_type,target_prefix,obsid,x_id,cat_name,reason
+target,RW Aur,-1,-1,,Nearby variable star with large proper motion; centroid unreliable
+target,Tau Boo,-1,-1,,Nearby variable star with large proper motion; centroid unreliable
+target,70 OPH,-1,-1,,Nearby binary star; crowded field
+target,16 Cyg,-1,-1,,Nearby binary star; crowded field
+target,M87,-1,-1,,Extended radio galaxy with bright jet; X-ray centroid offset from optical nucleus
+target,Orion,-1,-1,,Extended nebular emission; centroid dominated by diffuse emission
+target,HD 97950,-1,-1,,Crowded cluster field; centroid unreliable
+target,HD4915,-1,-1,,Nearby star; crowded field
+cat_source,,-1,-1,MCG 7-41-003,Cygnus A AGN nucleus in MilliquasGaia; X-ray centroid systematically offset from Gaia optical position regardless of target name used; RFC matches are fine (Cygnus A is a VLBI calibrator)

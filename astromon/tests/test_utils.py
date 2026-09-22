@@ -75,17 +75,17 @@ def test_ciao_env_cache_avoids_repeat_getenv_call(tmp_path, clean_ciao_env_cache
 
 
 def _fake_calalign_table():
-    """A single-version calalign table, as calalign_from_files would return."""
-    aca_misalign = np.tile(np.eye(3), (1, 1, 1))
-    fts_misalign = np.tile(np.eye(3), (1, 1, 1))
+    """A minimal two-version calalign table, as calalign_from_files would return."""
+    aca_misalign = np.tile(np.eye(3), (2, 1, 1))
+    fts_misalign = np.tile(np.eye(3), (2, 1, 1))
     dy, dz = utils.get_offsets(aca_misalign)
     return Table(
         {
-            "start": CxoTime(["1999:001:00:00:00"]),
-            "stop": CxoTime(["2050:001:00:00:00"]),
-            "detector": ["ACIS-S"],
-            "caldb_version": ["4.10.0"],
-            "since": CxoTime(["1999:001:00:00:00"]),
+            "start": CxoTime(["1999:001:00:00:00", "2010:001:00:00:00"]),
+            "stop": CxoTime(["2010:001:00:00:00", "2050:001:00:00:00"]),
+            "detector": ["ACIS-S", "ACIS-S"],
+            "caldb_version": ["4.0.0", "4.10.0"],
+            "since": CxoTime(["1999:001:00:00:00", "2010:001:00:00:00"]),
             "aca_misalign": aca_misalign,
             "fts_misalign": fts_misalign,
             "dy": dy,
@@ -95,17 +95,15 @@ def _fake_calalign_table():
 
 
 def test_get_calalign_offsets_row_order():
-    """A shuffled input order must not silently misalign the output rows.
+    """A shuffled input row order must come back out in that same order.
 
-    get_calalign_offsets joins per-source rows against the CALALIGN table and then
-    checks that the join preserved row order relative to the input. That check used
-    ``np.all(a != b)``, which only fires when *every* row disagrees -- it misses a
-    partial reorder where at least one row coincidentally lands back in its original
-    position. With obsids given out of order ([2, 1, 3]), astropy's join() re-sorts
-    by the join keys (producing [1, 2, 3]); the last position happens to match (3 ==
-    3), so the old check's ``np.all(!=)`` was False and the misalignment slipped
-    through silently. The fix uses ``not np.all(a == b)`` instead, which raises
-    whenever any row -- not just every row -- is out of place.
+    join() sorts by the join keys internally and gives no guarantee that the
+    input row order survives. get_calalign_offsets used to raise whenever the
+    join's output order didn't already match all_matches' input order -- an
+    unnecessary restriction on a valid, arbitrarily-ordered input table, since
+    match_id_keys (obsid, x_id[, detect_method]) already uniquely identify
+    each row. It must instead restore all_matches' own order rather than
+    reject it.
     """
     all_matches = Table(
         {
@@ -123,8 +121,9 @@ def test_get_calalign_offsets_row_order():
     with patch.object(
         utils, "calalign_from_files", return_value=_fake_calalign_table()
     ):
-        with pytest.raises(RuntimeError, match="all_matches.obsid != result.obsid"):
-            utils.get_calalign_offsets(all_matches)
+        result = utils.get_calalign_offsets(all_matches)
+
+    assert list(result["obsid"]) == [2, 1, 3]
 
 
 def test_get_calalign_offsets_raises_on_malformed_version_string():
@@ -152,3 +151,165 @@ def test_get_calalign_offsets_raises_on_malformed_version_string():
     ):
         with pytest.raises(ValueError):
             utils.get_calalign_offsets(all_matches)
+
+
+def test_get_calalign_offsets_disambiguates_x_id_by_detect_method():
+    """x_id numbering restarts per detect_method, so obsid+x_id alone can collide.
+
+    celldetect and gaussian_detect each number their sources from 1 for a given
+    obsid, so a matches table spanning both methods can have two physically
+    different sources sharing (obsid, x_id). Without 'detect_method' in the
+    grouping key, get_calalign_offsets collapses/mismatches those rows and used
+    to raise RuntimeError("len(all_matches) != len(actual)").
+    """
+    all_matches = Table(
+        {
+            "obsid": [1, 1],
+            "x_id": [1, 1],
+            "detect_method": ["celldetect", "gaussian_detect"],
+            "detector": ["ACIS-S", "ACIS-S"],
+            "time": CxoTime(["2015:001:00:00:00", "2015:001:00:00:00"]),
+            "caldb_version": ["4.10.0", "4.10.0"],
+        }
+    )
+
+    with patch.object(
+        utils, "calalign_from_files", return_value=_fake_calalign_table()
+    ):
+        result = utils.get_calalign_offsets(all_matches)
+
+    assert len(result) == 2
+    assert list(result["detect_method"]) == ["celldetect", "gaussian_detect"]
+
+
+def test_get_calalign_offsets_without_detect_method_column():
+    """Tables without a 'detect_method' column (e.g. from older DBs) still work."""
+    all_matches = Table(
+        {
+            "obsid": [1, 2],
+            "x_id": [1, 1],
+            "detector": ["ACIS-S", "ACIS-S"],
+            "time": CxoTime(["2015:001:00:00:00", "2015:001:00:00:00"]),
+            "caldb_version": ["4.10.0", "4.10.0"],
+        }
+    )
+
+    with patch.object(
+        utils, "calalign_from_files", return_value=_fake_calalign_table()
+    ):
+        result = utils.get_calalign_offsets(all_matches)
+
+    assert list(result["obsid"]) == [1, 2]
+    assert "detect_method" not in result.colnames
+
+
+def _fake_calalign_table_multi_matrix():
+    """Three CALALIGN entries for one detector, the last two sharing a version label.
+
+    Mirrors CALDB's real pattern: many distinct, periodically-updated alignment
+    matrices (tracking periscope drift) can share one version label -- e.g. every
+    file from 2013-01-19 through 2021-07-02 in a real CALDB checkout is tagged
+    "N0010". get_latest_calalign_matrix must pick the row by date (start), not by
+    that shared version label.
+    """
+    n = 3
+    aca_misalign = np.tile(np.eye(3), (n, 1, 1))
+    fts_misalign = np.tile(np.eye(3), (n, 1, 1))
+    return Table(
+        {
+            "start": CxoTime(
+                ["1999:001:00:00:00", "2013:001:00:00:00", "2020:001:00:00:00"]
+            ),
+            "stop": CxoTime(
+                ["2013:001:00:00:00", "2050:001:00:00:00", "2050:001:00:00:00"]
+            ),
+            "detector": ["ACIS-S"] * n,
+            "caldb_version": ["4.4.4", "4.10.0", "4.10.0"],
+            "since": CxoTime(["1999:001:00:00:00", "2013:001:00:00:00"] * n)[:n],
+            "aca_misalign": aca_misalign,
+            "fts_misalign": fts_misalign,
+            "dy": np.array([0.0, 1.0, 2.0]),
+            "dz": np.array([0.0, -1.0, -2.0]),
+        }
+    )
+
+
+def test_get_latest_calalign_matrix_picks_by_date_not_version():
+    """The most-recently-dated matrix wins even when an older matrix shares its
+    version label with a still-older one -- see _fake_calalign_table_multi_matrix.
+    """
+    with patch.object(
+        utils, "calalign_from_files", return_value=_fake_calalign_table_multi_matrix()
+    ):
+        latest = utils.get_latest_calalign_matrix()
+
+    assert latest["ACIS-S"] == (2.0, -2.0)
+
+
+def test_get_rebased_offsets():
+    """dy_rebased undoes the as-processed CALALIGN and reapplies the latest matrix.
+
+    One match processed under the middle (dy=1.0) matrix should end up shifted to
+    read as if the latest (dy=2.0) matrix had been used instead: dy_rebased =
+    dy - (calalign_dy - ref_dy) = 5.0 - (1.0 - 2.0) = 6.0. A second match with
+    caldb_version "0.0" (no real CalDB version recorded) is preserved in the output
+    but gets NaN instead of a computed value.
+    """
+    all_matches = Table(
+        {
+            "obsid": [1, 2],
+            "x_id": [1, 1],
+            "detector": ["ACIS-S", "ACIS-S"],
+            "time": CxoTime(["2015:001:00:00:00", "2015:001:00:00:00"]),
+            "caldb_version": ["4.10.0", "0.0"],
+            "dy": [5.0, 5.0],
+            "dz": [5.0, 5.0],
+        }
+    )
+
+    with patch.object(
+        utils, "calalign_from_files", return_value=_fake_calalign_table_multi_matrix()
+    ):
+        result = utils.get_rebased_offsets(all_matches)
+
+    assert list(result["obsid"]) == [1, 2]
+    assert result["dy_rebased"][0] == pytest.approx(6.0)
+    assert result["dz_rebased"][0] == pytest.approx(4.0)
+    assert np.isnan(result["dy_rebased"][1])
+    assert np.isnan(result["dz_rebased"][1])
+
+
+def test_get_rebased_offsets_preserves_row_order_with_interleaved_no_caldb():
+    """The returned table's row order must match all_matches, even when
+    caldb_version == "0.0" rows are interleaved with real ones.
+
+    get_rebased_offsets used to split all_matches into a has-caldb table and a
+    no-caldb table, compute dy_rebased/dz_rebased on the first, and vstack the
+    two back together -- always has-caldb rows first, then no-caldb rows. Given
+    obsids [2, 1, 3] with the middle one ("1") lacking a real caldb_version, the
+    output row order came back as [2, 3, 1] instead of [2, 1, 3], even though
+    the docstring promises "a copy of all_matches" (same row order, extra
+    columns). Values stayed attached to the right obsid either way -- the bug
+    was purely in row order, which is what this checks.
+    """
+    all_matches = Table(
+        {
+            "obsid": [2, 1, 3],
+            "x_id": [1, 1, 1],
+            "detector": ["ACIS-S", "ACIS-S", "ACIS-S"],
+            "time": CxoTime(["2015:001:00:00:00"] * 3),
+            "caldb_version": ["4.10.0", "0.0", "4.10.0"],
+            "dy": [5.0, 5.0, 5.0],
+            "dz": [5.0, 5.0, 5.0],
+        }
+    )
+
+    with patch.object(
+        utils, "calalign_from_files", return_value=_fake_calalign_table_multi_matrix()
+    ):
+        result = utils.get_rebased_offsets(all_matches)
+
+    assert list(result["obsid"]) == [2, 1, 3]
+    assert np.isnan(result["dy_rebased"][1])
+    assert not np.isnan(result["dy_rebased"][0])
+    assert not np.isnan(result["dy_rebased"][2])

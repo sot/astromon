@@ -8,6 +8,10 @@ from astropy.io import fits
 
 from astromon import observation
 
+# The real HRC plate scale, per the Chandra Proposers' Observatory Guide. filter_events
+# filters events in a circle around the optical axis, and needs to convert the filter
+# radius from arcsec to detector pixels. Using the wrong scale here does not raise an
+# exception: it silently changes the filtered region size (see astromon/observation.py).
 HRC_ARCSEC_PER_PIXEL = 0.13180
 ACIS_ARCSEC_PER_PIXEL = 0.5
 
@@ -108,21 +112,6 @@ def test_filter_events_pixel_scale(is_hrc, arcsec_per_pixel):
     observation.filter_events.func(obs, inputs, outputs)
 
     radius = 180  # matches the fixed radius in filter_events
-    assert _dmcopy_circle_radius(obs.ciao) == pytest.approx(radius / arcsec_per_pixel)
-
-
-@pytest.mark.parametrize(
-    "is_hrc,arcsec_per_pixel",
-    [(True, HRC_ARCSEC_PER_PIXEL), (False, ACIS_ARCSEC_PER_PIXEL)],
-)
-def test_filter_sources_pixel_scale(is_hrc, arcsec_per_pixel):
-    obs = _fake_obs(is_hrc)
-    inputs = {"events": "evt2_filtered.fits.gz", "src": "baseline.src"}
-    outputs = {"src": "filtered.src"}
-
-    observation.filter_sources.func(obs, inputs, outputs)
-
-    radius = 180  # matches the fixed radius in filter_sources
     assert _dmcopy_circle_radius(obs.ciao) == pytest.approx(radius / arcsec_per_pixel)
 
 
@@ -829,7 +818,7 @@ def test_fit_gaussian_sources_matches_ecf_radius_by_component(tmp_path, monkeypa
     """
     obs = Mock()
     obs.is_acis = False  # pixel_size = 0.13175
-    obs.get_info.return_value = {"ra_nom": 0.0, "dec_nom": 0.0, "roll_nom": 0.0}
+    obs.get_info.return_value = {"ra_pnt": 0.0, "dec_pnt": 0.0, "roll_pnt": 0.0}
     # COMPONENT 2 is on a streak and is not the brightest (SNR=3 < 10), so it
     # is dropped; COMPONENTs 1 and 3 (SNR 5 and 10) survive, in that order.
     obs._on_acis_streak.return_value = np.array([False, True, False])
@@ -885,3 +874,304 @@ def test_fit_gaussian_sources_matches_ecf_radius_by_component(tmp_path, monkeypa
         assert row["ecf_radius"] == pytest.approx(expected_ecf_radius[row["COMPONENT"]])
         expected_psfratio = 2.0 / expected_ecf_radius[row["COMPONENT"]]
         assert row["PSFRATIO"] == pytest.approx(expected_psfratio)
+
+
+# --- is_selected --------------------------------------------------------
+#
+# Ocat fields (instr/mode/d_cyc) say nothing about pointed-vs-slew: an ACIS
+# observation with a usable instrument, TE readout, and no duty cycling can
+# still not be OBS_MODE=POINTING. Only the evt2 header itself -- the one
+# processing actually reads -- says that, so is_selected downloads it and
+# checks directly once the cheap ocat prefilter has passed.
+
+
+def _stub_valid_ocat_row(monkeypatch):
+    """An ocat row that passes is_selected's cheap prefilter (ACIS, TE, no duty cycle)."""
+    monkeypatch.setattr(
+        observation.cda,
+        "get_ocat_local",
+        lambda obsid: {
+            "category": "BH AND NS BINARIES",
+            "prop_title": "test",
+            "pi_name": "test",
+            "observer": "test",
+            "obs_cycle": "23",
+            "instr": "ACIS-S",
+            "mode": "TE",
+            "d_cyc": "N",
+        },
+    )
+
+
+def test_is_selected_true_for_pointing_acis_observation(tmp_path, monkeypatch):
+    """A valid ocat row plus a POINTING evt2 header selects the observation."""
+    obs = _make_observation(tmp_path, obsid=1234)
+    _stub_valid_ocat_row(monkeypatch)
+    monkeypatch.setattr(obs, "download", lambda *a, **k: None)
+    monkeypatch.setattr(obs, "get_evt2_info", lambda: {"obs_mode": "POINTING"})
+
+    assert obs.is_selected is True
+
+
+def test_is_selected_false_for_non_pointing_evt2_despite_valid_ocat(
+    tmp_path, monkeypatch
+):
+    """Ocat alone cannot tell a slew apart from a pointed exposure.
+
+    An ACIS observation with a usable instrument, TE readout, and no duty
+    cycling used to pass is_selected on ocat fields alone, even when the
+    observation's own evt2 header says it is not OBS_MODE=POINTING.
+    """
+    obs = _make_observation(tmp_path, obsid=1234)
+    _stub_valid_ocat_row(monkeypatch)
+    monkeypatch.setattr(obs, "download", lambda *a, **k: None)
+    monkeypatch.setattr(obs, "get_evt2_info", lambda: {"obs_mode": "RASTER"})
+
+    assert obs.is_selected is False
+
+
+def test_is_selected_rejects_ocat_prefilter_without_downloading_evt2(
+    tmp_path, monkeypatch
+):
+    """An obsid the cheap ocat prefilter already rejects must not download evt2.
+
+    Blank/"NONE" ocat instr already means "not a real science pointing" (see
+    is_selected's docstring); paying for an evt2 download just to confirm that
+    would defeat the point of having a cheap prefilter at all.
+    """
+    obs = _make_observation(tmp_path, obsid=1234)
+    monkeypatch.setattr(
+        observation.cda,
+        "get_ocat_local",
+        lambda obsid: {
+            "category": "BH AND NS BINARIES",
+            "instr": "",
+            "mode": "",
+            "d_cyc": "",
+        },
+    )
+    calls = []
+    monkeypatch.setattr(obs, "download", lambda *a, **k: calls.append(a))
+
+    assert obs.is_selected is False
+    assert not calls, "an ocat-rejected obsid must not download evt2"
+
+
+# ---------------------------------------------------------------------------
+# Observation._get_sources: ecf_radius must also be joined by COMPONENT here,
+# for the same reason as in _fit_gaussian_sources above -- this method filters
+# `sources` to `r_angle < 180` before assigning ecf_radius, but the psf_size
+# file was written for the full, unfiltered celldetect source list.
+# ---------------------------------------------------------------------------
+
+_GET_SOURCES_RAW_FUNC = observation.Observation.__dict__["_get_sources"].func
+
+
+def _write_src_with_yagzag(path, *, component, y_angle, z_angle, ra, dec, snr):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    table.Table(
+        {
+            "COMPONENT": np.array(component, dtype=np.int32),
+            "RA": np.array(ra, dtype=float),
+            "DEC": np.array(dec, dtype=float),
+            "y_angle": np.array(y_angle, dtype=float),
+            "z_angle": np.array(z_angle, dtype=float),
+            "SNR": np.array(snr, dtype=float),
+        }
+    ).write(path, format="fits", overwrite=True)
+
+
+def test_get_sources_matches_ecf_radius_by_component_after_r_angle_filter(
+    tmp_path, monkeypatch
+):
+    """A source beyond r_angle=180" (COMPONENT 2) is filtered out before
+    ecf_radius is assigned, leaving COMPONENT [1, 3] -- those must still get
+    ecf_radius from THEIR OWN row in the (unfiltered, 3-row) psf_size file,
+    not from whatever ends up in position 0/1 after filtering.
+    """
+    obs = _make_observation(tmp_path)
+    monkeypatch.setattr(obs, "get_evt2_info", lambda: {"instrument": "acis"})
+    monkeypatch.setattr(obs, "get_calalign", lambda: {"caldb_version": "4.10.0"})
+    monkeypatch.setattr(obs, "_pileup_value", lambda src: np.zeros(len(src)))
+    monkeypatch.setattr(
+        obs, "_on_acis_streak", lambda src: np.zeros(len(src), dtype=bool)
+    )
+    monkeypatch.setattr(
+        obs, "_on_grating_arm", lambda src: np.zeros(len(src), dtype=bool)
+    )
+    monkeypatch.setattr(obs, "_peak_offset", lambda src: np.full(len(src), np.nan))
+
+    src_path = obs.file_path(f"sources/{obs.obsid}_celldetect.src")
+    _write_src_with_yagzag(
+        src_path,
+        component=[1, 2, 3],
+        # COMPONENT 2 sits well beyond the 180" cut; 1 and 3 stay.
+        y_angle=[0.0, 200.0, 10.0],
+        z_angle=[0.0, 0.0, 0.0],
+        ra=[10.0, 20.0, 30.0],
+        dec=[-5.0, -5.0, -5.0],
+        snr=[5, 3, 10],
+    )
+    psf_size_path = obs.file_path(f"sources/{obs.obsid}_psf_size_celldetect.fits")
+    _write_psf_size(psf_size_path, component=[1, 2, 3], r=[10.0, 20.0, 30.0])
+
+    sources = _GET_SOURCES_RAW_FUNC(obs, version="celldetect")
+
+    # COMPONENT is renamed to "id" by the time _get_sources returns.
+    assert sorted(sources["id"].tolist()) == [1, 3]
+    pixel_size = 0.4920  # obs.is_acis is True
+    expected_ecf_radius = {1: 10.0 * pixel_size, 3: 30.0 * pixel_size}
+    for row in sources:
+        assert row["ecf_radius"] == pytest.approx(expected_ecf_radius[int(row["id"])])
+
+
+def test_observation_archive_dir_defaults_to_the_module_default(tmp_path):
+    """With no archive_dir the observation archives under ARCHIVE_DIR."""
+    obs = observation.Observation(
+        1234, workdir=tmp_path, use_ciao=False, archive_dir=None
+    )
+
+    assert obs.archive_dir == observation.ARCHIVE_DIR / "obs01" / "1234"
+
+
+def test_explicit_archive_dir_overrides_the_default(tmp_path):
+    """An explicit archive_dir -- what --archive-dir supplies -- still wins.
+
+    ARCHIVE_DIR now derives from ASTROMON_DATA_DIR, so this pins the precedence:
+    the command line beats the environment, not the other way round.
+    """
+    chosen = tmp_path / "elsewhere"
+
+    obs = observation.Observation(
+        1234, workdir=tmp_path, use_ciao=False, archive_dir=chosen
+    )
+
+    assert obs.archive_dir == chosen / "obs01" / "1234"
+    assert observation.ARCHIVE_DIR not in obs.archive_dir.parents
+
+
+def _write_evt2(obs, *, dtycycle, include_sim=True):
+    """A minimal real evt2 FITS file with a header at HDU 1, as get_evt2_info reads.
+
+    dtycycle is written as-is into the DTYCYCLE header card, so passing a string
+    like "" reproduces a header value fits.getheader hands back unparseable by
+    int() -- the case get_evt2_info must not raise on.
+
+    include_sim=False omits SIM_X/SIM_Y/SIM_Z entirely, reproducing the
+    missing-header case for those columns' own None-when-missing bug.
+    """
+    from astropy.io import fits
+
+    primary_dir = obs.workdir / "primary"
+    primary_dir.mkdir(parents=True, exist_ok=True)
+
+    header = fits.Header(
+        {
+            "RA_PNT": 83.8,
+            "DEC_PNT": -5.4,
+            "ROLL_PNT": 0.0,
+            "RA_TARG": 83.8,
+            "DEC_TARG": -5.4,
+            "INSTRUME": "ACIS",
+            "READMODE": "TIMED",
+            "DTYCYCLE": dtycycle,
+        }
+    )
+    if include_sim:
+        # sim_x/y/z have the same None-when-missing pattern DTYCYCLE used to,
+        # and aren't the column under test here -- set them so this fixture
+        # doesn't also trip that (separate) bug.
+        header["SIM_X"] = 0.0
+        header["SIM_Y"] = 0.0
+        header["SIM_Z"] = -190.0
+    hdul = fits.HDUList([fits.PrimaryHDU(), fits.BinTableHDU(header=header)])
+    hdul.writeto(primary_dir / f"acisf{obs.obsid}N001_evt2.fits", overwrite=True)
+
+
+def test_get_evt2_info_falls_back_to_nan_for_an_unparseable_dtycycle(
+    tmp_path, monkeypatch
+):
+    """A DTYCYCLE header value that int() rejects must not crash get_evt2_info.
+
+    Confirmed empirically that HRC evt2 files never carry DTYCYCLE at all (it is
+    ACIS-only), which the existing "DTYCYCLE" in header guard already handles. A
+    present-but-blank value is the case that guard misses: int("") raises
+    ValueError, which previously propagated out of get_evt2_info and failed the
+    whole obsid. It must instead be treated the same as a missing key.
+
+    NaN, not None: a bare None makes Table([observation.get_info()]) infer an
+    object-dtype dtycycle column, which then fails to write to FITS (see
+    test_obspar_table_with_unknown_dtycycle_is_fits_writable below). NaN keeps
+    the column numeric like every other unknown reading in this codebase (see
+    db.missing_column_fill), while still being distinguishable from a real
+    DTYCYCLE=0 reading.
+
+    Not asserting on the accompanying warning here: observation.logger is
+    ska_helpers.logging.basic_logger, a one-shot, propagate=False logger whose
+    StreamHandler is bound to whatever sys.stderr was at first use in the test
+    session -- neither caplog nor capsys/capfd reliably see it after that. The
+    warning is visible in this test's own captured-stderr output on failure.
+    """
+    obs = _make_observation(tmp_path, obsid=1234)
+    monkeypatch.setattr(obs, "download", lambda *a, **k: None)
+    _write_evt2(obs, dtycycle="")
+
+    info = obs.get_evt2_info()
+
+    assert np.isnan(info["dtycycle"])
+
+
+def test_get_evt2_info_parses_a_normal_dtycycle(tmp_path, monkeypatch):
+    """The common case -- a clean integer DTYCYCLE -- still comes through as a float.
+
+    0 is itself a legitimate DTYCYCLE reading (not "unknown"), so this doubles as
+    the case that rules out reusing 0 as the missing-value sentinel.
+    """
+    obs = _make_observation(tmp_path, obsid=1234)
+    monkeypatch.setattr(obs, "download", lambda *a, **k: None)
+    _write_evt2(obs, dtycycle=0)
+
+    info = obs.get_evt2_info()
+
+    assert info["dtycycle"] == 0
+
+
+def test_obspar_table_with_unknown_dtycycle_is_fits_writable(tmp_path, monkeypatch):
+    """get_cat_obs_data.py wraps get_info() as Table([observation.get_info()]) and
+    writes it to FITS (astromon/scripts/get_cat_obs_data.py). A bare None for an
+    unknown dtycycle survives get_evt2_info() and the Table() call just fine, but
+    makes that column object-dtype, which blows up at write() time with
+    "unsupported object types or mixed types" -- crashing the whole obsid well
+    after the original DTYCYCLE cast, in code that itself has nothing to do with
+    dtycycle. Reproduce that exact path here instead of only unit-testing
+    get_evt2_info() in isolation.
+    """
+    obs = _make_observation(tmp_path, obsid=1234)
+    monkeypatch.setattr(obs, "download", lambda *a, **k: None)
+    _write_evt2(obs, dtycycle="")
+
+    info = obs.get_evt2_info()
+    obspar = table.Table([info])
+
+    assert obspar["dtycycle"].dtype.kind == "f"
+    obspar.write(tmp_path / "astromon_obs.fits")
+
+
+def test_obspar_table_with_missing_sim_coords_is_fits_writable(tmp_path, monkeypatch):
+    """Same bug class as test_obspar_table_with_unknown_dtycycle_is_fits_writable,
+    for sim_x/sim_y/sim_z: get_evt2_info() used to fall back to a bare None when
+    SIM_X/SIM_Y/SIM_Z are absent from the evt2 header, which makes those columns
+    object-dtype in Table([observation.get_info()]) and blows up at write() time
+    with "unsupported object types or mixed types".
+    """
+    obs = _make_observation(tmp_path, obsid=1234)
+    monkeypatch.setattr(obs, "download", lambda *a, **k: None)
+    _write_evt2(obs, dtycycle=0, include_sim=False)
+
+    info = obs.get_evt2_info()
+    obspar = table.Table([info])
+
+    assert obspar["sim_x"].dtype.kind == "f"
+    assert obspar["sim_y"].dtype.kind == "f"
+    assert obspar["sim_z"].dtype.kind == "f"
+    obspar.write(tmp_path / "astromon_obs.fits")
