@@ -534,3 +534,168 @@ def test_missing_calalign_files_accepts_the_database_bytes_versions(tmp_path):
     missing = utils.missing_calalign_files(versions, calalign, caldb)
 
     assert missing == {"4.9.6": ["pcadD2013-01-19alignN0009.fits"]}
+
+
+def _write_acal_file(path, caldb_version, offsets, obsid=4686):
+    """A minimal acal1 file: one row of applied matrices, CALDBVER and OBS_ID.
+
+    ``offsets`` is the (dy, dz) arcsec its ACA_MISALIGN encodes.
+    """
+    dy, dz = offsets
+    columns = {
+        "aca_align": np.eye(3),
+        "aca_misalign": Quat(equatorial=[dy / 3600, dz / 3600, 0]).transform,
+        "fts_misalign": np.eye(3),
+    }
+    hdu = fits.BinTableHDU.from_columns(
+        [
+            fits.Column(name=name, format="9D", dim="(3,3)", array=matrix[np.newaxis])
+            for name, matrix in columns.items()
+        ]
+    )
+    hdu.header["CALDBVER"] = caldb_version
+    hdu.header["OBS_ID"] = str(obsid)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fits.HDUList([fits.PrimaryHDU(), hdu]).writeto(path)
+
+
+def test_read_acal_files_returns_the_applied_matrix_and_version(tmp_path):
+    path = tmp_path / "pcadf192702697N004_acal1.fits.gz"
+    _write_acal_file(path, "4.9.2.", (84.15, 51.25))
+
+    acal = utils.read_acal_files([path])
+
+    assert acal["caldb_version"] == "4.9.2"
+    dy, dz = utils.get_offsets(np.array([acal["aca_misalign"]]))
+    np.testing.assert_allclose([dy[0], dz[0]], [84.15, 51.25])
+
+
+def test_read_acal_files_keeps_a_matrix_every_file_agrees_on(tmp_path):
+    paths = [tmp_path / f"pcadf{n}N001_acal1.fits.gz" for n in (1, 2)]
+    for path in paths:
+        _write_acal_file(path, "4.9.4", (84.15, 51.25))
+
+    acal = utils.read_acal_files(paths)
+
+    assert acal["caldb_version"] == "4.9.4"
+    assert acal["aca_misalign"] is not None
+
+
+def test_read_acal_files_drops_a_matrix_the_files_disagree_on(tmp_path):
+    """OBIs observed across an alignment change (obsid 108: 2000 and 2001).
+
+    No one matrix was applied to the whole observation, so none is returned;
+    the CALDB version they share still is.
+    """
+    paths = [tmp_path / f"pcadf{n}N005_acal1.fits.gz" for n in (1, 2)]
+    _write_acal_file(paths[0], "4.9.4", (84.15, 51.25))
+    _write_acal_file(paths[1], "4.9.4", (84.40, 51.10))
+
+    acal = utils.read_acal_files(paths)
+
+    assert acal["aca_misalign"] is None
+    assert acal["caldb_version"] == "4.9.4"
+
+
+def test_read_acal_files_drops_a_version_the_files_disagree_on(tmp_path):
+    paths = [tmp_path / f"pcadf{n}N006_acal1.fits.gz" for n in (1, 2)]
+    _write_acal_file(paths[0], "4.9.4", (84.15, 51.25))
+    _write_acal_file(paths[1], "4.9.5", (84.15, 51.25))
+
+    acal = utils.read_acal_files(paths)
+
+    assert acal["caldb_version"] is None
+    assert acal["aca_misalign"] is not None
+
+
+def _two_epoch_calalign_dir(root):
+    """CALALIGN files for ACIS-I and ACIS-S: a 2012 N0009 and the 2021 reference."""
+    calalign = root / "calalign"
+    calalign.mkdir()
+    _write_calalign_file(
+        calalign / "pcadD2012-09-13alignN0009.fits",
+        "2012-09-13T00:00:00",
+        {"ACIS-I": (10.0, -5.0), "ACIS-S": (30.0, 7.0)},
+    )
+    _write_calalign_file(
+        calalign / "pcadD2021-07-02alignN0010.fits",
+        "2021-07-02T12:00:00",
+        {"ACIS-I": (12.0, -4.0), "ACIS-S": (32.0, 8.0)},
+    )
+    return calalign
+
+
+def _acis_i_matches(acal_offsets):
+    """ACIS-I matches from 2015 (CALDB 4.9.4), one per (acal_dy, acal_dz) pair."""
+    n = len(acal_offsets)
+    return Table(
+        {
+            "obsid": np.arange(1, n + 1),
+            "x_id": np.ones(n, dtype=int),
+            "detector": ["ACIS-I"] * n,
+            "time": CxoTime(["2015:001:00:00:00"] * n),
+            "caldb_version": ["4.9.4"] * n,
+            "dy": np.full(n, 100.0),
+            "dz": np.full(n, 50.0),
+            "acal_dy": [dy for dy, _ in acal_offsets],
+            "acal_dz": [dz for _, dz in acal_offsets],
+        }
+    )
+
+
+def test_get_rebased_offsets_prefers_the_applied_matrix_acal1_recorded(tmp_path):
+    """The applied matrix, where recorded, replaces the reconstruction.
+
+    Obsid 9687 in miniature: labeled ACIS-I, but its aspect run applied the
+    ACIS-S entry (30, 7), which the reconstruction cannot know; the second
+    match has no acal1 record and is reconstructed from its CALDB version.
+    Both are rebased onto ACIS-I's latest-dated matrix (12, -4).
+    """
+    calalign = _two_epoch_calalign_dir(tmp_path)
+    matches = _acis_i_matches([(30.0, 7.0), (np.nan, np.nan)])
+
+    result = utils.get_rebased_offsets(matches, calalign_dir=calalign)
+
+    np.testing.assert_allclose(result["dy_rebased"], [100 - (30 - 12), 100 - (10 - 12)])
+    np.testing.assert_allclose(result["dz_rebased"], [50 - (7 + 4), 50 - (-5 + 4)])
+    assert list(result["calalign_source"]) == ["acal1", "reconstructed"]
+
+
+def test_get_rebased_offsets_checks_only_the_rows_it_reconstructs(tmp_path):
+    """An incomplete CALALIGN directory only matters for reconstructed rows."""
+    caldb = _caldb_tree(tmp_path)
+    calalign = _two_epoch_calalign_dir(tmp_path)  # lacks the retired 2013-01-19 N0009
+    recorded = _acis_i_matches([(30.0, 7.0)])
+    recorded["caldb_version"] = ["4.9.6"]
+    reconstructed = _acis_i_matches([(np.nan, np.nan)])
+    reconstructed["caldb_version"] = ["4.9.6"]
+
+    result = utils.get_rebased_offsets(recorded, calalign_dir=calalign, caldb_dir=caldb)
+    assert list(result["calalign_source"]) == ["acal1"]
+    with pytest.raises(ValueError, match="pcadD2013-01-19alignN0009.fits"):
+        utils.get_rebased_offsets(reconstructed, calalign_dir=calalign, caldb_dir=caldb)
+
+
+def test_get_rebased_offsets_without_acal_columns_reconstructs_every_row(tmp_path):
+    """Tables from databases without the acal columns behave as before."""
+    calalign = _two_epoch_calalign_dir(tmp_path)
+    matches = _acis_i_matches([(np.nan, np.nan)])
+    matches.remove_columns(["acal_dy", "acal_dz"])
+
+    result = utils.get_rebased_offsets(matches, calalign_dir=calalign)
+
+    np.testing.assert_allclose(result["dy_rebased"], [100 - (10 - 12)])
+    assert list(result["calalign_source"]) == ["reconstructed"]
+
+
+def test_get_rebased_offsets_leaves_a_bytes_no_version_row_unrebased(tmp_path):
+    """The database's caldb_version is bytes: b"0.0" still means no version."""
+    calalign = _two_epoch_calalign_dir(tmp_path)
+    matches = _acis_i_matches([(np.nan, np.nan), (np.nan, np.nan)])
+    matches["caldb_version"] = np.array([b"4.9.4", b"0.0"])
+
+    result = utils.get_rebased_offsets(matches, calalign_dir=calalign)
+
+    assert np.isfinite(result["dy_rebased"][0])
+    assert np.isnan(result["dy_rebased"][1])
+    assert list(result["calalign_source"]) == ["reconstructed", ""]

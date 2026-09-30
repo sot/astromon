@@ -1389,7 +1389,17 @@ class Observation:
             ]
 
         sources["obsid"] = int(self.obsid)
-        sources["caldb_version"] = self.get_calalign()["caldb_version"]
+        calalign = self.get_calalign()
+        sources["caldb_version"] = calalign["caldb_version"]
+        # "" for a result cached before get_calalign recorded its source
+        sources["caldb_version_source"] = calalign.get("caldb_version_source", "")
+        # the applied matrix, when acal1 recorded one (arc5gl only)
+        acal_dy, acal_dz = np.nan, np.nan
+        if calalign.get("aca_misalign") is not None:
+            dys, dzs = utils.get_offsets(np.array([calalign["aca_misalign"]]))
+            acal_dy, acal_dz = float(dys[0]), float(dzs[0])
+        sources["acal_dy"] = acal_dy
+        sources["acal_dz"] = acal_dz
         sources["pileup"] = self._pileup_value(sources)
         sources["acis_streak"] = self._on_acis_streak(sources)
         sources["grating_arm"] = self._on_grating_arm(sources)
@@ -1445,6 +1455,9 @@ class Observation:
                 ("grating_arm", "?"),
                 ("brightest", "?"),
                 ("caldb_version", "<U20"),
+                ("caldb_version_source", "<U8"),
+                ("acal_dy", ">f8"),
+                ("acal_dz", ">f8"),
                 ("detect_method", "<U24"),
                 ("peak_offset", ">f4"),
             ]
@@ -1624,61 +1637,81 @@ class Observation:
         }
 
     @stored_result("calalign", fmt="json", subdir="cache")
-    def get_calalign(self, _cache_schema_version=2):
+    def get_calalign(self, _cache_schema_version=3):
         """The alignment the aspect processing applied, and its CALDB version.
 
         The alignment matrices are applied in the aspect run, and event data can
         be reprocessed later without redoing it, so the CALDB version comes from
-        the aspect products: the acal1 file (only from arc5gl; it also holds the
-        applied matrices), else the aspect solution (asol1, in the public archive
-        too). The event file's CALDBVER is the last resort: obsid 4686's acal1
-        and asol1 say 4.9.2, its evt2 (reprocessed) 4.9.6. The version is
-        normalized (:func:`astromon.utils.normalized_caldb_version`); "0.0"
-        means none was found.
+        the aspect products: the acal1 files (only from arc5gl; they also hold
+        the applied matrices), else the aspect solution (asol1, in the public
+        archive too). The event file's CALDBVER is the last resort: obsid 4686's
+        acal1 and asol1 say 4.9.2, its evt2 (reprocessed) 4.9.6. A source whose
+        files disagree is skipped (:func:`astromon.utils.read_acal_files`).
+
+        Returns a dict with "obsid", "caldb_version" (normalized, see
+        :func:`astromon.utils.normalized_caldb_version`; "0.0" if none was
+        found) and "caldb_version_source" ("acal1", "asol1", "evt2" or "none").
+        When the version comes from acal1 files that also agree on the applied
+        matrices, it holds them too, as 3x3 nested lists: "aca_align",
+        "aca_misalign", "fts_misalign".
 
         ``_cache_schema_version`` is never passed by a caller -- it exists only
         so @stored_result's argument hash (and therefore its cache filename)
-        changes, and results cached before the version came from the aspect
-        products are not trusted. Bump it whenever the returned values change.
+        changes, and results cached under an older return schema are not
+        trusted. Bump it whenever the returned values change.
         """
+        obsid = int(self.obsid)
         self.download(["acal"])
-        cal_file = self.file_glob("secondary/*acal*fits*")
-        if cal_file:
-            hdus = fits.open(cal_file[0])
-            calalign = {
-                k: hdus[1].data[k]
-                for k in ["aca_align", "aca_misalign", "fts_misalign"]
-            }
-            calalign = {k: v.tolist() for k, v in calalign.items()}
-            calalign["obsid"] = int(self.obsid)
-            calalign["caldb_version"] = utils.normalized_caldb_version(
-                hdus[1].header["CALDBVER"]
-            )
-            return calalign
-        # acal file not available (e.g. when data was downloaded via
-        # download_chandra_obsid which does not include CXC-internal products).
+        acal_files = self.file_glob("secondary/*acal*fits*")
+        if acal_files:
+            acal = utils.read_acal_files(acal_files)
+            if acal["caldb_version"] is not None:
+                calalign = {
+                    name: matrix
+                    for name, matrix in acal.items()
+                    if name != "caldb_version" and matrix is not None
+                }
+                calalign.update(
+                    obsid=obsid,
+                    caldb_version=acal["caldb_version"],
+                    caldb_version_source="acal1",
+                )
+                return calalign
+            logger.warning(f"{self} acal1 files disagree on CALDBVER; not using them")
+        # no usable acal file (e.g. when data was downloaded via
+        # download_chandra_obsid, which does not include CXC-internal products).
         caldb_version = self._aspect_solution_caldb_version()
         if caldb_version is not None:
             logger.debug(
                 f"{self} no acal file; using CALDBVER={caldb_version!r} "
                 "from the aspect solution"
             )
-            return {"obsid": int(self.obsid), "caldb_version": caldb_version}
-        caldb_version = "0.0"
+            return {
+                "obsid": obsid,
+                "caldb_version": caldb_version,
+                "caldb_version_source": "asol1",
+            }
+        caldb_version, source = "0.0", "none"
         evt_files = self.file_glob("primary/*_evt2.fits*")
         if evt_files:
             try:
                 with fits.open(evt_files[0]) as hdus:
-                    caldb_version = utils.normalized_caldb_version(
-                        hdus[1].header.get("CALDBVER", "0.0")
-                    )
+                    if "CALDBVER" in hdus[1].header:
+                        caldb_version = utils.normalized_caldb_version(
+                            hdus[1].header["CALDBVER"]
+                        )
+                        source = "evt2"
             except Exception as exc:
                 logger.debug(f"{self} could not read CALDBVER from event file: {exc}")
         logger.debug(
             f"{self} no acal file or aspect solution; "
             f"using CALDBVER={caldb_version!r} from event file"
         )
-        return {"obsid": int(self.obsid), "caldb_version": caldb_version}
+        return {
+            "obsid": obsid,
+            "caldb_version": caldb_version,
+            "caldb_version_source": source,
+        }
 
     def _aspect_solution_caldb_version(self):
         """The CALDB version of the aspect run that made this observation's asol1.

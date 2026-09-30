@@ -1379,3 +1379,54 @@ def test_mark_catalog_matched_against_a_file_with_no_status_table_at_all():
         result = db.mark_catalog_matched(dbfile, [111])
 
         assert result == {"updated": [], "skipped_no_row": [111]}
+
+
+ACAL_COLUMNS = ("caldb_version_source", "acal_dy", "acal_dz")
+
+
+def _write_xray_src_without_the_acal_columns(dbfile):
+    """An astromon_xray_src table as written before the acal columns existed."""
+    old_dtype = np.dtype(
+        [
+            (name, db.ASTROMON_XRAY_SRC_DTYPE[name])
+            for name in db.ASTROMON_XRAY_SRC_DTYPE.names
+            if name not in ACAL_COLUMNS
+        ]
+    )
+    old_row = np.zeros(1, dtype=old_dtype)
+    old_row["obsid"] = 4686
+    old_row["id"] = 1
+    old_row["caldb_version"] = b"4.9.6"
+    old_row["detect_method"] = b"celldetect"
+    with tb.open_file(str(dbfile), "a") as h5:
+        h5.create_table("/", "astromon_xray_src", old_dtype, "xray src")
+        h5.root.astromon_xray_src.append(old_row)
+
+
+def test_rows_written_before_the_acal_columns_read_as_unknown(tmp_path):
+    """Older rows read with NaN applied offsets (reconstruct) and no known source."""
+    dbfile = tmp_path / "old_schema.h5"
+    _write_xray_src_without_the_acal_columns(dbfile)
+
+    result = db.get_table("astromon_xray_src", dbfile)
+
+    assert np.isnan(result["acal_dy"][0])
+    assert np.isnan(result["acal_dz"][0])
+    assert result["caldb_version_source"][0] == ""
+    assert result["caldb_version"][0] == "4.9.6"
+
+
+def test_migrate_db_adds_the_acal_columns(tmp_path):
+    from astromon.scripts import migrate_db
+
+    dbfile = tmp_path / "old_schema.h5"
+    _write_xray_src_without_the_acal_columns(dbfile)
+    db.save("astromon_xcorr", Table(np.zeros(0, dtype=db.ASTROMON_XCORR_DTYPE)), dbfile)
+
+    migrate_db.migrate(dbfile)
+
+    with tb.open_file(str(dbfile)) as h5:
+        stored = h5.root.astromon_xray_src[:]
+    assert set(ACAL_COLUMNS) <= set(stored.dtype.names)
+    assert np.isnan(stored["acal_dy"][0])
+    assert stored["caldb_version_source"][0] == b""

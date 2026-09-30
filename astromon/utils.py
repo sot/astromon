@@ -500,6 +500,47 @@ def normalized_caldb_version(value):
     return str(value).strip().rstrip(".")
 
 
+def read_acal_files(paths):
+    """
+    What an observation's acal1 files agree on: its CALDB version and applied alignment.
+
+    An acal1 file holds, in one row, the alignment matrices an aspect run applied
+    (aca_align, aca_misalign, fts_misalign) and that run's CALDBVER. A multi-OBI
+    observation has one per aspect interval, and when those differ -- OBIs
+    observed across an alignment change -- no single matrix was applied to the
+    whole observation, so none is returned.
+
+    Parameters
+    ----------
+    paths: iterable of :any:`pathlib.Path` or str
+        The observation's acal1 files.
+
+    Returns
+    -------
+    dict
+        "caldb_version": the files' common CALDBVER (:func:`normalized_caldb_version`),
+        or None if they disagree. "aca_align", "aca_misalign", "fts_misalign": each
+        the files' common 3x3 matrix as nested lists, or None if they disagree.
+    """
+    versions = set()
+    matrices = {name: [] for name in ("aca_align", "aca_misalign", "fts_misalign")}
+    for path in paths:
+        with fits.open(path) as hdus:
+            versions.add(normalized_caldb_version(hdus[1].header["CALDBVER"]))
+            for name, found in matrices.items():
+                found.append(
+                    np.asarray(hdus[1].data[name][0], dtype=float).reshape(3, 3)
+                )
+    acal = {
+        name: found[0].tolist()
+        if found and all(np.array_equal(matrix, found[0]) for matrix in found[1:])
+        else None
+        for name, found in matrices.items()
+    }
+    acal["caldb_version"] = versions.pop() if len(versions) == 1 else None
+    return acal
+
+
 def get_offsets(aca_misalign):
     """
     Get the yag/zag offsets from the aca_misalign matrix.
@@ -824,6 +865,13 @@ def get_rebased_offsets(
     reference matrix instead, so the whole mission reads as one continuous signal:
     ``dy_rebased = dy - (calalign_dy - ref_dy)``, per detector.
 
+    ``calalign_dy`` is the matrix the observation's aspect run applied. Where its
+    acal1 files recorded it (``acal_dy``/``acal_dz``, finite), that is used as
+    is; otherwise it is reconstructed from the observation's ``caldb_version``
+    and the files in `calalign_dir` (:any:`get_calalign_offsets`), which can be
+    wrong where the reconstruction's assumptions fail -- obsid 9687 was
+    processed with another detector's entry.
+
     This is the rebase method used throughout the ``absolute_astrometry`` project
     (e.g. ``celmon-story-1-source-rebase.ipynb``, independently checked there against
     real ASCDS pipeline reprocessing). It is deliberately *not* built on
@@ -842,6 +890,8 @@ def get_rebased_offsets(
         'time', 'dy', 'dz', 'caldb_version'. Include 'detect_method' if `all_matches`
         spans more than one detection method (celldetect and gaussian_detect each
         number 'x_id' independently per obsid) -- see :any:`get_calalign_offsets`.
+        Optional: 'acal_dy', 'acal_dz', the applied matrix's offsets (NaN where
+        unknown), as astromon_xray_src stores them.
     ref_matrix: dict
         {detector: (dy, dz)}, e.g. from :any:`get_latest_calalign_matrix`. Computed
         automatically from `calalign_dir` if not given.
@@ -849,21 +899,20 @@ def get_rebased_offsets(
         Directory where to find the calalign files.
     caldb_dir: :any:`pathlib.Path` or str
         Optional. If given, `calalign_dir` is checked for completeness against
-        this CALDB first -- see :any:`get_calalign_offsets`.
+        this CALDB first, for the rows that are reconstructed -- see
+        :any:`get_calalign_offsets`.
 
     Returns
     -------
     :any:`astropy.table.Table`
-        A copy of `all_matches` with two extra columns, 'dy_rebased'/'dz_rebased'.
-        Rows with `caldb_version == "0.0"` (no real CalDB version recorded, so there
-        is no calalign entry to rebase from) get NaN instead of being dropped.
+        A copy of `all_matches` with extra columns 'dy_rebased'/'dz_rebased' and
+        'calalign_source': "acal1" (the recorded applied matrix was used),
+        "reconstructed", or "" for rows with `caldb_version == "0.0"` and no
+        recorded matrix (no real CalDB version, so nothing to rebase from),
+        which get NaN instead of being dropped.
     """
     if ref_matrix is None:
         ref_matrix = get_latest_calalign_matrix(calalign_dir=calalign_dir)
-
-    # caldb_version "0.0" means no real CalDB version was recorded for that
-    # observation -- get_calalign_offsets has no calalign entry to match it against.
-    has_caldb = all_matches["caldb_version"] != "0.0"
 
     # Assign the new columns into a copy of all_matches directly, in place, rather
     # than splitting into has-caldb/no-caldb tables and vstack-ing them back
@@ -874,16 +923,35 @@ def get_rebased_offsets(
     result = all_matches.copy()
     result["dy_rebased"] = np.nan
     result["dz_rebased"] = np.nan
+    result["calalign_source"] = np.full(len(all_matches), "", dtype="<U13")
 
-    sub = all_matches[has_caldb]
+    # the applied matrix, where the observation's acal1 files recorded one
+    has_acal = np.zeros(len(all_matches), dtype=bool)
+    if "acal_dy" in all_matches.colnames and "acal_dz" in all_matches.colnames:
+        has_acal = np.isfinite(np.asarray(all_matches["acal_dy"], dtype=float))
+        has_acal &= np.isfinite(np.asarray(all_matches["acal_dz"], dtype=float))
+    if has_acal.any():
+        recorded = all_matches[has_acal]
+        ref_dy = np.array([ref_matrix[d][0] for d in recorded["detector"]])
+        ref_dz = np.array([ref_matrix[d][1] for d in recorded["detector"]])
+        result["dy_rebased"][has_acal] = recorded["dy"] - (recorded["acal_dy"] - ref_dy)
+        result["dz_rebased"][has_acal] = recorded["dz"] - (recorded["acal_dz"] - ref_dz)
+        result["calalign_source"][has_acal] = "acal1"
+
+    # the rest is reconstructed from caldb_version. "0.0" means no real CalDB
+    # version was recorded -- get_calalign_offsets has nothing to match it against.
+    # (compared as an astropy column, which also matches a bytes "0.0")
+    reconstruct = np.asarray(all_matches["caldb_version"] != "0.0") & ~has_acal
+    sub = all_matches[reconstruct]
     if len(sub) == 0:
         return result
 
     cal = get_calalign_offsets(sub, calalign_dir=calalign_dir, caldb_dir=caldb_dir)
     ref_dy = np.array([ref_matrix[d][0] for d in sub["detector"]])
     ref_dz = np.array([ref_matrix[d][1] for d in sub["detector"]])
-    result["dy_rebased"][has_caldb] = sub["dy"] - (cal["calalign_dy"] - ref_dy)
-    result["dz_rebased"][has_caldb] = sub["dz"] - (cal["calalign_dz"] - ref_dz)
+    result["dy_rebased"][reconstruct] = sub["dy"] - (cal["calalign_dy"] - ref_dy)
+    result["dz_rebased"][reconstruct] = sub["dz"] - (cal["calalign_dz"] - ref_dz)
+    result["calalign_source"][reconstruct] = "reconstructed"
 
     return result
 

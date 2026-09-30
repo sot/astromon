@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 from astropy import table
 from astropy.io import fits
+from Quaternion import Quat
 
 from astromon import observation
 
@@ -1205,13 +1206,17 @@ def _write_caldbver_product(path, caldb_version, **header):
     fits.HDUList([fits.PrimaryHDU(), hdu]).writeto(path)
 
 
-def _write_acal(path, caldb_version):
+def _write_acal(path, caldb_version, aca_misalign=None):
     """A minimal acal1 file: the applied alignment matrices and CALDBVER."""
-    matrix = np.eye(3)[np.newaxis]
+    matrices = {
+        "aca_align": np.eye(3),
+        "aca_misalign": np.eye(3) if aca_misalign is None else aca_misalign,
+        "fts_misalign": np.eye(3),
+    }
     hdu = fits.BinTableHDU.from_columns(
         [
-            fits.Column(name=name, format="9D", dim="(3,3)", array=matrix)
-            for name in ("aca_align", "aca_misalign", "fts_misalign")
+            fits.Column(name=name, format="9D", dim="(3,3)", array=matrix[np.newaxis])
+            for name, matrix in matrices.items()
         ]
     )
     hdu.header["CALDBVER"] = caldb_version
@@ -1240,7 +1245,10 @@ def test_get_calalign_without_acal_takes_the_aspect_run_caldb_version(
         ASOLFILE="pcadf04686_000N001_asol1.fits",
     )
 
-    assert obs.get_calalign()["caldb_version"] == "4.9.2"
+    calalign = obs.get_calalign()
+
+    assert calalign["caldb_version"] == "4.9.2"
+    assert calalign["caldb_version_source"] == "asol1"
 
 
 def test_get_calalign_without_aspect_products_uses_the_normalized_evt2_version(
@@ -1256,7 +1264,10 @@ def test_get_calalign_without_aspect_products_uses_the_normalized_evt2_version(
         obs.workdir / "primary/acisf04686N006_evt2.fits.gz", "4.9.6."
     )
 
-    assert obs.get_calalign()["caldb_version"] == "4.9.6"
+    calalign = obs.get_calalign()
+
+    assert calalign["caldb_version"] == "4.9.6"
+    assert calalign["caldb_version_source"] == "evt2"
 
 
 def test_get_calalign_with_disagreeing_aspect_solutions_keeps_the_evt2_version(
@@ -1273,7 +1284,10 @@ def test_get_calalign_with_disagreeing_aspect_solutions_keeps_the_evt2_version(
         ASOLFILE=",".join(names),
     )
 
-    assert obs.get_calalign()["caldb_version"] == "4.9.6"
+    calalign = obs.get_calalign()
+
+    assert calalign["caldb_version"] == "4.9.6"
+    assert calalign["caldb_version_source"] == "evt2"
 
 
 def test_get_calalign_with_acal_normalizes_its_caldb_version(tmp_path, monkeypatch):
@@ -1284,4 +1298,96 @@ def test_get_calalign_with_acal_normalizes_its_caldb_version(tmp_path, monkeypat
     calalign = obs.get_calalign()
 
     assert calalign["caldb_version"] == "4.9.2"
-    np.testing.assert_allclose(calalign["aca_misalign"], [np.eye(3)])
+    assert calalign["caldb_version_source"] == "acal1"
+    np.testing.assert_allclose(calalign["aca_misalign"], np.eye(3))
+
+
+def test_get_calalign_with_acal_files_that_disagree_keeps_only_the_version(
+    tmp_path, monkeypatch
+):
+    """OBIs observed across an alignment change: no one matrix to record.
+
+    The shared CALDB version still comes from acal1; the matrix is left out, so
+    the rebase falls back to reconstructing it.
+    """
+    obs = _offline_observation(tmp_path, monkeypatch)
+    for name, matrix in (
+        ("pcadf065926838N005_acal1.fits.gz", np.eye(3)),
+        ("pcadf096782988N004_acal1.fits.gz", np.diag([1.0, 1.0, -1.0])),
+    ):
+        _write_acal(obs.workdir / "secondary" / name, "4.9.4", aca_misalign=matrix)
+
+    calalign = obs.get_calalign()
+
+    assert calalign["caldb_version"] == "4.9.4"
+    assert calalign["caldb_version_source"] == "acal1"
+    assert "aca_misalign" not in calalign
+
+
+def test_get_calalign_with_nothing_to_read_records_no_version(tmp_path, monkeypatch):
+    obs = _offline_observation(tmp_path, monkeypatch)
+    (obs.workdir / "primary").mkdir(parents=True)
+
+    calalign = obs.get_calalign()
+
+    assert calalign["caldb_version"] == "0.0"
+    assert calalign["caldb_version_source"] == "none"
+
+
+def _get_sources_with_calalign(tmp_path, monkeypatch, calalign):
+    """_get_sources on two sources, with get_calalign returning `calalign`."""
+    obs = _make_observation(tmp_path)
+    monkeypatch.setattr(obs, "get_evt2_info", lambda: {"instrument": "acis"})
+    monkeypatch.setattr(obs, "get_calalign", lambda: calalign)
+    monkeypatch.setattr(obs, "_pileup_value", lambda src: np.zeros(len(src)))
+    monkeypatch.setattr(
+        obs, "_on_acis_streak", lambda src: np.zeros(len(src), dtype=bool)
+    )
+    monkeypatch.setattr(
+        obs, "_on_grating_arm", lambda src: np.zeros(len(src), dtype=bool)
+    )
+    monkeypatch.setattr(obs, "_peak_offset", lambda src: np.full(len(src), np.nan))
+    _write_src_with_yagzag(
+        obs.file_path(f"sources/{obs.obsid}_celldetect.src"),
+        component=[1, 2],
+        y_angle=[0.0, 10.0],
+        z_angle=[0.0, 0.0],
+        ra=[10.0, 20.0],
+        dec=[-5.0, -5.0],
+        snr=[5, 10],
+    )
+    _write_psf_size(
+        obs.file_path(f"sources/{obs.obsid}_psf_size_celldetect.fits"),
+        component=[1, 2],
+        r=[10.0, 20.0],
+    )
+    return _GET_SOURCES_RAW_FUNC(obs, version="celldetect")
+
+
+def test_get_sources_records_the_applied_alignment_offsets(tmp_path, monkeypatch):
+    """Every source carries the dy/dz of the matrix its aspect run applied."""
+    matrix = Quat(equatorial=[84.15 / 3600, 51.25 / 3600, 0]).transform
+    calalign = {
+        "caldb_version": "4.9.2",
+        "caldb_version_source": "acal1",
+        "aca_misalign": matrix.tolist(),
+    }
+
+    sources = _get_sources_with_calalign(tmp_path, monkeypatch, calalign)
+
+    assert list(sources["caldb_version_source"]) == ["acal1", "acal1"]
+    np.testing.assert_allclose(sources["acal_dy"], [84.15, 84.15])
+    np.testing.assert_allclose(sources["acal_dz"], [51.25, 51.25])
+
+
+def test_get_sources_without_an_applied_matrix_leaves_the_offsets_nan(
+    tmp_path, monkeypatch
+):
+    """No acal1 matrix (or a result cached before it was recorded): NaN, unknown."""
+    sources = _get_sources_with_calalign(
+        tmp_path, monkeypatch, {"caldb_version": "4.10.0"}
+    )
+
+    assert np.all(np.isnan(sources["acal_dy"]))
+    assert np.all(np.isnan(sources["acal_dz"]))
+    assert list(sources["caldb_version_source"]) == ["", ""]

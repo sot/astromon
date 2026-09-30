@@ -70,6 +70,18 @@ ASTROMON_XRAY_SRC_DTYPE = np.dtype(
         ("pileup", np.float32),
         ("acis_streak", np.int32),
         ("caldb_version", "S10"),
+        # Where caldb_version came from: "acal1" (the aspect run's own record,
+        # arc5gl only), "asol1" (the aspect solution, public too), "evt2" (the
+        # event file, which can have been reprocessed after the aspect run) or
+        # "none" -- see Observation.get_calalign. "" for rows written before
+        # this column existed.
+        ("caldb_version_source", "S8"),
+        # dy/dz (arcsec) of the ACA_MISALIGN matrix the aspect processing
+        # applied, read from the observation's acal1 files. NaN when unknown (no
+        # acal1, or acal1 files that disagree); the rebase then reconstructs it
+        # from caldb_version (utils.get_rebased_offsets).
+        ("acal_dy", np.float64),
+        ("acal_dz", np.float64),
         # Ratio of fitted Gaussian sigma to PSF ECF=90% radius.
         # Values > 1 indicate emission broader than the PSF.
         ("psfratio", np.float32),

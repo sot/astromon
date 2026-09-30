@@ -11,6 +11,8 @@ astromon_xray_src:
     grating_arm        -> 0         (not evaluated for legacy rows)
     brightest          -> 0         (not evaluated for legacy rows)
     detect_method      -> "celldetect"  (the only method used before this change)
+    caldb_version_source -> ""       (source unknown for legacy rows)
+    acal_dy, acal_dz   -> nan        (applied matrix not recorded; reconstructed)
 
 astromon_xcorr:
     detect_method      -> "celldetect"  (the only method used before this change)
@@ -43,6 +45,9 @@ DEFAULTS = {
         "grating_arm": 0,
         "brightest": 0,
         "detect_method": "celldetect",
+        "caldb_version_source": "",
+        "acal_dy": float("nan"),
+        "acal_dz": float("nan"),
     },
     "astromon_xcorr": {
         "detect_method": "celldetect",
