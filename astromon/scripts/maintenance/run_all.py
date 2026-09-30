@@ -31,6 +31,31 @@ Usage:
 Resumable: obsids already recorded as "success" in --tracking-csv are
 skipped on rerun. To force reprocessing everything, use a fresh
 --tracking-csv path or delete the old one.
+
+Batching (--batch-size)
+------------------------
+db.save() replaces a table by removing the old HDF5 node and creating a new
+one with the merged content -- see process_one_obsid.py's save_with_lock
+docstring. Every per-obsid write therefore rewrites the *entire* accumulated
+table, not just that obsid's rows, and HDF5 never reclaims the space freed by
+the removed node: each rewrite's old copy becomes permanent dead weight.
+Over a run of thousands of obsids this makes --db-file grow roughly
+quadratically (confirmed empirically: 870 obsids of a real campaign grew the
+file from 80MB to 10.2GB, matching "870 rewrites averaging ~10MB each" almost
+exactly) -- eventually exhausting disk space regardless of how much was free
+at the start.
+
+--batch-size N changes nothing about db.save() itself. Instead, each batch
+of N obsids writes to a small, fresh scratch database (created empty, so its
+own per-obsid rewrites stay cheap) rather than --db-file directly. Once the
+batch finishes, its accumulated tables are merged into --db-file in one
+db.save() call per table -- one expensive rewrite per N obsids instead of
+one per obsid -- and --db-file is immediately repacked with ptrepack to
+reclaim the space that merge just spent. This bounds --db-file's on-disk
+size to roughly its live content between batches, rather than letting it
+grow unboundedly. Omit --batch-size (or pass 0) to keep the original
+direct-write behavior unchanged, e.g. for callers relying on every single
+obsid landing in --db-file immediately.
 """
 
 import argparse
@@ -53,6 +78,15 @@ WORKER_MODULE = "astromon.scripts.maintenance.process_one_obsid"
 # hang indefinitely on certain HRC observations; this caps the damage at one
 # missed obsid rather than stalling the whole run for hours.
 _WORKER_TIMEOUT_SEC = 1800  # 30 minutes
+
+# Tables db.save() understands, in the order merge_scratch_into_main tries them.
+_MERGED_TABLE_NAMES = (
+    "astromon_obs",
+    "astromon_xray_src",
+    "astromon_cat_src",
+    "astromon_xcorr",
+    "astromon_status",
+)
 
 
 def _kill_process_group(pgid: int) -> None:
@@ -223,6 +257,74 @@ def run_one(  # noqa: PLR0917
     }
 
 
+def merge_scratch_into_main(scratch_db: Path, main_db: Path) -> None:
+    """Merge every table in `scratch_db` into `main_db`, one db.save() call each.
+
+    Both files use the same obsid-keyed replace semantics db.save() always
+    uses (see its docstring): a row in `scratch_db` overwrites the row with
+    the same key in `main_db`, and every other existing row in `main_db` is
+    left untouched. Doing this once per batch (instead of once per obsid, as
+    the direct-write path does) is what turns N expensive whole-table
+    rewrites of `main_db` into one.
+
+    An empty or missing table in `scratch_db` is skipped: db.save() on zero
+    rows would be a no-op anyway, and `astromon.db.create_empty_tables`
+    (called by process_one_obsid.py's save_with_lock the first time a
+    scratch DB is touched) guarantees every table exists even if this
+    particular batch never wrote to it.
+    """
+    from astromon import db  # noqa: PLC0415 -- optional heavy import, only needed here
+
+    for table_name in _MERGED_TABLE_NAMES:
+        try:
+            data = db.get_table(table_name, scratch_db)
+        except db.MissingTableException:
+            continue
+        if len(data) == 0:
+            continue
+        db.save(table_name, data, main_db, expect_existing=True)
+
+
+def compact_db(db_file: Path) -> tuple[int, int]:
+    """Repack `db_file` in place with ptrepack, reclaiming dead node space.
+
+    db.save()'s remove-then-recreate rewrite leaves the old copy of whatever
+    it just replaced as unreachable but still-allocated space inside the
+    HDF5 file -- see the module docstring. ptrepack copies only the
+    currently-live data into a fresh file, which is the only way to actually
+    shrink `db_file` back down; a plain "delete rows" operation cannot, since
+    it is exactly what leaves the dead space behind in the first place.
+
+    Returns
+    -------
+    tuple of (size before, size after), in bytes, for progress reporting.
+    """
+    before = db_file.stat().st_size
+    ptrepack = Path(sys.executable).parent / "ptrepack"
+    tmp_path = db_file.with_suffix(".compacting.h5")
+    tmp_path.unlink(missing_ok=True)
+    subprocess.run(
+        [
+            str(ptrepack),
+            "--chunkshape=auto",
+            "--propindexes",
+            "--complevel=6",
+            str(db_file),
+            str(tmp_path),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    os.replace(tmp_path, db_file)
+    after = db_file.stat().st_size
+    return before, after
+
+
+def _chunked(items: list, size: int) -> list[list]:
+    """Split `items` into consecutive chunks of at most `size` elements."""
+    return [items[i : i + size] for i in range(0, len(items), size)]
+
+
 def main():  # noqa: PLR0915
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db-file", required=True, type=Path)
@@ -327,6 +429,19 @@ def main():  # noqa: PLR0915
         "directory. Useful when workdir is on fast local storage "
         "and preserve-workdir is on larger external storage.",
     )
+    parser.add_argument(
+        "--batch-size",
+        default=0,
+        type=int,
+        dest="batch_size",
+        help="if >0, obsids write to a scratch database that is merged "
+        "into --db-file and ptrepack-compacted once per batch of this "
+        "many obsids, instead of every obsid writing --db-file directly. "
+        "See the module docstring's 'Batching' section for why: it "
+        "bounds --db-file's growth, which otherwise scales with the "
+        "square of the number of obsids processed. Default 0 keeps the "
+        "original direct-write behavior.",
+    )
     args = parser.parse_args()
 
     args.log_dir.mkdir(parents=True, exist_ok=True)
@@ -365,12 +480,12 @@ def main():  # noqa: PLR0915
 
     versions = tuple(args.versions)
 
-    def process_and_record(obsid):
+    def process_and_record(obsid, db_file):
         start = time.time()
         try:
             result = run_one(
                 obsid,
-                args.db_file,
+                db_file,
                 args.workdir,
                 args.log_dir,
                 versions,
@@ -455,14 +570,38 @@ def main():  # noqa: PLR0915
 
         return result
 
-    if args.parallel <= 1:
-        for obsid in todo:
-            process_and_record(obsid)
-    else:
-        from concurrent.futures import ThreadPoolExecutor
+    def run_chunk(chunk, db_file):
+        if args.parallel <= 1:
+            for obsid in chunk:
+                process_and_record(obsid, db_file)
+        else:
+            from concurrent.futures import ThreadPoolExecutor
 
-        with ThreadPoolExecutor(max_workers=args.parallel) as pool:
-            list(pool.map(process_and_record, todo))
+            with ThreadPoolExecutor(max_workers=args.parallel) as pool:
+                list(pool.map(lambda o: process_and_record(o, db_file), chunk))
+
+    if args.batch_size <= 0:
+        run_chunk(todo, args.db_file)
+    else:
+        scratch_db = args.db_file.with_suffix(".batch_scratch.h5")
+        for batch_num, chunk in enumerate(_chunked(todo, args.batch_size), start=1):
+            scratch_db.unlink(missing_ok=True)
+            Path(str(scratch_db) + ".lock").unlink(missing_ok=True)
+            run_chunk(chunk, scratch_db)
+
+            print(
+                f"batch {batch_num}: merging {len(chunk)} obsid(s) into "
+                f"{args.db_file} …"
+            )
+            merge_scratch_into_main(scratch_db, args.db_file)
+            scratch_db.unlink(missing_ok=True)
+            Path(str(scratch_db) + ".lock").unlink(missing_ok=True)
+
+            before, after = compact_db(args.db_file)
+            print(
+                f"batch {batch_num}: compacted {args.db_file} "
+                f"({before / 1e6:.1f} MB -> {after / 1e6:.1f} MB)"
+            )
 
     csv_file.close()
 
