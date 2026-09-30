@@ -1391,3 +1391,28 @@ def test_get_sources_without_an_applied_matrix_leaves_the_offsets_nan(
     assert np.all(np.isnan(sources["acal_dy"]))
     assert np.all(np.isnan(sources["acal_dz"]))
     assert list(sources["caldb_version_source"]) == ["", ""]
+
+
+def test_get_calalign_ignores_an_acal_newer_than_the_event_data(tmp_path, monkeypatch):
+    """An acal1 from a later aspect run than the events' is not their matrix.
+
+    A workdir can hold an event file from an earlier download and an acal1
+    fetched after a reprocessing (obsid 62649: events 4.9.3, acal1 4.12.6). The
+    events' own aspect solution (named by ASOLFILE) is used instead.
+    """
+    obs = _offline_observation(tmp_path, monkeypatch, obsid=62649)
+    _write_acal(obs.workdir / "secondary/pcadf906000000N002_acal1.fits.gz", "4.12.6")
+    _write_caldbver_product(
+        obs.workdir / "secondary/pcadf62649_000N001_asol1.fits.gz", "4.9.3"
+    )
+    _write_caldbver_product(
+        obs.workdir / "primary/hrcf62649N001_evt2.fits.gz",
+        "4.9.3",
+        ASOLFILE="pcadf62649_000N001_asol1.fits",
+    )
+
+    calalign = obs.get_calalign()
+
+    assert calalign["caldb_version"] == "4.9.3"
+    assert calalign["caldb_version_source"] == "asol1"
+    assert "aca_misalign" not in calalign

@@ -1661,11 +1661,25 @@ class Observation:
         trusted. Bump it whenever the returned values change.
         """
         obsid = int(self.obsid)
+        events_version = self._event_file_caldb_version()
         self.download(["acal"])
         acal_files = self.file_glob("secondary/*acal*fits*")
         if acal_files:
             acal = utils.read_acal_files(acal_files)
-            if acal["caldb_version"] is not None:
+            if acal["caldb_version"] is None:
+                logger.warning(
+                    f"{self} acal1 files disagree on CALDBVER; not using them"
+                )
+            elif events_version is not None and utils.caldb_version_order(
+                acal["caldb_version"]
+            ) > utils.caldb_version_order(events_version):
+                # a later aspect run than the one these events were made with
+                # (obsid 62649: events 4.9.3, acal1 4.12.6)
+                logger.warning(
+                    f"{self} acal1 (CALDB {acal['caldb_version']}) is newer than "
+                    f"the event data ({events_version}); not using it"
+                )
+            else:
                 calalign = {
                     name: matrix
                     for name, matrix in acal.items()
@@ -1677,13 +1691,12 @@ class Observation:
                     caldb_version_source="acal1",
                 )
                 return calalign
-            logger.warning(f"{self} acal1 files disagree on CALDBVER; not using them")
         # no usable acal file (e.g. when data was downloaded via
         # download_chandra_obsid, which does not include CXC-internal products).
         caldb_version = self._aspect_solution_caldb_version()
         if caldb_version is not None:
             logger.debug(
-                f"{self} no acal file; using CALDBVER={caldb_version!r} "
+                f"{self} no usable acal file; using CALDBVER={caldb_version!r} "
                 "from the aspect solution"
             )
             return {
@@ -1691,27 +1704,32 @@ class Observation:
                 "caldb_version": caldb_version,
                 "caldb_version_source": "asol1",
             }
-        caldb_version, source = "0.0", "none"
-        evt_files = self.file_glob("primary/*_evt2.fits*")
-        if evt_files:
-            try:
-                with fits.open(evt_files[0]) as hdus:
-                    if "CALDBVER" in hdus[1].header:
-                        caldb_version = utils.normalized_caldb_version(
-                            hdus[1].header["CALDBVER"]
-                        )
-                        source = "evt2"
-            except Exception as exc:
-                logger.debug(f"{self} could not read CALDBVER from event file: {exc}")
+        if events_version is None:
+            # looking for the aspect solution can have downloaded the event file
+            events_version = self._event_file_caldb_version()
         logger.debug(
             f"{self} no acal file or aspect solution; "
-            f"using CALDBVER={caldb_version!r} from event file"
+            f"using CALDBVER={events_version!r} from event file"
         )
         return {
             "obsid": obsid,
-            "caldb_version": caldb_version,
-            "caldb_version_source": source,
+            "caldb_version": "0.0" if events_version is None else events_version,
+            "caldb_version_source": "none" if events_version is None else "evt2",
         }
+
+    def _event_file_caldb_version(self):
+        """The event file's normalized CALDBVER, or None if there is none to read."""
+        evt_files = self.file_glob("primary/*_evt2.fits*")
+        if not evt_files:
+            return None
+        try:
+            with fits.open(evt_files[0]) as hdus:
+                if "CALDBVER" not in hdus[1].header:
+                    return None
+                return utils.normalized_caldb_version(hdus[1].header["CALDBVER"])
+        except Exception as exc:
+            logger.debug(f"{self} could not read CALDBVER from event file: {exc}")
+            return None
 
     def _aspect_solution_caldb_version(self):
         """The CALDB version of the aspect run that made this observation's asol1.

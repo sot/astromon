@@ -500,6 +500,23 @@ def normalized_caldb_version(value):
     return str(value).strip().rstrip(".")
 
 
+def caldb_version_order(value):
+    """
+    A CALDB version as a tuple of integers, so that releases compare in order.
+
+    Raises ValueError for a version that is not dot-separated integers once
+    normalized (:func:`normalized_caldb_version`).
+
+    Examples
+    --------
+    >>> caldb_version_order("4.9.6.1") > caldb_version_order("4.9.6.")
+    True
+    >>> caldb_version_order("4.12.6") > caldb_version_order("4.9.8")
+    True
+    """
+    return tuple(int(part) for part in normalized_caldb_version(value).split("."))
+
+
 def read_acal_files(paths):
     """
     What an observation's acal1 files agree on: its CALDB version and applied alignment.
