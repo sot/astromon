@@ -407,6 +407,11 @@ def calalign_from_files(calalign_dir=None):
     if not calalign_files:
         raise Exception(f"CALALIGN files does not exist at {calalign_dir}")
 
+    # The CalDB release each file generation first shipped in, and that
+    # release's SDP_DATE, as the CALDB's own release table
+    # (docs/chandra/caldb_version/caldb_version.fits) and historical pcad
+    # indexes record them. N0010 arrived in 4.9.8 (caldbN0405.indx), which also
+    # retired pcadD2013-01-19alignN0009.fits -- not in 4.10.0.
     caldb_info = {
         "N0008": {
             "CalDB": "4.4.4",
@@ -417,8 +422,8 @@ def calalign_from_files(calalign_dir=None):
             "since": "2014-07-09T21:00:00",
         },
         "N0010": {
-            "CalDB": "4.10.0",
-            "since": "2022-06-28T14:00:00",
+            "CalDB": "4.9.8",
+            "since": "2022-06-15T19:37:14",
         },
     }
 

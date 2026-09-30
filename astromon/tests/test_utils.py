@@ -4,8 +4,10 @@ from unittest.mock import patch
 
 import numpy as np
 import pytest
+from astropy.io import fits
 from astropy.table import Table
 from cxotime import CxoTime
+from Quaternion import Quat
 
 from astromon import utils
 
@@ -92,6 +94,73 @@ def _fake_calalign_table():
             "dz": dz,
         }
     )
+
+
+def _write_calalign_file(path, start, offsets_by_detector):
+    """Write a minimal CALALIGN file, shaped like the CALDB's pcad/align files.
+
+    ``offsets_by_detector`` maps each INSTR_ID to the (dy, dz) arcsec offsets
+    its ACA_MISALIGN matrix encodes, as get_offsets reads them back.
+    """
+    detectors = list(offsets_by_detector)
+    aca_misalign = np.array(
+        [
+            Quat(equatorial=[dy / 3600, dz / 3600, 0]).transform
+            for dy, dz in offsets_by_detector.values()
+        ]
+    )
+    table = fits.BinTableHDU.from_columns(
+        [
+            fits.Column(name="INSTR_ID", format="9A", array=np.array(detectors)),
+            fits.Column(
+                name="ACA_MISALIGN", format="9D", dim="(3,3)", array=aca_misalign
+            ),
+            fits.Column(
+                name="FTS_MISALIGN",
+                format="9D",
+                dim="(3,3)",
+                array=np.tile(np.eye(3), (len(detectors), 1, 1)),
+            ),
+        ],
+        name="CALALIGN",
+    )
+    table.header["CVSD0001"] = start
+    fits.HDUList([fits.PrimaryHDU(), table]).writeto(path)
+
+
+def test_get_calalign_offsets_n0010_arrived_in_caldb_4_9_8(tmp_path):
+    """An observation processed with CALDB 4.9.8 got the N0010 matrix for its date.
+
+    CALDB 4.9.8's pcad index (caldbN0405.indx) is the first to list the N0010
+    files, and it retires pcadD2013-01-19alignN0009.fits. With N0010 dated to
+    4.10.0 instead, a 4.9.8 observation after 2013-01-19 is reconstructed with
+    the N0009 matrix it was never processed with.
+    """
+    _write_calalign_file(
+        tmp_path / "pcadD2012-09-13alignN0009.fits",
+        "2012-09-13T00:00:00",
+        {"ACIS-S": (10.0, -5.0)},
+    )
+    _write_calalign_file(
+        tmp_path / "pcadD2013-01-19alignN0010.fits",
+        "2013-01-19T00:00:00",
+        {"ACIS-S": (20.0, 3.0)},
+    )
+    all_matches = Table(
+        {
+            "obsid": [1, 2],
+            "x_id": [1, 1],
+            "detector": ["ACIS-S", "ACIS-S"],
+            "time": CxoTime(["2015:001:00:00:00"] * 2),
+            "caldb_version": ["4.9.8", "4.9.7"],
+        }
+    )
+
+    result = utils.get_calalign_offsets(all_matches, calalign_dir=tmp_path)
+
+    # 4.9.8 applied N0010's matrix; 4.9.7 predates N0010 and applied N0009's
+    np.testing.assert_allclose(result["calalign_dy"], [20.0, 10.0])
+    assert list(result["calalign_version"]) == ["4.9.8", "4.6.2"]
 
 
 def test_get_calalign_offsets_row_order():
