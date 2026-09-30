@@ -10,7 +10,7 @@ RFC cannot disturb the obsid's 2MASS rows.
 
 import numpy as np
 import pytest
-from astropy.table import Table, vstack
+from astropy.table import MaskedColumn, Table, vstack
 from Quaternion import Quat
 
 from astromon import db
@@ -306,6 +306,31 @@ def test_write_candidates_rerun_with_unchanged_data_is_a_true_noop(tmp_path):
     stored = db.get_table("astromon_cat_src", dbfile)
     row = stored[np.asarray(stored["name"]).astype(str) == "stale-rfc"][0]
     assert int(row["id"]) == 1, "the original id must survive an unchanged rerun"
+
+
+def test_write_candidates_rerun_with_a_masked_mag_is_a_true_noop(tmp_path):
+    """A catalog with no magnitude arrives with mag masked on every query.
+
+    cross_match builds that column fully masked, and save() stores masked cells
+    per db.missing_column_fill -- NaN for mag. The value under the mask is 0.0,
+    so comparing it instead of what save() stores reads every rerun as a change:
+    renumbered ids and a needless rebuild_xcorr, on every requery.
+    """
+    dbfile = tmp_path / "astromon.h5"
+    db.create_empty_tables(dbfile)
+
+    def rfc_candidates(id_):
+        rows = _cat_src_rows([(7001, id_, "RFC", "rfc-source")])
+        rows["mag"] = MaskedColumn(dtype=np.float32, length=1, mask=[True])
+        return rows
+
+    requery_cat_src.write_candidates(dbfile, rfc_candidates(1))
+    result = requery_cat_src.write_candidates(dbfile, rfc_candidates(99))
+
+    assert result["replaced_pairs"] == 0
+    assert result["replaced_obsids"] == []
+    stored = db.get_table("astromon_cat_src", dbfile)
+    assert list(stored["id"]) == [1], "the original id must survive an unchanged rerun"
 
 
 def test_write_candidates_rerun_with_changed_data_still_replaces(tmp_path):

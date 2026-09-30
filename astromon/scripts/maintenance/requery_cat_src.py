@@ -351,7 +351,9 @@ def _content_unchanged(old_rows: Table, new_rows: Table) -> bool:
 
     Rows are matched by sorting both groups into the same order rather than by
     position in the query result, since a catalog API re-run can legitimately
-    return the same candidates in a different order.
+    return the same candidates in a different order. `new_rows` is compared as
+    save() would store it (see db.cast_column): a catalog with no magnitude
+    arrives with mag masked, and the value under that mask is not what is stored.
     """
     if len(old_rows) != len(new_rows):
         return False
@@ -359,7 +361,7 @@ def _content_unchanged(old_rows: Table, new_rows: Table) -> bool:
     new_sorted = new_rows[_sort_key(new_rows)]
     for col in _CAT_SRC_CONTENT_COLS:
         old_col = np.asarray(old_sorted[col])
-        new_col = np.asarray(new_sorted[col])
+        new_col = db.cast_column(new_sorted[col], db.ASTROMON_CAT_SRC_DTYPE, col)
         if old_col.dtype.kind == "f":
             if not np.allclose(old_col, new_col, equal_nan=True):
                 return False
