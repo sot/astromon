@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import numpy as np
 import pytest
 from astropy import units as u
@@ -80,3 +82,11 @@ def test_create_figures_cal_uses_each_detectors_own_quantiles(
     assert result["ACIS_S"] == pytest.approx(expected_acis)
     assert result["HRC_I"] == pytest.approx(expected_hrc)
     assert result["ACIS_S"] != pytest.approx(result["HRC_I"])
+
+
+def test_parser_accepts_a_caldb_dir():
+    """--caldb-dir turns on the CALALIGN completeness check; it is off by default."""
+    parser = celmon.get_parser()
+
+    assert parser.parse_args([]).caldb_dir is None
+    assert parser.parse_args(["--caldb-dir", "/tmp/sdp"]).caldb_dir == Path("/tmp/sdp")

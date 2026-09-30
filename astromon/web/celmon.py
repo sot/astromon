@@ -397,7 +397,9 @@ def plot_cdf_2(
         plt.savefig(filename)
 
 
-def create_figures_mta(outdir, calalign_dir=None, use_reference_calalign=False):
+def create_figures_mta(
+    outdir, calalign_dir=None, use_reference_calalign=False, caldb_dir=None
+):
     outdir = Path(outdir)
 
     n_years = 5
@@ -439,7 +441,9 @@ def create_figures_mta(outdir, calalign_dir=None, use_reference_calalign=False):
         logging.getLogger("celmon").warning("Some observations with no version")
         all_matches = all_matches[~no_version]
 
-    calalign = utils.get_calalign_offsets(all_matches, calalign_dir=calalign_dir)
+    calalign = utils.get_calalign_offsets(
+        all_matches, calalign_dir=calalign_dir, caldb_dir=caldb_dir
+    )
     all_matches["after_caldb"] = calalign["after_caldb"]
     tag = "-archive"
     if use_reference_calalign:
@@ -548,6 +552,7 @@ def create_figures_cal(
     draw_median=True,
     calalign_dir=None,
     use_reference_calalign=False,
+    caldb_dir=None,
 ):
     """Build the "cal" celmon page's figures and summary stats.
 
@@ -565,6 +570,10 @@ def create_figures_cal(
         selection -- the empirical 5<->43.8 correspondence gives an ~8.8x
         factor here, not ~13x. Re-check this value if the SNR relationship
         between the two methods changes materially.
+    caldb_dir : pathlib.Path, optional
+        A CALDB whose release table lists every processing version (e.g. the
+        SDP CALDB). If given, `calalign_dir` must hold every alignment file
+        those versions shipped (see utils.get_calalign_offsets).
     """
     outdir = Path(outdir)
 
@@ -589,7 +598,9 @@ def create_figures_cal(
         logging.getLogger("celmon").warning("Some observations with no version")
         matches = matches[~no_version]
 
-    calalign = utils.get_calalign_offsets(matches, calalign_dir=calalign_dir)
+    calalign = utils.get_calalign_offsets(
+        matches, calalign_dir=calalign_dir, caldb_dir=caldb_dir
+    )
     matches["after_caldb"] = calalign["after_caldb"]
     tag = "-archive"
     if use_reference_calalign:
@@ -669,6 +680,16 @@ def get_parser():
         default=None,
     )
     parser.add_argument(
+        "--caldb-dir",
+        type=Path,
+        default=None,
+        help=(
+            "CALDB whose release table lists every processing version (e.g. the "
+            "SDP CALDB). If given, refuse a CALALIGN directory missing any "
+            "alignment file those versions shipped, retired ones included."
+        ),
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"],
@@ -694,20 +715,26 @@ def main():
     (args.out / "mta").mkdir(exist_ok=True, parents=True)
 
     data_cal = create_figures_cal(
-        outdir=args.out / "cal", calalign_dir=args.calalign_dir
+        outdir=args.out / "cal",
+        calalign_dir=args.calalign_dir,
+        caldb_dir=args.caldb_dir,
     )
     data_cal_ref = create_figures_cal(
         outdir=args.out / "cal",
         calalign_dir=args.calalign_dir,
+        caldb_dir=args.caldb_dir,
         use_reference_calalign=True,
     )
 
     data_mta = create_figures_mta(
-        outdir=args.out / "mta", calalign_dir=args.calalign_dir
+        outdir=args.out / "mta",
+        calalign_dir=args.calalign_dir,
+        caldb_dir=args.caldb_dir,
     )
     data_mta_ref = create_figures_mta(
         outdir=args.out / "mta",
         calalign_dir=args.calalign_dir,
+        caldb_dir=args.caldb_dir,
         use_reference_calalign=True,
     )
 

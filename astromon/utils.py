@@ -386,6 +386,11 @@ Decorator to add logging messages at the start/end of the decorated function.
 """
 
 
+#: Default directory of CALALIGN files: the installed CALDB's, which holds only
+#: the files still current -- not the retired ones older processing applied.
+CALALIGN_DIR_DEFAULT = "/data/caldb/data/chandra/pcad/align"
+
+
 def calalign_from_files(calalign_dir=None):
     """
     Get data from calalign files in `calalign_dir`.
@@ -401,7 +406,7 @@ def calalign_from_files(calalign_dir=None):
     """
 
     if calalign_dir is None:
-        calalign_dir = "/data/caldb/data/chandra/pcad/align"
+        calalign_dir = CALALIGN_DIR_DEFAULT
 
     calalign_files = sorted(Path(calalign_dir).glob("*.fits"))
     if not calalign_files:
@@ -481,12 +486,17 @@ def normalized_caldb_version(value):
     Some products carry a malformed version such as "4.9.6.", which
     get_calalign_offsets deliberately refuses to parse; normalizing where the
     version is recorded keeps that check for versions that are really malformed.
+    Bytes (the database's caldb_version column is S10) are decoded first.
 
     Examples
     --------
     >>> normalized_caldb_version(" 4.9.6. ")
     '4.9.6'
+    >>> normalized_caldb_version(b"4.12.6")
+    '4.12.6'
     """
+    if isinstance(value, bytes):
+        value = value.decode()
     return str(value).strip().rstrip(".")
 
 
@@ -515,7 +525,93 @@ def get_offsets(aca_misalign):
     return np.array(dys), np.array(dzs)
 
 
-def get_calalign_offsets(all_matches, ref_calalign=None, calalign_dir=None):
+def missing_calalign_files(caldb_versions, calalign_dir, caldb_dir):
+    """
+    Alignment files the given processing CALDB versions shipped that calalign_dir lacks.
+
+    get_calalign_offsets reconstructs the matrix each observation was processed
+    with from the files in calalign_dir, so that directory must hold every
+    alignment file any processing version used -- including files later
+    releases retired. A copy of the current CALDB is not enough: CALDB
+    4.6.2-4.9.7 shipped pcadD2013-01-19alignN0009.fits, applied to every
+    observation after 2013-01-19 processed with them, and 4.9.8 retired it.
+    Which files each release shipped is read from the CALDB's release table
+    (docs/chandra/caldb_version/caldb_version.fits) and historical pcad indexes
+    (data/chandra/pcad/index/caldbN*.indx). Use a CALDB whose release table
+    lists every processing version, such as the SDP CALDB: a CIAO one stops at
+    its own public release, while standard processing also runs releases that
+    are never, or not yet, public.
+
+    Parameters
+    ----------
+    caldb_versions: iterable of str
+        Processing CALDB versions to check. Each is normalized
+        (:func:`normalized_caldb_version`) before it is looked up.
+    calalign_dir: :any:`pathlib.Path` or str
+        Directory of CALALIGN files the reconstruction reads.
+    caldb_dir: :any:`pathlib.Path` or str
+        Root of a CALDB installation (the directory holding ``docs`` and ``data``).
+
+    Returns
+    -------
+    dict
+        Normalized CALDB version -> sorted names of the good-quality
+        (CAL_QUAL == 0) ALIGN files its pcad index lists but calalign_dir lacks.
+        Versions missing nothing are left out.
+
+    Raises
+    ------
+    ValueError
+        If a version is not in caldb_dir's release table, so its files cannot be
+        checked.
+    """
+    caldb_root = Path(caldb_dir)
+    with fits.open(
+        caldb_root / "docs" / "chandra" / "caldb_version" / "caldb_version.fits"
+    ) as hdus:
+        releases = hdus[1].data
+        index_by_version = {
+            str(version).strip(): str(index).strip()
+            for version, index in zip(
+                releases["CALDB_VER"], releases["PCAD_INDEX"], strict=True
+            )
+        }
+    versions = sorted({normalized_caldb_version(v) for v in caldb_versions})
+    unknown = [version for version in versions if version not in index_by_version]
+    if unknown:
+        raise ValueError(
+            f"no pcad index for CALDB version(s) {unknown} in {caldb_dir}; "
+            "use a CALDB whose release table lists every processing version"
+        )
+
+    present = {path.name for path in Path(calalign_dir).glob("*.fits")}
+    shipped_by_index = {}
+    missing = {}
+    for version in versions:
+        index_name = index_by_version[version]
+        if index_name not in shipped_by_index:
+            index_path = caldb_root / "data" / "chandra" / "pcad" / "index" / index_name
+            with fits.open(index_path) as hdus:
+                index = hdus[1].data
+                shipped_by_index[index_name] = {
+                    str(name).strip()
+                    for name, calibration, quality in zip(
+                        index["CAL_FILE"],
+                        index["CAL_CNAM"],
+                        index["CAL_QUAL"],
+                        strict=True,
+                    )
+                    if str(calibration).strip() == "ALIGN" and int(quality) == 0
+                }
+        absent = sorted(shipped_by_index[index_name] - present)
+        if absent:
+            missing[version] = absent
+    return missing
+
+
+def get_calalign_offsets(
+    all_matches, ref_calalign=None, calalign_dir=None, caldb_dir=None
+):
     """
     Get a table with the yag/zag offsets subtracted by the aca_misalign matrix.
 
@@ -531,6 +627,12 @@ def get_calalign_offsets(all_matches, ref_calalign=None, calalign_dir=None):
         pair (celldetect and gaussian_detect each number their own sources
         starting from scratch for a given obsid), so a table that mixes
         detect methods needs 'detect_method' to tell those sources apart.
+    caldb_dir: :any:`pathlib.Path` or str
+        Optional. Root of a CALDB whose release table lists every processing
+        version in `all_matches` (e.g. the SDP CALDB). If given, raise unless
+        `calalign_dir` holds every alignment file those versions shipped
+        (:func:`missing_calalign_files`); a missing one would silently give
+        those observations the wrong matrix. If not given, nothing is checked.
 
     Returns
     -------
@@ -548,6 +650,20 @@ def get_calalign_offsets(all_matches, ref_calalign=None, calalign_dir=None):
         - ref_fts_misalign
         - ref_calalign_version
     """
+    if caldb_dir is not None:
+        recorded = {str(v) for v in all_matches["caldb_version"]} - {"0.0"}
+        checked_dir = CALALIGN_DIR_DEFAULT if calalign_dir is None else calalign_dir
+        missing = missing_calalign_files(recorded, checked_dir, caldb_dir)
+        if missing:
+            details = "; ".join(
+                f"CALDB {version}: {', '.join(files)}"
+                for version, files in missing.items()
+            )
+            raise ValueError(
+                f"{checked_dir} lacks alignment files these processing versions "
+                f"used ({details}); their matrices would be reconstructed wrong"
+            )
+
     # obsid and x_id identify a match, unless detect_method is present, in which
     # case x_id is only unique within a given (obsid, detect_method) pair.
     match_id_keys = ["obsid", "x_id"]
@@ -696,7 +812,9 @@ def get_latest_calalign_matrix(calalign_dir=None):
     return latest
 
 
-def get_rebased_offsets(all_matches, ref_matrix=None, calalign_dir=None):
+def get_rebased_offsets(
+    all_matches, ref_matrix=None, calalign_dir=None, caldb_dir=None
+):
     """
     Rebase dy/dz to a single fixed CALALIGN alignment matrix.
 
@@ -729,6 +847,9 @@ def get_rebased_offsets(all_matches, ref_matrix=None, calalign_dir=None):
         automatically from `calalign_dir` if not given.
     calalign_dir: :any:`pathlib.Path`
         Directory where to find the calalign files.
+    caldb_dir: :any:`pathlib.Path` or str
+        Optional. If given, `calalign_dir` is checked for completeness against
+        this CALDB first -- see :any:`get_calalign_offsets`.
 
     Returns
     -------
@@ -758,7 +879,7 @@ def get_rebased_offsets(all_matches, ref_matrix=None, calalign_dir=None):
     if len(sub) == 0:
         return result
 
-    cal = get_calalign_offsets(sub, calalign_dir=calalign_dir)
+    cal = get_calalign_offsets(sub, calalign_dir=calalign_dir, caldb_dir=caldb_dir)
     ref_dy = np.array([ref_matrix[d][0] for d in sub["detector"]])
     ref_dz = np.array([ref_matrix[d][1] for d in sub["detector"]])
     result["dy_rebased"][has_caldb] = sub["dy"] - (cal["calalign_dy"] - ref_dy)

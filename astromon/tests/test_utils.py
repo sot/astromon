@@ -382,3 +382,155 @@ def test_get_rebased_offsets_preserves_row_order_with_interleaved_no_caldb():
     assert np.isnan(result["dy_rebased"][1])
     assert not np.isnan(result["dy_rebased"][0])
     assert not np.isnan(result["dy_rebased"][2])
+
+
+def _write_fits_table(path, columns):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fits.table_to_hdu(Table(columns)).writeto(path)
+
+
+def _caldb_tree(root):
+    """A CALDB-shaped tree: release table plus historical pcad indexes.
+
+    4.9.3 and 4.9.6 share an index that still ships
+    pcadD2013-01-19alignN0009.fits; 4.9.8's index retires it for N0010, as the
+    real caldbN0404/caldbN0405 do. The index also lists a bad-quality ALIGN
+    file and a non-ALIGN file, neither of which a directory needs.
+    """
+    caldb = root / "CALDB"
+    _write_fits_table(
+        caldb / "docs/chandra/caldb_version/caldb_version.fits",
+        {
+            "CALDB_VER": ["4.9.3", "4.9.6", "4.9.8"],
+            "PCAD_INDEX": ["caldbN0404.indx", "caldbN0404.indx", "caldbN0405.indx"],
+        },
+    )
+    _write_fits_table(
+        caldb / "data/chandra/pcad/index/caldbN0404.indx",
+        {
+            "CAL_FILE": [
+                "pcadD2012-09-13alignN0009.fits",
+                "pcadD2013-01-19alignN0009.fits",
+                "pcadD2003-06-09alignN0008.fits",
+                "acapD2012-01-01darkN0002.fits",
+            ],
+            "CAL_CNAM": ["ALIGN", "ALIGN", "ALIGN", "DARK_CURR"],
+            "CAL_QUAL": [0, 0, 5, 0],
+        },
+    )
+    _write_fits_table(
+        caldb / "data/chandra/pcad/index/caldbN0405.indx",
+        {
+            "CAL_FILE": [
+                "pcadD2012-09-13alignN0009.fits",
+                "pcadD2013-01-19alignN0010.fits",
+            ],
+            "CAL_CNAM": ["ALIGN", "ALIGN"],
+            "CAL_QUAL": [0, 0],
+        },
+    )
+    return caldb
+
+
+def _calalign_dir(root, names):
+    calalign = root / "calalign"
+    calalign.mkdir()
+    for name in names:
+        (calalign / name).touch()
+    return calalign
+
+
+def test_missing_calalign_files_names_a_retired_file_the_directory_lacks(tmp_path):
+    """A copy of today's CALDB lacks the file 4.6.2-4.9.7 processing applied."""
+    caldb = _caldb_tree(tmp_path)
+    calalign = _calalign_dir(
+        tmp_path, ["pcadD2012-09-13alignN0009.fits", "pcadD2013-01-19alignN0010.fits"]
+    )
+
+    missing = utils.missing_calalign_files(["4.9.3", "4.9.6", "4.9.8"], calalign, caldb)
+
+    assert missing == {
+        "4.9.3": ["pcadD2013-01-19alignN0009.fits"],
+        "4.9.6": ["pcadD2013-01-19alignN0009.fits"],
+    }
+
+
+def test_missing_calalign_files_is_empty_for_a_complete_directory(tmp_path):
+    caldb = _caldb_tree(tmp_path)
+    calalign = _calalign_dir(
+        tmp_path,
+        [
+            "pcadD2012-09-13alignN0009.fits",
+            "pcadD2013-01-19alignN0009.fits",
+            "pcadD2013-01-19alignN0010.fits",
+        ],
+    )
+
+    assert utils.missing_calalign_files(["4.9.3", "4.9.8"], calalign, caldb) == {}
+
+
+def test_missing_calalign_files_ignores_a_trailing_dot(tmp_path):
+    caldb = _caldb_tree(tmp_path)
+    calalign = _calalign_dir(tmp_path, ["pcadD2012-09-13alignN0009.fits"])
+
+    missing = utils.missing_calalign_files(["4.9.6."], calalign, caldb)
+
+    assert missing == {"4.9.6": ["pcadD2013-01-19alignN0009.fits"]}
+
+
+def test_missing_calalign_files_rejects_a_version_the_release_table_lacks(tmp_path):
+    """A CIAO CALDB's table stops at its public release; SDP runs newer ones."""
+    caldb = _caldb_tree(tmp_path)
+    calalign = _calalign_dir(tmp_path, ["pcadD2012-09-13alignN0009.fits"])
+
+    with pytest.raises(ValueError, match=r"4\.12\.6"):
+        utils.missing_calalign_files(["4.9.3", "4.12.6"], calalign, caldb)
+
+
+def test_get_calalign_offsets_with_caldb_dir_refuses_an_incomplete_directory(
+    tmp_path,
+):
+    """Given caldb_dir, a directory missing a shipped file fails loudly.
+
+    Without the retired pcadD2013-01-19alignN0009.fits, a 4.9.6 observation
+    from 2015 is silently reconstructed with the 2012-09-13 N0009 matrix.
+    """
+    caldb = _caldb_tree(tmp_path)
+    calalign = tmp_path / "calalign"
+    calalign.mkdir()
+    _write_calalign_file(
+        calalign / "pcadD2012-09-13alignN0009.fits",
+        "2012-09-13T00:00:00",
+        {"ACIS-S": (10.0, -5.0)},
+    )
+    _write_calalign_file(
+        calalign / "pcadD2013-01-19alignN0010.fits",
+        "2013-01-19T00:00:00",
+        {"ACIS-S": (20.0, 3.0)},
+    )
+    all_matches = Table(
+        {
+            "obsid": [1],
+            "x_id": [1],
+            "detector": ["ACIS-S"],
+            "time": CxoTime(["2015:001:00:00:00"]),
+            "caldb_version": ["4.9.6"],
+        }
+    )
+
+    with pytest.raises(ValueError, match="pcadD2013-01-19alignN0009.fits"):
+        utils.get_calalign_offsets(all_matches, calalign_dir=calalign, caldb_dir=caldb)
+    # without caldb_dir nothing is checked, as before
+    result = utils.get_calalign_offsets(all_matches, calalign_dir=calalign)
+    np.testing.assert_allclose(result["calalign_dy"], [10.0])
+
+
+def test_missing_calalign_files_accepts_the_database_bytes_versions(tmp_path):
+    """astromon's database stores caldb_version as bytes (S10); it must still match."""
+    caldb = _caldb_tree(tmp_path)
+    calalign = _calalign_dir(tmp_path, ["pcadD2012-09-13alignN0009.fits"])
+    versions = np.unique(np.array([b"4.9.6", b"4.9.6"]))
+
+    missing = utils.missing_calalign_files(versions, calalign, caldb)
+
+    assert missing == {"4.9.6": ["pcadD2013-01-19alignN0009.fits"]}
