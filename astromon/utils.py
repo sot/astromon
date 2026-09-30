@@ -474,6 +474,22 @@ def calalign_from_files(calalign_dir=None):
     return calalign
 
 
+def normalized_caldb_version(value):
+    """
+    A CALDBVER header value as astromon records it: stripped, with no trailing ".".
+
+    Some products carry a malformed version such as "4.9.6.", which
+    get_calalign_offsets deliberately refuses to parse; normalizing where the
+    version is recorded keeps that check for versions that are really malformed.
+
+    Examples
+    --------
+    >>> normalized_caldb_version(" 4.9.6. ")
+    '4.9.6'
+    """
+    return str(value).strip().rstrip(".")
+
+
 def get_offsets(aca_misalign):
     """
     Get the yag/zag offsets from the aca_misalign matrix.

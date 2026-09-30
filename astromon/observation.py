@@ -1624,7 +1624,23 @@ class Observation:
         }
 
     @stored_result("calalign", fmt="json", subdir="cache")
-    def get_calalign(self):
+    def get_calalign(self, _cache_schema_version=2):
+        """The alignment the aspect processing applied, and its CALDB version.
+
+        The alignment matrices are applied in the aspect run, and event data can
+        be reprocessed later without redoing it, so the CALDB version comes from
+        the aspect products: the acal1 file (only from arc5gl; it also holds the
+        applied matrices), else the aspect solution (asol1, in the public archive
+        too). The event file's CALDBVER is the last resort: obsid 4686's acal1
+        and asol1 say 4.9.2, its evt2 (reprocessed) 4.9.6. The version is
+        normalized (:func:`astromon.utils.normalized_caldb_version`); "0.0"
+        means none was found.
+
+        ``_cache_schema_version`` is never passed by a caller -- it exists only
+        so @stored_result's argument hash (and therefore its cache filename)
+        changes, and results cached before the version came from the aspect
+        products are not trusted. Bump it whenever the returned values change.
+        """
         self.download(["acal"])
         cal_file = self.file_glob("secondary/*acal*fits*")
         if cal_file:
@@ -1635,24 +1651,64 @@ class Observation:
             }
             calalign = {k: v.tolist() for k, v in calalign.items()}
             calalign["obsid"] = int(self.obsid)
-            calalign["caldb_version"] = hdus[1].header["CALDBVER"]
+            calalign["caldb_version"] = utils.normalized_caldb_version(
+                hdus[1].header["CALDBVER"]
+            )
             return calalign
         # acal file not available (e.g. when data was downloaded via
         # download_chandra_obsid which does not include CXC-internal products).
-        # Fall back to reading CALDBVER from the L2 event file, which records
-        # the CALDB version used when CXC processed the observation.
+        caldb_version = self._aspect_solution_caldb_version()
+        if caldb_version is not None:
+            logger.debug(
+                f"{self} no acal file; using CALDBVER={caldb_version!r} "
+                "from the aspect solution"
+            )
+            return {"obsid": int(self.obsid), "caldb_version": caldb_version}
         caldb_version = "0.0"
         evt_files = self.file_glob("primary/*_evt2.fits*")
         if evt_files:
             try:
                 with fits.open(evt_files[0]) as hdus:
-                    caldb_version = hdus[1].header.get("CALDBVER", "0.0")
+                    caldb_version = utils.normalized_caldb_version(
+                        hdus[1].header.get("CALDBVER", "0.0")
+                    )
             except Exception as exc:
                 logger.debug(f"{self} could not read CALDBVER from event file: {exc}")
         logger.debug(
-            f"{self} no acal file; using CALDBVER={caldb_version!r} from event file"
+            f"{self} no acal file or aspect solution; "
+            f"using CALDBVER={caldb_version!r} from event file"
         )
         return {"obsid": int(self.obsid), "caldb_version": caldb_version}
+
+    def _aspect_solution_caldb_version(self):
+        """The CALDB version of the aspect run that made this observation's asol1.
+
+        Returns None when there is no aspect solution, a file lacks CALDBVER, or
+        the files disagree -- the caller then falls back to the event file.
+        """
+        try:
+            asol_files = self.get_asol_files()
+        except Exception as exc:
+            logger.debug(f"{self} could not find aspect solution files: {exc}")
+            return None
+        versions = set()
+        for asol_file in asol_files:
+            try:
+                versions.add(
+                    utils.normalized_caldb_version(
+                        fits.getval(asol_file, "CALDBVER", ext=1)
+                    )
+                )
+            except (KeyError, OSError) as exc:
+                logger.debug(f"{self} could not read CALDBVER from {asol_file}: {exc}")
+                return None
+        if len(versions) > 1:
+            logger.warning(
+                f"{self} aspect solution files disagree on CALDBVER "
+                f"({sorted(versions)}); falling back to the event file's"
+            )
+            return None
+        return versions.pop() if versions else None
 
     def get_asol_files(self):
         return [self.file_path(f) for f in self._get_asol_files_cached()]

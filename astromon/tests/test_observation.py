@@ -1175,3 +1175,113 @@ def test_obspar_table_with_missing_sim_coords_is_fits_writable(tmp_path, monkeyp
     assert obspar["sim_y"].dtype.kind == "f"
     assert obspar["sim_z"].dtype.kind == "f"
     obspar.write(tmp_path / "astromon_obs.fits")
+
+
+def _offline_observation(tmp_path, monkeypatch, obsid=4686):
+    """An Observation whose files are all already in its (temporary) workdir.
+
+    archive_dir is explicit so file_glob cannot pick up files from the
+    production archive, and download is a no-op so nothing is fetched.
+    """
+    obs = observation.Observation(
+        obsid,
+        workdir=tmp_path / "work",
+        use_ciao=False,
+        archive_dir=tmp_path / "archive",
+    )
+    monkeypatch.setattr(obs, "download", lambda *args, **kwargs: None)
+    return obs
+
+
+def _write_caldbver_product(path, caldb_version, **header):
+    """A minimal FITS product whose HDU 1 header carries CALDBVER and ``header``."""
+    hdu = fits.BinTableHDU.from_columns(
+        [fits.Column(name="TIME", format="D", array=np.zeros(1))]
+    )
+    hdu.header["CALDBVER"] = caldb_version
+    for key, value in header.items():
+        hdu.header[key] = value
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fits.HDUList([fits.PrimaryHDU(), hdu]).writeto(path)
+
+
+def _write_acal(path, caldb_version):
+    """A minimal acal1 file: the applied alignment matrices and CALDBVER."""
+    matrix = np.eye(3)[np.newaxis]
+    hdu = fits.BinTableHDU.from_columns(
+        [
+            fits.Column(name=name, format="9D", dim="(3,3)", array=matrix)
+            for name in ("aca_align", "aca_misalign", "fts_misalign")
+        ]
+    )
+    hdu.header["CALDBVER"] = caldb_version
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fits.HDUList([fits.PrimaryHDU(), hdu]).writeto(path)
+
+
+def test_get_calalign_without_acal_takes_the_aspect_run_caldb_version(
+    tmp_path, monkeypatch
+):
+    """With no acal1, the CALDB version comes from the aspect solution, not evt2.
+
+    The alignment is applied in the aspect run, and event data can be
+    reprocessed without redoing it. Obsid 4686's acal1 and public asol1 (N001)
+    both say CALDB 4.9.2; its evt2, reprocessed five more times (N006), says
+    4.9.6. Keyed on 4.9.6, the matrix reconstruction could pick a matrix the
+    aspect run never applied.
+    """
+    obs = _offline_observation(tmp_path, monkeypatch)
+    _write_caldbver_product(
+        obs.workdir / "secondary/pcadf04686_000N001_asol1.fits.gz", "4.9.2"
+    )
+    _write_caldbver_product(
+        obs.workdir / "primary/acisf04686N006_evt2.fits.gz",
+        "4.9.6",
+        ASOLFILE="pcadf04686_000N001_asol1.fits",
+    )
+
+    assert obs.get_calalign()["caldb_version"] == "4.9.2"
+
+
+def test_get_calalign_without_aspect_products_uses_the_normalized_evt2_version(
+    tmp_path, monkeypatch
+):
+    """No acal1 and no asol1: the evt2 CALDBVER, recorded without a trailing ".".
+
+    get_calalign_offsets deliberately refuses a malformed version like "4.9.6.",
+    so it has to be normalized where it is recorded.
+    """
+    obs = _offline_observation(tmp_path, monkeypatch)
+    _write_caldbver_product(
+        obs.workdir / "primary/acisf04686N006_evt2.fits.gz", "4.9.6."
+    )
+
+    assert obs.get_calalign()["caldb_version"] == "4.9.6"
+
+
+def test_get_calalign_with_disagreeing_aspect_solutions_keeps_the_evt2_version(
+    tmp_path, monkeypatch
+):
+    """Aspect solutions that disagree on CALDBVER are ambiguous: evt2's is kept."""
+    obs = _offline_observation(tmp_path, monkeypatch)
+    names = ["pcadf04686_000N001_asol1.fits", "pcadf04686_001N001_asol1.fits"]
+    for name, version in zip(names, ["4.9.2", "4.9.3"], strict=True):
+        _write_caldbver_product(obs.workdir / f"secondary/{name}.gz", version)
+    _write_caldbver_product(
+        obs.workdir / "primary/acisf04686N006_evt2.fits.gz",
+        "4.9.6",
+        ASOLFILE=",".join(names),
+    )
+
+    assert obs.get_calalign()["caldb_version"] == "4.9.6"
+
+
+def test_get_calalign_with_acal_normalizes_its_caldb_version(tmp_path, monkeypatch):
+    """The acal1 path records its CALDBVER normalized too, with the matrices."""
+    obs = _offline_observation(tmp_path, monkeypatch)
+    _write_acal(obs.workdir / "secondary/pcadf192702697N004_acal1.fits.gz", "4.9.2.")
+
+    calalign = obs.get_calalign()
+
+    assert calalign["caldb_version"] == "4.9.2"
+    np.testing.assert_allclose(calalign["aca_misalign"], [np.eye(3)])
