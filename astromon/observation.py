@@ -1337,18 +1337,25 @@ class Observation:
         if len(sources) == 0:
             return table.Table()
 
-        if "y_angle" not in sources.colnames or "z_angle" not in sources.colnames:
-            evt2_info = self.get_evt2_info()
-            q = Quat(
-                equatorial=(
-                    evt2_info["ra_pnt"],
-                    evt2_info["dec_pnt"],
-                    evt2_info["roll_pnt"],
-                )
+        # Always recompute y_angle/z_angle from RA/DEC with the current evt2_info,
+        # even when the .src file already has its own y_angle/z_angle columns.
+        # gaussian_detect's .src stores angles computed from the attitude at fit
+        # time; if this obsid was later reprocessed with a newer evt2 (and its
+        # attitude changed) but the existing .src was reused rather than refit,
+        # those stored angles go stale while RA/DEC -- read off the fit's own WCS,
+        # not from this attitude -- stay correct. Recomputing from RA/DEC keeps
+        # y_angle/z_angle self-consistent with the position actually being stored.
+        evt2_info = self.get_evt2_info()
+        q = Quat(
+            equatorial=(
+                evt2_info["ra_pnt"],
+                evt2_info["dec_pnt"],
+                evt2_info["roll_pnt"],
             )
-            sources["y_angle"], sources["z_angle"] = radec_to_yagzag(
-                sources["RA"], sources["DEC"], q
-            )
+        )
+        sources["y_angle"], sources["z_angle"] = radec_to_yagzag(
+            sources["RA"], sources["DEC"], q
+        )
         sources["r_angle"] = np.sqrt(sources["y_angle"] ** 2 + sources["z_angle"] ** 2)
 
         # filter_events cuts input events to a 180" radius (see that task), but
