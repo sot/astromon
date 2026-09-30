@@ -5,7 +5,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 import tables as tb
-from astropy.table import Table, vstack
+from astropy.table import MaskedColumn, Table, vstack
 
 from astromon import db, utils
 
@@ -937,6 +937,115 @@ def test_save_crash_while_writing_leaves_original_table_intact():
         result = db.get_table("astromon_cat_src", dbfile)
         assert len(result) == 4, "original table must survive a failed write"
         assert set(result["name"]) == set(original["name"])
+
+
+# --- masked cells -----------------------------------------------------------
+#
+# A table read from ECSV has a MaskedColumn wherever a cell was blank, and the
+# value under the mask is the reader's placeholder, not data: "0" for a string
+# and 0.0 for a float. Writing the placeholder stores "0" where the file had ""
+# and a 0.0 psfratio -- a real measurement -- where it had none.
+
+
+def _ecsv_round_trip(rows: Table) -> Table:
+    """`rows` written to ECSV and read back, the way a fixture file loads."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = Path(tmpdir) / "rows.ecsv"
+        rows.write(path)
+        return Table.read(path)
+
+
+def _xray_src_rows_with_blank_cells() -> Table:
+    rows = Table(np.zeros(2, dtype=db.ASTROMON_XRAY_SRC_DTYPE))
+    rows.convert_bytestring_to_unicode()
+    rows["obsid"] = [1, 1]
+    rows["id"] = [1, 2]
+    rows["detect_method"] = ["", ""]
+    rows["caldb_version"] = ["4.10.0", ""]
+    rows["psfratio"] = MaskedColumn([0.5, 0.25], mask=[False, True], dtype=np.float32)
+    return _ecsv_round_trip(rows)
+
+
+def test_save_fills_masked_cells_instead_of_the_value_under_the_mask():
+    """Masked cells are stored per missing_column_fill: "" for strings, NaN for floats."""
+    rows = _xray_src_rows_with_blank_cells()
+    assert rows["detect_method"].mask.all(), "fixture must exercise a masked column"
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dbfile = Path(tmpdir) / "masked.h5"
+        db.save("astromon_xray_src", rows, dbfile, ignore_obsid=True)
+        stored = db.get_table("astromon_xray_src", dbfile)
+
+    assert list(stored["detect_method"]) == ["", ""]
+    assert list(stored["caldb_version"]) == ["4.10.0", ""]
+    assert stored["psfratio"][0] == 0.5
+    assert np.isnan(stored["psfratio"][1]), "a masked float must be NaN, not 0.0"
+
+
+def test_save_replaces_blank_detect_method_rows_read_from_ecsv():
+    """A blank detect_method from ECSV still matches a later celldetect save.
+
+    save() reads a stored blank detect_method as "celldetect" when matching
+    replace keys (see _replace_delete_key). Storing the masked placeholder "0"
+    instead leaves those rows beside the celldetect rows meant to replace them.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dbfile = Path(tmpdir) / "masked.h5"
+        db.save("astromon_xray_src", _xray_src_rows_with_blank_cells(), dbfile)
+        new_row = Table(np.zeros(1, dtype=db.ASTROMON_XRAY_SRC_DTYPE))
+        new_row["obsid"] = 1
+        new_row["id"] = 3
+        new_row["detect_method"] = "celldetect"
+        db.save("astromon_xray_src", new_row, dbfile)
+        stored = db.get_table("astromon_xray_src", dbfile)
+
+    assert list(stored["id"]) == [3]
+    assert list(stored["detect_method"]) == ["celldetect"]
+
+
+def _region_with_comments(comments: str) -> Table:
+    return Table(
+        [
+            {
+                "ra": 99.0,
+                "dec": 1.0,
+                "radius": 10.0,
+                "obsid": 12345,
+                "user": "test",
+                "comments": comments,
+            }
+        ]
+    )
+
+
+def test_add_regions_fills_masked_cells():
+    """add_regions casts its input itself, so it needs the same masked-cell fill."""
+    region = _ecsv_round_trip(_region_with_comments(""))
+    assert region["comments"].mask.all(), "fixture must exercise a masked column"
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dbfile = Path(tmpdir) / "regions.h5"
+        db.create_empty_tables(dbfile)
+        db.add_regions(region, dbfile=dbfile)
+        stored = db.get_table("astromon_regions", dbfile)
+
+    assert list(stored["user"]) == ["test"]
+    assert list(stored["comments"]) == [""]
+
+
+def test_update_regions_fills_masked_cells():
+    """update_regions assigns whole rows, which writes np.ma.masked as "0.0"."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dbfile = Path(tmpdir) / "regions.h5"
+        db.create_empty_tables(dbfile)
+        db.add_regions(_region_with_comments("to be cleared"), dbfile=dbfile)
+        edited = db.get_table("astromon_regions", dbfile)
+        edited["comments"] = [""]
+        edited = _ecsv_round_trip(edited)
+        assert edited["comments"].mask.all(), "fixture must exercise a masked column"
+        db.update_regions(edited, dbfile=dbfile)
+        stored = db.get_table("astromon_regions", dbfile)
+
+    assert list(stored["user"]) == ["test"]
+    assert list(stored["comments"]) == [""]
 
 
 def test_cast_to_dtype_fills_missing_float_with_nan():

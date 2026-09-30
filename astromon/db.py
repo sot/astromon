@@ -231,9 +231,33 @@ def missing_column_fill(dtype: np.dtype, name: str):
 
     This is the single fill policy for the package; get_sources and the pipeline
     save path both go through it so a column cannot mean different things
-    depending on which door it came in.
+    depending on which door it came in. Masked cells of a column that is present
+    get the same value (see :func:`cast_column`).
     """
     return np.nan if dtype[name].kind == "f" else np.zeros(1, dtype=dtype[name])[0]
+
+
+def cast_column(column: table.Column, dtype: np.dtype, name: str) -> np.ndarray:
+    """Cast `column` to ``dtype[name]``, filling masked cells per :func:`missing_column_fill`.
+
+    These are the values :func:`save` stores. The value under a mask is whatever
+    the reader left there, not data: ECSV reads a blank string cell back as a
+    masked "0" and a blank float as a masked 0.0. Casting those as-is would store
+    "0" for "" and a fabricated 0.0 measurement, so only the unmasked cells are
+    cast and the rest get the fill.
+
+    >>> from astropy.table import MaskedColumn
+    >>> snr = MaskedColumn([4.5, 0.0], mask=[False, True])
+    >>> cast_column(snr, ASTROMON_XRAY_SRC_DTYPE, "snr")
+    array([4.5, nan], dtype=float32)
+    """
+    values = np.asarray(column)
+    masked = np.ma.getmaskarray(column)
+    if not masked.any():
+        return values.astype(dtype[name])
+    result = np.full(len(values), missing_column_fill(dtype, name), dtype=dtype[name])
+    result[~masked] = values[~masked].astype(dtype[name])
+    return result
 
 
 def conform_to_dtype(data: table.Table, table_name: str) -> table.Table:
@@ -467,7 +491,8 @@ def save(  # noqa: PLR0912
                     f"Saving table {table_name} with missing columns: {', '.join(missing)}"
                 )
             b = np.zeros(len(data), dtype=dtype)
-            b[names] = data[names].as_array().astype(dtype[names])
+            for name in names:
+                b[name] = cast_column(data[name], dtype, name)
             data = b
         else:
             data = data.as_array()
@@ -641,7 +666,8 @@ def add_regions(regions, dbfile=None):
         regions = Table(regions)
         names = [n for n in all_regions.dtype.names if n in regions.dtype.names]
         b = np.zeros(len(regions), dtype=all_regions.dtype)
-        b[names] = regions[names].as_array().astype(all_regions.dtype[names])
+        for name in names:
+            b[name] = cast_column(regions[name], all_regions.dtype, name)
         b["region_id"] = np.arange(rid, rid + len(b))
         b["last_modified"] = CxoTime.now().date
         # we need to ensure region_id_str are unique. Using the auto-incrementing region_id does
@@ -696,14 +722,21 @@ def update_regions(regions, dbfile=None):
 
         all_regions = get_table("astromon_regions", h5)
 
+        # Assigning a row writes a masked cell as whatever np.ma.masked casts to
+        # ("0.0" in a string column), so fill masked cells first.
+        filled = Table(regions)
+        for name in filled.colnames:
+            if name in all_regions.colnames:
+                filled[name] = cast_column(filled[name], all_regions.dtype, name)
+
         _, from_idx, to_idx = np.intersect1d(
-            regions["region_id_str"], all_regions["region_id_str"], return_indices=True
+            filled["region_id_str"], all_regions["region_id_str"], return_indices=True
         )
 
         last_modified = CxoTime.now().date
         for to_i, from_i in zip(to_idx, from_idx, strict=True):
-            if not np.array_equal(all_regions[to_i], regions[from_i]):
-                all_regions[to_i] = regions[from_i]
+            if not np.array_equal(all_regions[to_i], filled[from_i]):
+                all_regions[to_i] = filled[from_i]
                 all_regions[to_i]["last_modified"] = last_modified
 
         save("astromon_regions", all_regions, h5)
