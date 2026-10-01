@@ -991,7 +991,11 @@ def test_get_sources_matches_ecf_radius_by_component_after_r_angle_filter(
     not from whatever ends up in position 0/1 after filtering.
     """
     obs = _make_observation(tmp_path)
-    monkeypatch.setattr(obs, "get_evt2_info", lambda: {"instrument": "acis"})
+    monkeypatch.setattr(
+        obs,
+        "get_evt2_info",
+        lambda: {"instrument": "acis", "ra_pnt": 0.0, "dec_pnt": 0.0, "roll_pnt": 0.0},
+    )
     monkeypatch.setattr(obs, "get_calalign", lambda: {"caldb_version": "4.10.0"})
     monkeypatch.setattr(obs, "_pileup_value", lambda src: np.zeros(len(src)))
     monkeypatch.setattr(
@@ -1001,6 +1005,23 @@ def test_get_sources_matches_ecf_radius_by_component_after_r_angle_filter(
         obs, "_on_grating_arm", lambda src: np.zeros(len(src), dtype=bool)
     )
     monkeypatch.setattr(obs, "_peak_offset", lambda src: np.full(len(src), np.nan))
+    # _get_sources now always recomputes y_angle/z_angle from RA/DEC via the
+    # real evt2 attitude ("Always recompute gaussian y_angle/z_angle from
+    # RA/DEC in _get_sources") rather than trusting whatever is in the .src
+    # file -- so this test's RA/DEC values (arbitrary placeholders, not a
+    # real projection of the y_angle/z_angle below) would no longer produce
+    # the intended r_angle filtering. Pin the transform directly to the
+    # values this test is about, keyed by RA, same as the y_angle/z_angle
+    # columns written below.
+    yagzag_by_ra = {10.0: (0.0, 0.0), 20.0: (200.0, 0.0), 30.0: (10.0, 0.0)}
+    monkeypatch.setattr(
+        observation,
+        "radec_to_yagzag",
+        lambda ra, dec, q: (
+            np.array([yagzag_by_ra[float(r)][0] for r in np.atleast_1d(ra)]),
+            np.array([yagzag_by_ra[float(r)][1] for r in np.atleast_1d(ra)]),
+        ),
+    )
 
     src_path = obs.file_path(f"sources/{obs.obsid}_celldetect.src")
     _write_src_with_yagzag(
@@ -1337,7 +1358,11 @@ def test_get_calalign_with_nothing_to_read_records_no_version(tmp_path, monkeypa
 def _get_sources_with_calalign(tmp_path, monkeypatch, calalign):
     """_get_sources on two sources, with get_calalign returning `calalign`."""
     obs = _make_observation(tmp_path)
-    monkeypatch.setattr(obs, "get_evt2_info", lambda: {"instrument": "acis"})
+    monkeypatch.setattr(
+        obs,
+        "get_evt2_info",
+        lambda: {"instrument": "acis", "ra_pnt": 0.0, "dec_pnt": 0.0, "roll_pnt": 0.0},
+    )
     monkeypatch.setattr(obs, "get_calalign", lambda: calalign)
     monkeypatch.setattr(obs, "_pileup_value", lambda src: np.zeros(len(src)))
     monkeypatch.setattr(
@@ -1347,6 +1372,21 @@ def _get_sources_with_calalign(tmp_path, monkeypatch, calalign):
         obs, "_on_grating_arm", lambda src: np.zeros(len(src), dtype=bool)
     )
     monkeypatch.setattr(obs, "_peak_offset", lambda src: np.full(len(src), np.nan))
+    # _get_sources always recomputes y_angle/z_angle from RA/DEC now (see
+    # "Always recompute gaussian y_angle/z_angle from RA/DEC in
+    # _get_sources"); these RA/DEC placeholders are many degrees from the
+    # mocked (0, 0) pointing, which would put every row beyond the 180"
+    # r_angle cut. Pin the transform to the small values this test actually
+    # wants, keyed by RA, same as the y_angle/z_angle columns written below.
+    yagzag_by_ra = {10.0: (0.0, 0.0), 20.0: (10.0, 0.0)}
+    monkeypatch.setattr(
+        observation,
+        "radec_to_yagzag",
+        lambda ra, dec, q: (
+            np.array([yagzag_by_ra[float(r)][0] for r in np.atleast_1d(ra)]),
+            np.array([yagzag_by_ra[float(r)][1] for r in np.atleast_1d(ra)]),
+        ),
+    )
     _write_src_with_yagzag(
         obs.file_path(f"sources/{obs.obsid}_celldetect.src"),
         component=[1, 2],
