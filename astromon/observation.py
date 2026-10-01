@@ -1434,6 +1434,34 @@ class Observation:
 
         return sources
 
+    def sources_would_recompute(self, *, version="celldetect") -> bool:
+        """
+        Check whether get_sources(version=version) would trigger a real task run.
+
+        _get_sources's optional_files (the .src file among them) are requested from
+        the TaskManager unconditionally on every call; if one is missing on disk --
+        including because it was purged rather than never produced -- the manager
+        runs the real task to produce it. That is invisible to the caller: a bulk
+        re-persist operation that only means to re-derive columns from an existing
+        .src file can silently trigger a brand-new detection fit instead, picking up
+        whatever source-selection logic is current at call time rather than whatever
+        was current when the archived .src was made. Callers that must never trigger
+        a real rerun (e.g. maintenance backfills) should check this first and skip
+        (or flag for separate handling) any obsid where it returns True, rather than
+        calling get_sources and getting an indistinguishable "real fit" result back.
+
+        This is deliberately a separate method rather than a flag on get_sources:
+        get_sources is wrapped by @stored_result, whose cache key is derived from
+        its own bound signature, so adding a parameter there would change the cache
+        key (and thus invalidate) every already-cached result across the archive.
+        """
+        params = self._get_sources.get_parameters(self, version=version)
+        requested_files = list(
+            set(params["required_files"].values())
+            | set(params["optional_files"].values())
+        )
+        return bool(TASKS.get_tasks_to_run(self, requested_files=requested_files))
+
     @stored_result("sources", fmt="table", subdir="cache")
     def get_sources(self, *, version="celldetect", astromon_format=True):
         """

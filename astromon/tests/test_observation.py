@@ -87,6 +87,43 @@ def test_get_sources_passes_through_gaussian_columns():
     assert result["detect_method"].tolist() == ["gaussian_detect", "gaussian_detect"]
 
 
+def test_sources_would_recompute_false_when_nothing_needs_to_run():
+    """No task needs to run to produce the requested files: not a recompute."""
+    obs = Mock()
+    obs._get_sources.get_parameters.return_value = {
+        "required_files": {},
+        "optional_files": {"sources": "sources/1234_celldetect.src"},
+    }
+
+    with patch.object(observation.TASKS, "get_tasks_to_run", return_value={}):
+        result = observation.Observation.sources_would_recompute(
+            obs, version="celldetect"
+        )
+
+    assert result is False
+
+
+def test_sources_would_recompute_true_when_a_task_needs_to_run():
+    """A requested file (e.g. a purged .src) is missing, so its task would run
+    for real -- get_sources would silently trigger a recompute, not a re-persist."""
+    obs = Mock()
+    obs._get_sources.get_parameters.return_value = {
+        "required_files": {},
+        "optional_files": {"sources": "sources/1234_celldetect.src"},
+    }
+
+    with patch.object(
+        observation.TASKS,
+        "get_tasks_to_run",
+        return_value={"celldetect": Mock()},
+    ):
+        result = observation.Observation.sources_would_recompute(
+            obs, version="celldetect"
+        )
+
+    assert result is True
+
+
 def _fake_obs(is_hrc):
     obs = Mock()
     obs.is_hrc = is_hrc
