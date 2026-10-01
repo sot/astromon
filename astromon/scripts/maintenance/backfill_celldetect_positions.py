@@ -27,6 +27,13 @@ Any obsid this fast path cannot handle (missing .src, missing psf_size, or
 any other exception) is left for a full `run_all.py --versions celldetect`
 pass instead -- reported at the end, not silently dropped.
 
+Before calling get_sources, each obsid is checked with
+`Observation.sources_would_recompute()`: if the archived .src (or any other
+celldetect input) is missing, reading it back would silently fall through to
+a real celldetect rerun instead of a cheap re-persist -- see that method's
+docstring. Obsids that would recompute are routed to needs_full_processing
+rather than run, so this script never triggers a real rerun.
+
 Usage::
 
     python backfill_celldetect_positions.py \\
@@ -117,6 +124,11 @@ def main() -> None:
                 archive_dir=args.archive_dir,
                 source="archive",
             )
+            if obs.sources_would_recompute(version="celldetect"):
+                needs_full_processing.append(
+                    (obsid, "would trigger a real celldetect rerun, not a re-persist")
+                )
+                continue
             obs.get_sources.invalidate_result(version="celldetect")
             sources = obs.get_sources(version="celldetect")
         except Exception as exc:

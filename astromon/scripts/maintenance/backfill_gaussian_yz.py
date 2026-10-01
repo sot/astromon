@@ -24,6 +24,13 @@ Any obsid this fast path cannot handle (missing .src, no evt2 file on disk
 and a download is needed, or any other exception) is left for separate
 attention -- reported at the end, not silently dropped.
 
+Before calling get_sources, each obsid is checked with
+``Observation.sources_would_recompute()``: if the archived .src (or any other
+input the version's task needs) is missing, reading it back would silently
+fall through to a real detection rerun instead of a cheap re-persist -- see
+that method's docstring. Obsids that would recompute are routed to
+needs_attention rather than run, so this script never triggers a real refit.
+
 Usage::
 
     python backfill_gaussian_yz.py \\
@@ -113,6 +120,11 @@ def main() -> None:
                 archive_dir=args.archive_dir,
                 source="archive",
             )
+            if obs.sources_would_recompute(version=args.version):
+                needs_attention.append(
+                    (obsid, "would trigger a real detection rerun, not a re-persist")
+                )
+                continue
             obs.get_sources.invalidate_result(version=args.version)
             sources = obs.get_sources(version=args.version)
         except Exception as exc:
