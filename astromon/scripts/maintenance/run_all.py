@@ -257,7 +257,13 @@ def run_one(  # noqa: PLR0917
     }
 
 
-def merge_scratch_into_main(scratch_db: Path, main_db: Path) -> None:
+def merge_scratch_into_main(
+    scratch_db: Path,
+    main_db: Path,
+    *,
+    successful_obsids: list[int] | None = None,
+    drop_stale_catalog_rows: bool = False,
+) -> None:
     """Merge every table in `scratch_db` into `main_db`, one db.save() call each.
 
     Both files use the same obsid-keyed replace semantics db.save() always
@@ -272,17 +278,64 @@ def merge_scratch_into_main(scratch_db: Path, main_db: Path) -> None:
     (called by process_one_obsid.py's save_with_lock the first time a
     scratch DB is touched) guarantees every table exists even if this
     particular batch never wrote to it.
+
+    That per-table skip is exactly right for astromon_obs/astromon_xray_src/
+    astromon_status, but not for astromon_cat_src/astromon_xcorr: the direct
+    (non-batched) write path's save_with_lock treats a recomputed, empty
+    astromon_cat_src as authoritative (this obsid now has no candidates) and
+    explicitly drops its stale rows -- db.save()'s keyed replace can't express
+    that from an empty table alone, see save_with_lock's own docstring. It
+    also unconditionally drops an obsid's astromon_xcorr rows (any
+    detect_method) whenever astromon_cat_src is rewritten at all, because
+    astromon_cat_src has no detect_method column: rewriting it renumbers
+    every c_id for that obsid, so any surviving xcorr row from a detect_method
+    this run did not redo would keep pointing at the old c_id, which may now
+    be a different catalog source. Skipping the merge for an all-empty
+    scratch table reproduces neither behavior, so a batched run that finds
+    zero candidates for an obsid (or reruns only some of its --versions) can
+    leave stale or mis-linked rows in main_db while the tracking CSV says it
+    succeeded.
+
+    `successful_obsids`/`drop_stale_catalog_rows` close that gap by
+    replicating save_with_lock's own logic (via its own helper functions)
+    against `main_db` directly, before the per-table merge below: pass
+    `drop_stale_catalog_rows=True` (this run did not pass
+    --skip-catalog-match, so a recomputed empty astromon_cat_src is
+    authoritative) along with every obsid in this batch that completed with
+    status "success", and this does, per obsid: drop its astromon_xcorr rows
+    unconditionally, then drop its astromon_cat_src rows too if `scratch_db`
+    has none for it. Omit both (the default) to keep the original behavior
+    unchanged, e.g. for a --skip-catalog-match run where an empty result
+    means "not computed this time", not "no candidates".
     """
     from astromon import db  # noqa: PLC0415 -- optional heavy import, only needed here
+    from astromon.scripts.maintenance.process_one_obsid import (  # noqa: PLC0415
+        _drop_cat_src_for_obsid,
+        _drop_xcorr_for_obsid,
+    )
 
-    for table_name in _MERGED_TABLE_NAMES:
-        try:
-            data = db.get_table(table_name, scratch_db)
-        except db.MissingTableException:
-            continue
-        if len(data) == 0:
-            continue
-        db.save(table_name, data, main_db, expect_existing=True)
+    with db.connect(main_db, mode="r+") as con:
+        if drop_stale_catalog_rows and successful_obsids:
+            try:
+                scratch_cat_src_obsids = {
+                    int(o)
+                    for o in db.get_table("astromon_cat_src", scratch_db)["obsid"]
+                }
+            except db.MissingTableException:
+                scratch_cat_src_obsids = set()
+            for obsid in successful_obsids:
+                _drop_xcorr_for_obsid(con, obsid)
+                if obsid not in scratch_cat_src_obsids:
+                    _drop_cat_src_for_obsid(con, obsid)
+
+        for table_name in _MERGED_TABLE_NAMES:
+            try:
+                data = db.get_table(table_name, scratch_db)
+            except db.MissingTableException:
+                continue
+            if len(data) == 0:
+                continue
+            db.save(table_name, data, con, expect_existing=True)
 
 
 def compact_db(db_file: Path) -> tuple[int, int]:
@@ -570,15 +623,14 @@ def main():  # noqa: PLR0915
 
         return result
 
-    def run_chunk(chunk, db_file):
+    def run_chunk(chunk, db_file) -> list[dict]:
         if args.parallel <= 1:
-            for obsid in chunk:
-                process_and_record(obsid, db_file)
+            return [process_and_record(obsid, db_file) for obsid in chunk]
         else:
             from concurrent.futures import ThreadPoolExecutor
 
             with ThreadPoolExecutor(max_workers=args.parallel) as pool:
-                list(pool.map(lambda o: process_and_record(o, db_file), chunk))
+                return list(pool.map(lambda o: process_and_record(o, db_file), chunk))
 
     if args.batch_size <= 0:
         run_chunk(todo, args.db_file)
@@ -587,13 +639,25 @@ def main():  # noqa: PLR0915
         for batch_num, chunk in enumerate(_chunked(todo, args.batch_size), start=1):
             scratch_db.unlink(missing_ok=True)
             Path(str(scratch_db) + ".lock").unlink(missing_ok=True)
-            run_chunk(chunk, scratch_db)
+            results = run_chunk(chunk, scratch_db)
 
             print(
                 f"batch {batch_num}: merging {len(chunk)} obsid(s) into "
                 f"{args.db_file} …"
             )
-            merge_scratch_into_main(scratch_db, args.db_file)
+            successful_obsids = [
+                r["obsid"] for r in results if r["status"] == "success"
+            ]
+            merge_scratch_into_main(
+                scratch_db,
+                args.db_file,
+                successful_obsids=successful_obsids,
+                # A run invoked with --skip-catalog-match never computes real
+                # candidates, so an empty astromon_cat_src means "not checked
+                # this time", not "no candidates" -- must not be treated as
+                # authoritative. See merge_scratch_into_main's own docstring.
+                drop_stale_catalog_rows=not args.skip_catalog_match,
+            )
             scratch_db.unlink(missing_ok=True)
             Path(str(scratch_db) + ".lock").unlink(missing_ok=True)
 

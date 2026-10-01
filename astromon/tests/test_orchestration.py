@@ -717,6 +717,158 @@ def test_replace_cat_src_with_rows_present_behaves_as_before():
         assert len(db.get_table("astromon_xcorr", dbfile)) == 0
 
 
+# ---- merge_scratch_into_main must replicate save_with_lock's deletion semantics ----
+
+
+def test_merge_scratch_into_main_without_drop_flag_matches_old_behavior():
+    """Default call (no new kwargs) merges non-empty tables, nothing more."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        main_db = Path(tmpdir) / "main.h5"
+        scratch_db = Path(tmpdir) / "scratch.h5"
+        db.create_empty_tables(main_db)
+        db.create_empty_tables(scratch_db)
+        db.save("astromon_cat_src", _cat_src_row(catalog="RFC", obsid=7001), scratch_db)
+
+        run_all.merge_scratch_into_main(scratch_db, main_db)
+
+        assert len(db.get_table("astromon_cat_src", main_db)) == 1
+
+
+def test_merge_scratch_into_main_drops_stale_rows_when_batch_found_nothing():
+    """An obsid that comes back with zero cat_src rows this batch loses its old ones.
+
+    Mirrors test_replace_cat_src_removes_both_when_the_rerun_found_nothing, but
+    through the batched merge path instead of save_with_lock directly.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        main_db = Path(tmpdir) / "main.h5"
+        scratch_db = Path(tmpdir) / "scratch.h5"
+        db.create_empty_tables(main_db)
+        db.create_empty_tables(scratch_db)
+        _seed_obsid_with_matches(main_db, obsid=7001)
+
+        run_all.merge_scratch_into_main(
+            scratch_db,
+            main_db,
+            successful_obsids=[7001],
+            drop_stale_catalog_rows=True,
+        )
+
+        assert len(db.get_table("astromon_cat_src", main_db)) == 0
+        assert len(db.get_table("astromon_xcorr", main_db)) == 0
+
+
+def test_merge_scratch_into_main_without_drop_flag_leaves_stale_rows_for_skip_catalog_match():
+    """A --skip-catalog-match batch must not wipe existing matches.
+
+    An empty astromon_cat_src from such a run means "not computed this time",
+    not "no candidates" -- see merge_scratch_into_main's own docstring.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        main_db = Path(tmpdir) / "main.h5"
+        scratch_db = Path(tmpdir) / "scratch.h5"
+        db.create_empty_tables(main_db)
+        db.create_empty_tables(scratch_db)
+        _seed_obsid_with_matches(main_db, obsid=7001)
+
+        run_all.merge_scratch_into_main(
+            scratch_db,
+            main_db,
+            successful_obsids=[7001],
+            drop_stale_catalog_rows=False,
+        )
+
+        assert len(db.get_table("astromon_cat_src", main_db)) == 1
+        assert len(db.get_table("astromon_xcorr", main_db)) == 1
+
+
+def test_merge_scratch_into_main_does_not_touch_obsids_outside_the_batch():
+    """Only obsids this batch actually processed are candidates for dropping."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        main_db = Path(tmpdir) / "main.h5"
+        scratch_db = Path(tmpdir) / "scratch.h5"
+        db.create_empty_tables(main_db)
+        db.create_empty_tables(scratch_db)
+        _seed_obsid_with_matches(main_db, obsid=7001)
+        _seed_obsid_with_matches(main_db, obsid=7002)
+
+        # Batch reprocessed only 7001; 7002 was not in this run at all.
+        run_all.merge_scratch_into_main(
+            scratch_db,
+            main_db,
+            successful_obsids=[7001],
+            drop_stale_catalog_rows=True,
+        )
+
+        assert len(db.get_table("astromon_cat_src", main_db)) == 1
+        cat = db.get_table("astromon_cat_src", main_db)
+        assert list(cat["obsid"]) == [7002]
+
+
+def test_merge_scratch_into_main_drops_stale_xcorr_for_an_untouched_detect_method():
+    """A batch that reran only celldetect must not leave stale gaussian_detect xcorr.
+
+    Mirrors test_save_with_lock_cat_src_write_drops_stale_xcorr: astromon_cat_src
+    has no detect_method column, so rewriting it renumbers every c_id for the
+    obsid -- any surviving xcorr row from a detect_method this batch did not
+    redo would keep pointing at the old c_id, which may now name a different
+    catalog source.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        main_db = Path(tmpdir) / "main.h5"
+        scratch_db = Path(tmpdir) / "scratch.h5"
+        db.create_empty_tables(main_db)
+        db.create_empty_tables(scratch_db)
+        db.save(
+            "astromon_xcorr",
+            vstack(
+                [
+                    _xcorr_row(
+                        select_name="astromon_24",
+                        detect_method="celldetect",
+                        obsid=7001,
+                    ),
+                    _xcorr_row(
+                        select_name="astromon_25",
+                        detect_method="gaussian_detect",
+                        obsid=7001,
+                    ),
+                ],
+                metadata_conflicts="silent",
+            ),
+            main_db,
+        )
+        db.save("astromon_cat_src", _cat_src_row(catalog="RFC", obsid=7001), main_db)
+
+        # This batch only reran celldetect, writing a fresh cat_src + celldetect xcorr.
+        db.save(
+            "astromon_cat_src", _cat_src_row(catalog="Tycho2", obsid=7001), scratch_db
+        )
+        db.save(
+            "astromon_xcorr",
+            _xcorr_row(
+                select_name="astromon_24",
+                detect_method="celldetect",
+                obsid=7001,
+                c_id=99,
+            ),
+            scratch_db,
+        )
+
+        run_all.merge_scratch_into_main(
+            scratch_db,
+            main_db,
+            successful_obsids=[7001],
+            drop_stale_catalog_rows=True,
+        )
+
+        xcorr = db.get_table("astromon_xcorr", main_db)
+        assert list(xcorr["detect_method"]) == ["celldetect"]
+        assert list(xcorr["c_id"]) == [99]
+        cat = db.get_table("astromon_cat_src", main_db)
+        assert list(np.asarray(cat["catalog"]).astype(str)) == ["Tycho2"]
+
+
 def test_self_kill_process_group_swallows_expected_errors(monkeypatch):
     """ProcessLookupError and PermissionError are still treated as "already gone"."""
     from astromon.scripts.maintenance import process_one_obsid
