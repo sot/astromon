@@ -412,6 +412,136 @@ def test_process_and_record_survives_run_one_raising(tmp_path, monkeypatch):
     assert rows[14322]["status"] == "success"
 
 
+def _fake_run_one_writing_cat_src(obsid, db_file, *args, **kwargs):
+    """Stand-in for run_one(): writes one real astromon_cat_src row to `db_file`.
+
+    The real run_one() launches a subprocess that writes through
+    save_with_lock; tests that only care about process_and_record's own
+    bookkeeping stub it with a bare dict (see fake_run_one above). These two
+    tests care about what ends up in the *database* after a batch merges, so
+    the stub needs to actually touch `db_file` the way a real worker would.
+    """
+    if not Path(db_file).exists():
+        db.create_empty_tables(db_file)
+    db.save(
+        "astromon_cat_src",
+        _cat_src_row(catalog="RFC", obsid=obsid),
+        db_file,
+        expect_existing=True,
+    )
+    return {
+        "obsid": obsid,
+        "status": "success",
+        "note": "",
+        "returncode": 0,
+        "elapsed_sec": 1.0,
+        "timestamp": "2026-08-21T00:00:00",
+        "log_file": "x.log",
+    }
+
+
+def test_batched_run_records_tracking_only_after_a_successful_merge(
+    tmp_path, monkeypatch
+):
+    """A batch's tracking rows land only once its data is durably merged in.
+
+    Guards against writing a "success" row as soon as each subprocess
+    finishes (which only wrote to the batch's ephemeral scratch DB): a crash
+    between that write and the batch's merge/compact would otherwise leave
+    load_done_obsids() treating the obsid as done on resume, even though its
+    data exists nowhere in --db-file.
+    """
+    db_file = tmp_path / "astromon.h5"
+    tracking_csv = tmp_path / "tracking.csv"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_all",
+            "--db-file",
+            str(db_file),
+            "--workdir",
+            str(tmp_path / "work"),
+            "--obsid-list",
+            str(tmp_path / "obsids.txt"),
+            "--log-dir",
+            str(tmp_path / "logs"),
+            "--tracking-csv",
+            str(tracking_csv),
+            "--batch-size",
+            "2",
+        ],
+    )
+    (tmp_path / "obsids.txt").write_text("14321\n14322\n")
+    db.create_empty_tables(db_file)
+
+    with patch.object(run_all, "run_one", side_effect=_fake_run_one_writing_cat_src):
+        run_all.main()  # must not raise
+
+    rows = {
+        int(row["obsid"]): row
+        for row in csv.DictReader(tracking_csv.read_text().splitlines())
+    }
+    assert rows[14321]["status"] == "success"
+    assert rows[14322]["status"] == "success"
+    # The whole point: this batch's data really is in --db-file, not just
+    # recorded as if it were.
+    cat_src = db.get_table("astromon_cat_src", db_file)
+    assert sorted(cat_src["obsid"]) == [14321, 14322]
+
+
+def test_batched_run_leaves_tracking_untouched_when_the_merge_fails(
+    tmp_path, monkeypatch
+):
+    """If a batch's merge raises, none of its obsids get a tracking row.
+
+    The failure propagates (matching today's behavior: there is no retry
+    machinery around merge_scratch_into_main/compact_db), but the tracking
+    CSV must stay silent on these obsids rather than recording a "success"
+    that was never actually merged in -- a resumed run must reprocess them,
+    not skip them.
+    """
+    db_file = tmp_path / "astromon.h5"
+    tracking_csv = tmp_path / "tracking.csv"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_all",
+            "--db-file",
+            str(db_file),
+            "--workdir",
+            str(tmp_path / "work"),
+            "--obsid-list",
+            str(tmp_path / "obsids.txt"),
+            "--log-dir",
+            str(tmp_path / "logs"),
+            "--tracking-csv",
+            str(tracking_csv),
+            "--batch-size",
+            "2",
+        ],
+    )
+    (tmp_path / "obsids.txt").write_text("14321\n14322\n")
+    db.create_empty_tables(db_file)
+
+    with (
+        patch.object(run_all, "run_one", side_effect=_fake_run_one_writing_cat_src),
+        patch.object(
+            run_all,
+            "merge_scratch_into_main",
+            side_effect=RuntimeError("simulated merge failure"),
+        ),
+        pytest.raises(RuntimeError, match="simulated merge failure"),
+    ):
+        run_all.main()
+
+    rows = list(csv.DictReader(tracking_csv.read_text().splitlines()))
+    assert rows == [], (
+        "a failed merge must leave no tracking rows for its batch's obsids"
+    )
+
+
 # --- DB write path of the maintenance scripts ------------------------------
 #
 # These exercise save_with_lock and the backfill save helper, so they live here

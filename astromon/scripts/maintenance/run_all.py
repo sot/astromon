@@ -314,6 +314,19 @@ def merge_scratch_into_main(
         _drop_xcorr_for_obsid,
     )
 
+    if not Path(main_db).exists():
+        # db.connect() silently falls back to creating a brand-new, empty file
+        # when asked for mode="r+" on a path that does not exist -- without
+        # this check, _drop_xcorr_for_obsid below would then hit that fresh,
+        # table-less file and fail with a confusing NoSuchNodeError instead of
+        # this same clear, deliberate error every per-table db.save() call in
+        # this function already raises via expect_existing=True.
+        raise db.MissingTableException(
+            f"{main_db} does not exist. Initialize it with "
+            "astromon.db.create_empty_tables() before running a --batch-size "
+            "pass against it."
+        )
+
     with db.connect(main_db, mode="r+") as con:
         if drop_stale_catalog_rows and successful_obsids:
             try:
@@ -533,7 +546,24 @@ def main():  # noqa: PLR0915
 
     versions = tuple(args.versions)
 
-    def process_and_record(obsid, db_file):
+    def write_tracking_rows(results: list[dict]) -> None:
+        """Append `results` to the tracking CSV. Call only once their data is durable.
+
+        For the batched path this must happen after merge_scratch_into_main and
+        compact_db both succeed for that batch, not when each obsid's subprocess
+        merely finishes (see process_and_record's `record_immediately`): a row
+        here is what load_done_obsids() trusts to skip an obsid on resume, so
+        writing it any earlier would let a crash between "subprocess finished"
+        and "batch actually merged into --db-file" mark obsids "success" whose
+        data exists nowhere in --db-file -- and a resumed run would then skip
+        them forever instead of retrying them.
+        """
+        with write_lock:
+            for result in results:
+                csv_writer.writerow(result)
+            csv_file.flush()
+
+    def process_and_record(obsid, db_file, *, record_immediately: bool):
         start = time.time()
         try:
             result = run_one(
@@ -610,8 +640,9 @@ def main():  # noqa: PLR0915
                     traceback.print_exc()
 
         with write_lock:
-            csv_writer.writerow(result)
-            csv_file.flush()
+            if record_immediately:
+                csv_writer.writerow(result)
+                csv_file.flush()
             counts[result["status"]] = counts.get(result["status"], 0) + 1
             n_done = sum(counts.values())
             tally = ", ".join(f"{v} {k}" for k, v in counts.items())
@@ -623,23 +654,41 @@ def main():  # noqa: PLR0915
 
         return result
 
-    def run_chunk(chunk, db_file) -> list[dict]:
+    def run_chunk(chunk, db_file, *, record_immediately: bool) -> list[dict]:
         if args.parallel <= 1:
-            return [process_and_record(obsid, db_file) for obsid in chunk]
+            return [
+                process_and_record(
+                    obsid, db_file, record_immediately=record_immediately
+                )
+                for obsid in chunk
+            ]
         else:
             from concurrent.futures import ThreadPoolExecutor
 
             with ThreadPoolExecutor(max_workers=args.parallel) as pool:
-                return list(pool.map(lambda o: process_and_record(o, db_file), chunk))
+                return list(
+                    pool.map(
+                        lambda o: process_and_record(
+                            o, db_file, record_immediately=record_immediately
+                        ),
+                        chunk,
+                    )
+                )
 
     if args.batch_size <= 0:
-        run_chunk(todo, args.db_file)
+        # No deferred merge step here: each obsid's subprocess writes straight
+        # to --db-file via save_with_lock, so by the time process_and_record
+        # returns its data is already durable -- recording it immediately is
+        # correct, not just convenient.
+        run_chunk(todo, args.db_file, record_immediately=True)
     else:
         scratch_db = args.db_file.with_suffix(".batch_scratch.h5")
         for batch_num, chunk in enumerate(_chunked(todo, args.batch_size), start=1):
             scratch_db.unlink(missing_ok=True)
             Path(str(scratch_db) + ".lock").unlink(missing_ok=True)
-            results = run_chunk(chunk, scratch_db)
+            # record_immediately=False: this batch's subprocesses only write to
+            # the ephemeral scratch_db, not --db-file -- see write_tracking_rows.
+            results = run_chunk(chunk, scratch_db, record_immediately=False)
 
             print(
                 f"batch {batch_num}: merging {len(chunk)} obsid(s) into "
@@ -666,6 +715,14 @@ def main():  # noqa: PLR0915
                 f"batch {batch_num}: compacted {args.db_file} "
                 f"({before / 1e6:.1f} MB -> {after / 1e6:.1f} MB)"
             )
+
+            # Only now that this batch's data is durably merged and the file
+            # compacted is it safe to let load_done_obsids() treat these
+            # obsids as done on a future resume -- an exception anywhere
+            # above (merge or compact) skips this call, leaving the tracking
+            # CSV untouched for the whole batch, so a resumed run correctly
+            # reprocesses it instead of silently skipping unmerged obsids.
+            write_tracking_rows(results)
 
     csv_file.close()
 
