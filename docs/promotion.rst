@@ -48,18 +48,17 @@ These apply to the dev file before it (or its content) is promoted:
    distributions, magnitude coverage, celldetect-vs-gaussian_detect comparison) and a celmon dry
    run against the dev file (``astromon-web-pages --db-file <dev-file> --out <scratch-dir>``) to
    confirm the pages look right *before* promoting, not after.
-#. **Sync exclusion regions.** Run ``astromon.scripts.maintenance.sync_regions_from_primary`` to
-   pull in any region excluded in production since the dev file was branched off it::
+#. **Sync exclusion regions.** Run ``astromon-excluded-region sync`` to pull in any region
+   excluded in production since the dev file was branched off it::
 
-       python -m astromon.scripts.maintenance.sync_regions_from_primary \
-           --primary $SKA/data/astromon/astromon.h5 \
-           --dev /Volumes/Black/data/astromon/astromon.h5 \
-           --dry-run
+       astromon-excluded-region sync $SKA/data/astromon/astromon.h5 \
+           /Volumes/Black/data/astromon/astromon.h5
 
-   Drop ``--dry-run`` once the report looks right. Regions are the one piece of state that
-   production can gain independently of a dev branch (someone excludes a bad target while dev work
-   is ongoing), so this step is not optional -- skipping it silently reverts that exclusion on
-   promotion.
+   This has no dry-run mode -- it applies immediately. Pass ``--remove`` to also delete
+   destination regions absent from the source; omit it (the default) to only add or update,
+   never remove. Regions are the one piece of state that production can gain independently
+   of a dev branch (someone excludes a bad target while dev work is ongoing), so this step
+   is not optional -- skipping it silently reverts that exclusion on promotion.
 #. **Confirm maintenance backfills are complete, not just present.** The dev database accumulates
    its own backlog of one-off backfill/cleanup scripts as code changes land (see
    ``astromon/scripts/maintenance/``). Before promoting, check that every backfill relevant to what
