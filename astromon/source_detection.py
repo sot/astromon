@@ -1,5 +1,6 @@
 import numpy as np
 import scipy
+from scipy.ndimage import gaussian_filter
 
 
 def gaussian_ecf_radius(ecf, radius=1.0):
@@ -129,6 +130,12 @@ def _fit(events, source, columns=("y_angle", "z_angle"), box_size=4):
         The source position to fit around.
     columns : tuple of str
         The columns to use for the fit. Both the events and source must have these columns.
+    box_size : float
+        Half-width of the box the caller selected events from, in the same units as
+        `columns`. The centroid bounds below are tied to this so the optimizer can
+        never converge on a position outside the data it was actually given -- see
+        `fit_gaussian_2d`, which also rejects a fit that pins the centroid at this
+        boundary.
     """
     data = np.vstack([events[columns[0]], events[columns[1]]]).T
 
@@ -136,8 +143,8 @@ def _fit(events, source, columns=("y_angle", "z_angle"), box_size=4):
         Likelihood(data, box_size=box_size),
         x0=[source[columns[0]], source[columns[1]], 1, 1, 0, 3],
         bounds=[
-            (source[columns[0]] - 10, source[columns[0]] + 10),
-            (source[columns[1]] - 10, source[columns[1]] + 10),
+            (source[columns[0]] - box_size, source[columns[0]] + box_size),
+            (source[columns[1]] - box_size, source[columns[1]] + box_size),
             (0.1, 20),
             (0.1, 20),
             (-np.pi / 2, np.pi / 2),
@@ -196,6 +203,23 @@ def fit_gaussian_2d(events, source, columns=("y_angle", "z_angle"), box_size=4):
 
     result = _fit(events, source, columns=columns, box_size=box_size)
     if not result.success:
+        return fail_value
+
+    # `_fit`'s centroid bounds are exactly +/- box_size from the seed, matching the
+    # box the caller actually drew events from. A centroid pinned at that boundary
+    # means the optimizer wanted to move further but couldn't -- i.e. it found no
+    # localized signal in the box and is not reporting a meaningful position, even
+    # though scipy still calls it converged (result.success=True). Concretely: at
+    # obsid 15669 COMPONENT 1 (SNR~3.2 celldetect source), the pre-fix +/-10" bounds
+    # let a background-dominated fit (snr=0.09, p_signal=0.09) wander to a centroid
+    # 10.5" from its own seed, inflating the peak_offset diagnostic for a reason that
+    # has nothing to do with real source structure.
+    at_bound = np.isclose(
+        np.abs(result.x[0] - source[columns[0]]), box_size, atol=1e-6, rtol=0
+    ) or np.isclose(
+        np.abs(result.x[1] - source[columns[1]]), box_size, atol=1e-6, rtol=0
+    )
+    if at_bound:
         return fail_value
 
     p_signal = result.x[5] / (1 + result.x[5])
@@ -317,6 +341,65 @@ def fit_gaussians(obs, sources, columns=("y_angle", "z_angle"), box_size=4):
             fit_gaussian_2d(events[sel], source, columns=columns, box_size=box_size)
         )
     return results
+
+
+def find_local_peak(
+    events_yag: np.ndarray,
+    events_zag: np.ndarray,
+    seed_yag: float,
+    seed_zag: float,
+    box_size: float = 4.0,
+    bin_as: float = 0.25,
+    smooth_as: float = 0.5,
+) -> tuple[float, float]:
+    """
+    Find the brightest pixel in a smoothed event-density image near a seed position.
+
+    This is used to re-seed a Gaussian fit away from a catalog or celldetect position
+    and toward the actual local emission peak, which matters for sources whose X-ray
+    centroid is offset from the catalog (e.g. due to jets or ICM structure).
+
+    Parameters
+    ----------
+    events_yag, events_zag
+        Y- and Z-angle of all events in arcsec (SI frame).
+    seed_yag, seed_zag
+        Initial seed position in arcsec (e.g. from celldetect).
+    box_size
+        Half-width of the search box in arcsec.
+    bin_as
+        Histogram bin size in arcsec.
+    smooth_as
+        Gaussian smoothing sigma in arcsec (should be ~PSF FWHM / 2.35).
+
+    Returns
+    -------
+    (peak_yag, peak_zag) in arcsec.  Falls back to seed if fewer than 5 events in box.
+    """
+    mask = (np.abs(events_yag - seed_yag) < box_size) & (
+        np.abs(events_zag - seed_zag) < box_size
+    )
+    yag = events_yag[mask]
+    zag = events_zag[mask]
+    if len(yag) < 5:
+        return seed_yag, seed_zag
+
+    n = int(2 * box_size / bin_as)
+    img, ye, ze = np.histogram2d(
+        yag,
+        zag,
+        bins=n,
+        range=[
+            [seed_yag - box_size, seed_yag + box_size],
+            [seed_zag - box_size, seed_zag + box_size],
+        ],
+    )
+    img_sm = gaussian_filter(img, sigma=smooth_as / bin_as)
+    pk = np.unravel_index(np.argmax(img_sm), img_sm.shape)
+    # bin centres (histogram2d returns n+1 edges)
+    peak_yag = ye[pk[0]] + bin_as / 2
+    peak_zag = ze[pk[1]] + bin_as / 2
+    return float(peak_yag), float(peak_zag)
 
 
 def concentration_ratio(
