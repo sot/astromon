@@ -29,9 +29,21 @@ def _call_args_list(mock):
     return [c.args for c in mock.call_args_list]
 
 
-def get_obs(obsid):
+def get_obs(obsid, request):
+    """Build an Observation backed by two fresh temporary directories.
+
+    `request` is pytest's own fixture (available in both fixtures and plain
+    test functions) -- its addfinalizer is what ties these directories'
+    cleanup to the end of whichever test created them, instead of leaving it
+    to whenever the garbage collector happens to get around to it. Without
+    this, TemporaryDirectory's own implicit-cleanup finalizer can fire during
+    an unrelated, later test, which pytest then blames for the resulting
+    ResourceWarning.
+    """
     workdir = tempfile.TemporaryDirectory()
     archive_dir = tempfile.TemporaryDirectory()
+    request.addfinalizer(workdir.cleanup)
+    request.addfinalizer(archive_dir.cleanup)
 
     return observation.Observation(
         obsid, workdir=workdir.name, archive_dir=archive_dir.name
@@ -39,8 +51,8 @@ def get_obs(obsid):
 
 
 @pytest.fixture()
-def test_obs():
-    yield get_obs("8007")
+def test_obs(request):
+    yield get_obs("8007", request)
 
 
 @pytest.fixture()
@@ -196,9 +208,9 @@ def test_a_precondition_dependency_list(test_pipeline):
     }, "Precondition for tests failed"
 
 
-def test_dependency_check(test_pipeline):
+def test_dependency_check(test_pipeline, request):
     # test that the input files are checked
-    obs = get_obs("8007")
+    obs = get_obs("8007", request)
     one = test_pipeline.tasks["one"]
     two = test_pipeline.tasks["two"]
     with pytest.raises(FileNotFoundError):
@@ -207,12 +219,12 @@ def test_dependency_check(test_pipeline):
     two(obs)
 
 
-def test_task_should_run_one(test_pipeline):
+def test_task_should_run_one(test_pipeline, request):
     # this function checks when a function should run
     # - if the cache is invalidated
     # - if the output files are missing (except ones that did not exist when the task was run)
-    obs = get_obs("8007")
-    obs2 = get_obs("8008")
+    obs = get_obs("8007", request)
+    obs2 = get_obs("8008", request)
     one = test_pipeline.tasks["one"]
 
     assert test_pipeline.tasks["one"].should_run(obs), "Task one should run initially"
@@ -256,8 +268,8 @@ def test_task_should_run_one(test_pipeline):
     )
 
 
-def test_should_run_four(test_pipeline):
-    obs = get_obs("8007")
+def test_should_run_four(test_pipeline, request):
+    obs = get_obs("8007", request)
     four = test_pipeline.tasks["four"]
 
     assert test_pipeline.inner_function.call_count == 0
@@ -315,9 +327,9 @@ def test_sequence_five(test_pipeline, test_obs):
     )
 
 
-def test_sequence_four(test_pipeline, test_obs):
+def test_sequence_four(test_pipeline, test_obs, request):
     # checking a diamon dependency chain
-    test_obs = get_obs("8007")
+    test_obs = get_obs("8007", request)
     test_pipeline.run_task(test_obs, "four")
     # the task dependency graph is a diamon, tasks two and three are in the same level
     # so they can be run in any order
@@ -504,7 +516,7 @@ def test_invalidate_dependency_two_steps(test_pipeline, test_obs):
     ], "Task four should run again because the cache of task three was cleared"
 
 
-def test_invalidate_archive(test_pipeline, test_obs):
+def test_invalidate_archive(test_pipeline, test_obs, request):
     # running "four" to begin with
     test_pipeline.run_task(test_obs, "four")
     test_pipeline.inner_function.reset_mock()
@@ -518,6 +530,7 @@ def test_invalidate_archive(test_pipeline, test_obs):
 
     # create an observation with a different work directory but the same archive directory
     workdir = tempfile.TemporaryDirectory()
+    request.addfinalizer(workdir.cleanup)
     obs_2 = observation.Observation(
         test_obs.obsid,
         workdir=workdir.name,
@@ -545,7 +558,7 @@ def test_invalidate_archive(test_pipeline, test_obs):
     )
 
 
-def test_task_return_value(test_pipeline):
+def test_task_return_value(test_pipeline, request):
     # check the possible return values: None, and tuples of size 1 and 2
 
     @test_pipeline.task()
@@ -560,7 +573,7 @@ def test_task_return_value(test_pipeline):
     def two(obs, inputs, outputs):
         return task.ReturnCode.SKIP, "skipped"
 
-    obs = get_obs("8007")
+    obs = get_obs("8007", request)
 
     rv = none(obs)
     assert isinstance(rv, task.ReturnValue), (
@@ -586,7 +599,7 @@ def test_task_return_value(test_pipeline):
 
 
 @NEEDS_HEAD_NETWORK
-def test_download(test_pipeline):
+def test_download(test_pipeline, request):
     # check that some files are downloaded from the archive
     @test_pipeline.task(
         name="dnld",
@@ -595,7 +608,7 @@ def test_download(test_pipeline):
     def dnls(obs, inputs, outputs):
         pass
 
-    obs = get_obs("8007")
+    obs = get_obs("8007", request)
     dnls(obs)
     assert len(list(obs.workdir.glob("*/*evt2*"))) == 1, "missing event files"
     assert len(list(obs.workdir.glob("*/*fov*"))) == 1, "missing FOV files"
@@ -612,7 +625,7 @@ def test_repeated_task_name(test_pipeline):
             pass
 
 
-def test_get_tasks_to_run_does_not_evaluate_an_unrelated_tasks_variables():
+def test_get_tasks_to_run_does_not_evaluate_an_unrelated_tasks_variables(request):
     """Requesting one task must not resolve the parameters of an unrelated one.
 
     get_tasks_to_run() used to build ``{name: task.get_parameters(obs) for name,
@@ -644,7 +657,7 @@ def test_get_tasks_to_run_does_not_evaluate_an_unrelated_tasks_variables():
         with open(outputs["five"], "w"):
             pass
 
-    obs = get_obs("8007")
+    obs = get_obs("8007", request)
 
     TASKS.get_tasks_to_run(obs, requested_tasks=["one"])
 
@@ -653,7 +666,7 @@ def test_get_tasks_to_run_does_not_evaluate_an_unrelated_tasks_variables():
     )
 
 
-def test_get_tasks_to_run_still_resolves_by_requested_filename():
+def test_get_tasks_to_run_still_resolves_by_requested_filename(request):
     """The filename -> task lookup this optimization must not break.
 
     When the caller asks for a file by name (not by task name), get_tasks_to_run
@@ -670,19 +683,20 @@ def test_get_tasks_to_run_still_resolves_by_requested_filename():
         with open(outputs["one"], "w"):
             pass
 
-    obs = get_obs("8007")
+    obs = get_obs("8007", request)
 
     tasks = TASKS.get_tasks_to_run(obs, requested_tasks=[], requested_files=["one.txt"])
 
     assert "one" in tasks
 
 
-def test_dependencies():
+def test_dependencies(request):
     # Test the "dependencies" decorator with a simple task
 
     TASKS = task.TaskManager()
     STACK = []
     TMPDIR = tempfile.TemporaryDirectory()
+    request.addfinalizer(TMPDIR.cleanup)
 
     @TASKS.task(
         name="do",
@@ -745,7 +759,7 @@ def test_dependencies():
     assert STACK == [("do", "1")], "Task do should be run exactly once"
 
 
-def test_dependent_call_does_not_recurse_via_an_unrelated_tasks_variable():
+def test_dependent_call_does_not_recurse_via_an_unrelated_tasks_variable(request):
     """An unrelated task's ``variables`` callback must not re-enter a Dependent
     that is still resolving and recurse forever.
 
@@ -768,6 +782,7 @@ def test_dependent_call_does_not_recurse_via_an_unrelated_tasks_variable():
     """
     TASKS = task.TaskManager()
     TMPDIR = tempfile.TemporaryDirectory()
+    request.addfinalizer(TMPDIR.cleanup)
     calls = []
 
     @TASKS.task(
@@ -810,7 +825,9 @@ def test_dependent_call_does_not_recurse_via_an_unrelated_tasks_variable():
     assert calls.count("download") == 1
 
 
-def test_dependent_reentrant_call_with_different_kwargs_still_checks_required_files():
+def test_dependent_reentrant_call_with_different_kwargs_still_checks_required_files(
+    request,
+):
     """A re-entrant call with DIFFERENT kwargs than the in-progress outer call
     must not skip its own required-files check.
 
@@ -823,6 +840,7 @@ def test_dependent_reentrant_call_with_different_kwargs_still_checks_required_fi
     """
     TASKS = task.TaskManager()
     TMPDIR = tempfile.TemporaryDirectory()
+    request.addfinalizer(TMPDIR.cleanup)
 
     @TASKS.task(
         name="do",
@@ -874,7 +892,9 @@ def test_dependent_reentrant_call_with_different_kwargs_still_checks_required_fi
         data.method(name="nothing")
 
 
-def test_dependent_reentrant_call_with_same_kwargs_still_checks_required_files():
+def test_dependent_reentrant_call_with_same_kwargs_still_checks_required_files(
+    request,
+):
     """A re-entrant call with the SAME kwargs as the in-progress outer call
     must still check its own required_files before running func(), not skip
     straight to it.
@@ -890,6 +910,7 @@ def test_dependent_reentrant_call_with_same_kwargs_still_checks_required_files()
     """
     TASKS = task.TaskManager()
     TMPDIR = tempfile.TemporaryDirectory()
+    request.addfinalizer(TMPDIR.cleanup)
 
     @TASKS.task(
         name="unrelated_task",
