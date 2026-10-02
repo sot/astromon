@@ -57,6 +57,48 @@ def test_default_cross_match(monkeypatch):
     assert np.all(matches2["category"] == matches["category"])
 
 
+def test_resolve_vizier_column_exact_match():
+    assert (
+        cross_match._resolve_vizier_column("_RAJ2000", ["_RAJ2000", "_DEJ2000"])
+        == "_RAJ2000"
+    )
+
+
+def test_resolve_vizier_column_falls_back_to_prefix_when_trailing_zero_stripped():
+    # Vizier strips trailing zeros from the epoch suffix: a column built by
+    # formatting frac_year=2020.500 as "_RAJ2000/2020.500" won't match Vizier's
+    # actual "_RAJ2000/2020.5", so the fallback has to find it by prefix instead.
+    assert (
+        cross_match._resolve_vizier_column(
+            "_RAJ2000/2020.500", ["_RAJ2000/2020.5", "_DEJ2000/2020.5"]
+        )
+        == "_RAJ2000/2020.5"
+    )
+
+
+def test_resolve_vizier_column_prefers_exact_match_over_prefix_fallback():
+    assert (
+        cross_match._resolve_vizier_column(
+            "_RAJ2000/2020.500", ["_RAJ2000/2020.500", "_RAJ2000/2020.5"]
+        )
+        == "_RAJ2000/2020.500"
+    )
+
+
+def test_resolve_vizier_column_missing_returns_none():
+    assert cross_match._resolve_vizier_column("_RAJ2000", ["_DEJ2000"]) is None
+
+
+def test_resolve_vizier_column_ambiguous_prefix_returns_none():
+    # Defensive: never guess between two columns that both match the prefix.
+    assert (
+        cross_match._resolve_vizier_column(
+            "_RAJ2000/2020.500", ["_RAJ2000/2020.5", "_RAJ2000/2020.50"]
+        )
+        is None
+    )
+
+
 def test_custom_args(monkeypatch):
     monkeypatch.setattr(db, "get_table", _get_table)
 

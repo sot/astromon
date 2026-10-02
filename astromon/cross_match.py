@@ -84,6 +84,31 @@ def _query_vizier_region(vizier, pos, radius, cat_identifier):
     return vizier.query_region(pos, radius=radius, catalog=cat_identifier, cache=False)
 
 
+def _resolve_vizier_column(requested: str, available: list[str]) -> str | None:
+    """Return the actual Vizier column name matching `requested`, or None.
+
+    Vizier strips trailing zeros from the epoch suffix of a proper-motion-corrected
+    column name: a fractional year of 2020.500 comes back as "_RAJ2000/2020.5", not
+    "_RAJ2000/2020.500". A column name built by formatting the epoch with a fixed
+    number of decimals can therefore fail to match an existing column, which
+    previously made get_vizier() silently mask that field as missing (see
+    CROSS_MATCH_DTYPE usage in get_vizier()) for roughly one observation in ten --
+    any epoch whose fractional year happens to end in a zero at that precision.
+
+    If `requested` isn't present exactly but has a "<prefix>/<epoch>" shape, fall
+    back to the single column in `available` sharing that prefix. Returns None
+    (never guesses) if that fallback is ambiguous.
+    """
+    if requested in available:
+        return requested
+    if "/" in requested:
+        prefix = requested.split("/", 1)[0] + "/"
+        candidates = [name for name in available if name.startswith(prefix)]
+        if len(candidates) == 1:
+            return candidates[0]
+    return None
+
+
 def get_vizier(
     pos,
     catalog,
@@ -134,8 +159,8 @@ def get_vizier(
 
     result = table.Table(data=np.zeros(len(vizier_result), dtype=CROSS_MATCH_DTYPE))
     for col in CROSS_MATCH_DTYPE.names:
-        src_col = columns.get(col, col)
-        if src_col in vizier_result.colnames:
+        src_col = _resolve_vizier_column(columns.get(col, col), vizier_result.colnames)
+        if src_col is not None:
             result[col] = vizier_result[src_col]
         else:
             result[col] = table.MaskedColumn(
