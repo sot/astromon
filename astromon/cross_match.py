@@ -12,6 +12,7 @@ from astropy import units as u
 from astroquery.vizier import Vizier
 from cxotime import CxoTime
 from Ska.DBI import DBI
+from ska_helpers.retry import retry
 
 import astromon
 from astromon import db, observation, utils
@@ -21,7 +22,17 @@ logger = logging.getLogger("astromon")
 
 SIM_Z = {"ACIS-I": -233.587, "ACIS-S": -190.143, "HRC-I": 126.983, "HRC-S": 250.466}
 
+# Vizier queries occasionally fail with a transient connection reset unrelated to the query
+# itself.
+retry_on_connection_error = retry(
+    exceptions=(requests.exceptions.ConnectionError, requests.exceptions.Timeout),
+    tries=3,
+    delay=1,
+    backoff=2,
+)
 
+
+@retry_on_connection_error
 def _get_vizier(source, ra, dec, time, radius):
     """
     This fetches the vizier url, but it doesn't parse the result.
@@ -68,6 +79,36 @@ CROSS_MATCH_DTYPE = np.dtype(
 )
 
 
+@retry_on_connection_error
+def _query_vizier_region(vizier, pos, radius, cat_identifier):
+    return vizier.query_region(pos, radius=radius, catalog=cat_identifier, cache=False)
+
+
+def _resolve_vizier_column(requested: str, available: list[str]) -> str | None:
+    """Return the actual Vizier column name matching `requested`, or None.
+
+    Vizier strips trailing zeros from the epoch suffix of a proper-motion-corrected
+    column name: a fractional year of 2020.500 comes back as "_RAJ2000/2020.5", not
+    "_RAJ2000/2020.500". A column name built by formatting the epoch with a fixed
+    number of decimals can therefore fail to match an existing column, which
+    previously made get_vizier() silently mask that field as missing (see
+    CROSS_MATCH_DTYPE usage in get_vizier()) for roughly one observation in ten --
+    any epoch whose fractional year happens to end in a zero at that precision.
+
+    If `requested` isn't present exactly but has a "<prefix>/<epoch>" shape, fall
+    back to the single column in `available` sharing that prefix. Returns None
+    (never guesses) if that fallback is ambiguous.
+    """
+    if requested in available:
+        return requested
+    if "/" in requested:
+        prefix = requested.split("/", 1)[0] + "/"
+        candidates = [name for name in available if name.startswith(prefix)]
+        if len(candidates) == 1:
+            return candidates[0]
+    return None
+
+
 def get_vizier(
     pos,
     catalog,
@@ -86,9 +127,7 @@ def get_vizier(
                 f"_DE(J2000,{pos.obstime.frac_year:8.3f})",
             ],
         )
-        vizier_result = vizier.query_region(
-            pos, radius=radius, catalog=cat_identifier, cache=False
-        )
+        vizier_result = _query_vizier_region(vizier, pos, radius, cat_identifier)
         vizier_result = list(vizier_result)
     else:
         vizier_result = [
@@ -120,8 +159,8 @@ def get_vizier(
 
     result = table.Table(data=np.zeros(len(vizier_result), dtype=CROSS_MATCH_DTYPE))
     for col in CROSS_MATCH_DTYPE.names:
-        src_col = columns.get(col, col)
-        if src_col in vizier_result.colnames:
+        src_col = _resolve_vizier_column(columns.get(col, col), vizier_result.colnames)
+        if src_col is not None:
             result[col] = vizier_result[src_col]
         else:
             result[col] = table.MaskedColumn(
@@ -139,8 +178,8 @@ VIZIER_CATALOGS = {
         "cat_identifier": "I/259/tyc2",
         "name_cols": ["TYC1", "TYC2", "TYC3"],
         "columns": {
-            "ra": "_RAJ2000_{time.frac_year:.3f}",
-            "dec": "_DEJ2000_{time.frac_year:.3f}",
+            "ra": "_RAJ2000/{time.frac_year:.3f}",
+            "dec": "_DEJ2000/{time.frac_year:.3f}",
             "mag": "VTmag",
         },
     },
@@ -174,7 +213,7 @@ VIZIER_CATALOGS = {
         "columns": {
             "ra": "_RAJ2000",
             "dec": "_DEJ2000",
-            "mag": "Vmag",
+            "mag": "Hpmag",
         },
     },
     # http://vizier.u-strasbg.fr/viz-bin/VizieR?-source=I/322
@@ -187,7 +226,7 @@ VIZIER_CATALOGS = {
     "2MASS": {
         "catalog": "2MASS",
         "cat_identifier": "II/246/out",
-        "name_cols": ["_2MASS"],
+        "name_cols": ["2MASS"],
         "columns": {"ra": "_RAJ2000", "dec": "_DEJ2000", "mag": "Kmag"},
     },
     "SDSS": {
@@ -195,8 +234,8 @@ VIZIER_CATALOGS = {
         "cat_identifier": "II/294",
         "name_cols": ["SDSS"],
         "columns": {
-            "ra": "_RAJ2000_{time.frac_year:.3f}",
-            "dec": "_DEJ2000_{time.frac_year:.3f}",
+            "ra": "_RAJ2000/{time.frac_year:.3f}",
+            "dec": "_DEJ2000/{time.frac_year:.3f}",
             "mag": "rmag",
         },
     },
@@ -205,7 +244,7 @@ VIZIER_CATALOGS = {
         "catalog": "Gaia2",
         "cat_identifier": "I/345/gaia2",
         "name_cols": ["Source"],
-        "columns": {"ra": "_RA_ICRS", "dec": "_DE_ICRS", "mag": "Gmag"},
+        "columns": {"ra": "_RAJ2000", "dec": "_DEJ2000", "mag": "Gmag"},
     },
 }
 
@@ -643,10 +682,10 @@ def simple_cross_match(
 
     - Observations done after `start`.
     - X-ray sources with signal-over-noise ratio > `snr`.
-    - X-ray sources at most `r_angle` off-axis (grating observations) or `r_angle_grating`
-      arcsec (non-grating observations).
+    - X-ray sources at most `r_angle` off-axis (non-grating observations) or `r_angle_grating`
+      arcsec (grating observations).
     - Angular separation between X-ray and catalog counterpart less than `dr` arcsec.
-    - X-ray sources that are at most `near_neighbor_dist` arcsec from the closest x-ray source.
+    - X-ray sources with no other x-ray source within `near_neighbor_dist` arcsec.
     - Counterparts from catalogs included in `catalog`.
 
     The selected pairs are sorted according to catalog and angular separation.

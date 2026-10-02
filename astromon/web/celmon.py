@@ -600,6 +600,8 @@ def create_figures_cal(
         filename=outdir / f"offsets-cdf{tag}.png",
     )
     for det in np.unique(matches["detector"]):
+        m = matches[matches["detector"] == det]
+        bins, cdf, quantiles = cdf_(m)
         result.update(
             {
                 det.replace("-", "_"): {
@@ -607,8 +609,6 @@ def create_figures_cal(
                 }
             }
         )
-        m = matches[matches["detector"] == det]
-        bins, cdf, quantiles = cdf_(m)
         plot_offsets_history(
             m,
             title=det,

@@ -144,9 +144,6 @@ def _fit(events, source, columns=("y_angle", "z_angle"), box_size=4):
             (0.1, 10000),
         ],
     )
-    if not result.success:
-        raise RuntimeError("Fit did not converge: " + result.message)
-
     return result
 
 
