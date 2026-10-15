@@ -590,13 +590,14 @@ def create_figures_cal(
         dy_median=dy_median,
         dz_median=dz_median,
     )
-    plot_cdf(
-        bins,
-        cdf,
-        quantiles,
-        title="Offset Cumulative Distribution",
-        filename=outdir / f"offsets-cdf{tag}.png",
-    )
+    for ptype in ["png", "pdf"]:
+        plot_cdf(
+            bins,
+            cdf,
+            quantiles,
+            title="Offset Cumulative Distribution",
+            filename=outdir / f"offsets-cdf{tag}.{ptype}",
+        )
     for det in np.unique(matches["detector"]):
         result.update(
             {
