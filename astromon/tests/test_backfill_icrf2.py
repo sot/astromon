@@ -20,9 +20,23 @@ from unittest.mock import patch
 
 import numpy as np
 from astropy.table import Table
+from cxotime import CxoTime
+from Quaternion import Quat
 
 from astromon import cross_match, db
 from astromon.scripts import backfill_icrf2 as bf
+
+# backfill_icrf2 now reads pointing from the evt2 header (see evt2_pointing's own
+# tests in test_requery_cat_src.py for *why*), not astromon_obs's nominal ra/dec/
+# roll -- these tests only need *a* quaternion to turn ra/dec into y/z angles, so
+# faking evt2_pointing to return one centered near the fixture's own source
+# position (roll=0) preserves the original intent without needing a real evt2
+# file on disk.
+
+
+def _fake_pointing(ra, dec, date_obs="2020-01-01T00:00:00"):
+    return (Quat(equatorial=(ra, dec, 0.0)), CxoTime(date_obs))
+
 
 OBSID_KEEP = 3001
 OBSID_DROP = 3002
@@ -60,7 +74,19 @@ def test_main_drops_stale_xcorr_for_an_obsid_that_lost_its_icrf2_candidate(
     new_cat_src = _cat_src_row(OBSID_KEEP, 0)
     new_xcorr = _xcorr_row(OBSID_KEEP, 0, 1)
 
-    monkeypatch.setattr(sys, "argv", ["backfill_icrf2", "--dbfile", str(dbfile)])
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "backfill_icrf2",
+            "--dbfile",
+            str(dbfile),
+            "--workdir",
+            str(tmp_path / "work"),
+            "--archive-dir",
+            str(tmp_path / "archive"),
+        ],
+    )
     with patch.object(bf, "backfill", return_value=(new_cat_src, new_xcorr)):
         bf.main()
 
@@ -157,7 +183,10 @@ def test_backfill_populates_xcorr_for_every_detect_method(tmp_path):
         ],
     )
 
-    with patch.object(cross_match, "_get", return_value=_icrf2_candidate_near(ra, dec)):
+    with (
+        patch.object(cross_match, "_get", return_value=_icrf2_candidate_near(ra, dec)),
+        patch.object(bf, "evt2_pointing", return_value=_fake_pointing(ra, dec)),
+    ):
         cat_src, xcorr = bf.backfill(dbfile)
 
     assert len(cat_src) == 1
@@ -182,7 +211,10 @@ def test_backfill_does_not_raise_and_saves_cleanly(tmp_path):
         [_xray_row(OBSID + 1, 5, "celldetect", ra, dec)],
     )
 
-    with patch.object(cross_match, "_get", return_value=_icrf2_candidate_near(ra, dec)):
+    with (
+        patch.object(cross_match, "_get", return_value=_icrf2_candidate_near(ra, dec)),
+        patch.object(bf, "evt2_pointing", return_value=_fake_pointing(ra, dec)),
+    ):
         cat_src, xcorr = bf.backfill(dbfile)
 
     assert len(cat_src) == 1
