@@ -8,16 +8,29 @@ gap behind either. The only way to find out what is missing is to ask the catalo
 again and compare.
 
 Doing that does not require reprocessing the observations. Every input the catalog
-queries need is already stored or available locally:
+queries need is already stored, or read without CIAO:
 
 * the x-ray source positions, from ``astromon_xray_src`` (``celldetect``, the
   method the pipeline itself queries from);
-* the pointing quaternion and observation date, from the local mica obspar
-  archive.
+* the pointing quaternion and observation date, read directly from the evt2
+  file's own header (``Observation.get_evt2_info``), the same source
+  ``astromon_xray_src``'s own ``y_angle``/``z_angle`` are computed from.
 
-So this runs without CIAO, without event files and without the archive -- which
-also means it does not touch ``astromon_xray_src`` and cannot disturb the
-detection results or the ``peak_offset`` diagnostic.
+  This is not the local mica obspar archive, deliberately: obspar is a
+  separately-versioned archive product that can disagree with the evt2
+  header's measured pointing by tens of arcsec for the same obsid (see
+  ``get_evt2_info``'s docstring). A candidate's ``y_angle``/``z_angle`` has to
+  come from the same source as the x-ray side, or ``dy``/``dz``/``dr``
+  (computed as a difference between the two, in ``simple_cross_match``) stops
+  canceling a shared pointing error and picks up the mismatch as if it were a
+  real astrometric offset. This does mean the evt2 file has to be present
+  under ``--workdir``/``--archive-dir`` for an obsid to be re-queried --
+  obsids without one locally are skipped rather than falling back to a less
+  reliable pointing source.
+
+This still does not touch ``astromon_xray_src`` and cannot disturb the
+detection results or the ``peak_offset`` diagnostic -- the evt2 header is only
+read for its pointing keywords, nothing is re-fit.
 
 Two properties keep the write safe:
 
@@ -35,13 +48,16 @@ recomputed with ``rebuild_xcorr`` afterwards.
 Usage::
 
     # cheap first pass: the catalogs served from a local cache, no network
-    python -m astromon.scripts.maintenance.requery_cat_src --db astromon.h5 --all
+    python -m astromon.scripts.maintenance.requery_cat_src --db astromon.h5 --all \
+        --workdir /path/to/work --archive-dir /path/to/archive
 
     # everything, including the VizieR and Gaia TAP queries
     python -m astromon.scripts.maintenance.requery_cat_src --db astromon.h5 --all \
+        --workdir /path/to/work --archive-dir /path/to/archive \
         --catalogs all --workers 4
 
     python -m astromon.scripts.maintenance.requery_cat_src --db astromon.h5 \
+        --workdir /path/to/work --archive-dir /path/to/archive \
         --obsids 8541 8571 --dry-run
 """
 
@@ -267,25 +283,32 @@ def next_cat_src_id(cat: Table, obsid: int) -> int:
     return int(existing.max()) + 1 if len(existing) else 0
 
 
-def obspar_pointing(obsid: int) -> tuple[Quat, CxoTime] | None:
-    """The pointing quaternion and observation start from the local mica archive.
+def evt2_pointing(obsid: int, workdir, archive_dir) -> tuple[Quat, CxoTime] | None:
+    """The pointing quaternion and observation start, from the evt2 file's own header.
 
-    Returns None when mica has no entry, which is the caller's cue to skip the
-    obsid rather than fall back on ``astromon_obs``: the ra/dec/roll stored there
-    are the nominal target values, not the pointing, so the y/z angles derived
-    from them would not match the ones the pipeline writes.
+    Returns None when no evt2 file is present locally (never downloaded, or
+    already cleaned up), which is the caller's cue to skip the obsid rather
+    than fall back on a less reliable pointing source -- not the local mica
+    obspar archive (a separately-versioned product that can disagree with the
+    evt2 header by tens of arcsec for the same obsid), and not
+    ``astromon_obs`` (its ra/dec/roll are the nominal target values, not the
+    pointing). Nothing is downloaded here: this only reads a header already on
+    disk, the same way ``Observation.get_info`` does for the rest of the
+    pipeline, so a candidate's y_angle/z_angle stay on the same footing as
+    ``astromon_xray_src``'s.
     """
-    from mica.archive import obspar as mica_obspar  # noqa: PLC0415
+    from astromon.observation import Observation  # noqa: PLC0415
 
+    obs = Observation(obsid, workdir, archive_dir=archive_dir, use_ciao=False)
     try:
-        obspar = mica_obspar.get_obspar(int(obsid))
+        evt2_info = obs.get_evt2_info()
     except Exception as exc:
-        logger.debug(f"OBSID={obsid} mica obspar lookup failed: {exc}")
+        logger.debug(f"OBSID={obsid} evt2 header lookup failed: {exc}")
         return None
-    if not obspar:
-        return None
-    quat = Quat(equatorial=(obspar["ra_pnt"], obspar["dec_pnt"], obspar["roll_pnt"]))
-    return quat, CxoTime(obspar["date_obs"])
+    quat = Quat(
+        equatorial=(evt2_info["ra_pnt"], evt2_info["dec_pnt"], evt2_info["roll_pnt"])
+    )
+    return quat, CxoTime(evt2_info["date_obs"])
 
 
 def requery_obsid(  # noqa: PLR0917
@@ -493,7 +516,9 @@ def _query_one(args: tuple) -> tuple[int, Table | None, str | None]:
     return obsid, candidates, None
 
 
-def _prepare_chunk(xray: Table, chunk: Sequence[int]) -> tuple[list, dict]:
+def _prepare_chunk(
+    xray: Table, chunk: Sequence[int], workdir, archive_dir
+) -> tuple[list, dict]:
     """Collect what each obsid in `chunk` needs, before anything is queried.
 
     Returns ``([(obsid, sources, quat, obs_time), ...], {obsid: reason_skipped})``.
@@ -507,10 +532,10 @@ def _prepare_chunk(xray: Table, chunk: Sequence[int]) -> tuple[list, dict]:
         except ValueError as exc:
             skipped[str(obsid)] = str(exc)
             continue
-        pointing = obspar_pointing(obsid)
+        pointing = evt2_pointing(obsid, workdir, archive_dir)
         if pointing is None:
-            skipped[str(obsid)] = "no mica obspar entry"
-            logger.warning(f"OBSID={obsid} skipped: no mica obspar entry")
+            skipped[str(obsid)] = "no evt2 file available"
+            logger.warning(f"OBSID={obsid} skipped: no evt2 file available")
             continue
         quat, obs_time = pointing
         prepared.append((obsid, sources, quat, obs_time))
@@ -550,6 +575,8 @@ def requery(  # noqa: PLR0917, PLR0912, PLR0915
     chunk_size: int = 200,
     progress_file: Path | None = None,
     resume: bool = False,
+    workdir=None,
+    archive_dir=None,
 ) -> dict:
     """Re-query `catalogs` for `obsids`, writing a chunk at a time.
 
@@ -564,6 +591,10 @@ def requery(  # noqa: PLR0917, PLR0912, PLR0915
     With `resume`, obsids already listed in `progress_file` are skipped -- a killed
     run then costs its network time once rather than twice. Finished obsids are
     appended to that file as each chunk is written, whether or not `resume` is set.
+
+    `workdir`/`archive_dir` only have to hold the evt2 file each obsid's pointing
+    is read from (see :func:`evt2_pointing`) -- an obsid missing one locally is
+    skipped, not re-downloaded.
     """
     xray = db.get_table("astromon_xray_src", dbfile)
     requested = list(obsids)
@@ -607,7 +638,7 @@ def requery(  # noqa: PLR0917, PLR0912, PLR0915
 
         # Gather what every obsid in the chunk needs before querying anything, so
         # the batched catalogs can be asked once for all of their positions.
-        prepared, skipped = _prepare_chunk(xray, chunk)
+        prepared, skipped = _prepare_chunk(xray, chunk, workdir, archive_dir)
         summary["skipped"].update(skipped)
 
         if not prepared:
@@ -709,6 +740,18 @@ def get_parser() -> argparse.ArgumentParser:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--db", required=True, type=Path, help="astromon h5 file")
+    parser.add_argument(
+        "--workdir",
+        required=True,
+        type=Path,
+        help="top-level working directory holding each obsid's evt2 file",
+    )
+    parser.add_argument(
+        "--archive-dir",
+        required=True,
+        type=Path,
+        help="top-level archive directory holding each obsid's evt2 file",
+    )
     obsid_group = parser.add_mutually_exclusive_group(required=True)
     obsid_group.add_argument(
         "--all", action="store_true", help="every obsid in astromon_obs"
@@ -813,6 +856,8 @@ def main() -> None:
         chunk_size=args.chunk_size,
         progress_file=args.progress_file,
         resume=args.resume,
+        workdir=args.workdir,
+        archive_dir=args.archive_dir,
     )
 
     if summary["resumed"]:

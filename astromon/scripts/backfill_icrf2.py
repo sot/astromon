@@ -8,22 +8,30 @@ set. This is *not* part of any combined hierarchy (astromon_23-27), so those do 
 need reprocessing -- only the standalone "icrf2" single-catalog selection is backfilled
 here.
 
-This works entirely from tables already in the DB (astromon_obs, astromon_xray_src) --
-no live observation reprocessing, no CIAO. For each obsid:
+This works entirely from tables already in the DB (astromon_obs, astromon_xray_src),
+plus the evt2 file's own header for each obsid's pointing -- no live observation
+reprocessing, no CIAO. For each obsid:
 
   1. Rough-match ICRF2 against that obsid's celldetect sources (mirrors the RFC/ICRF3
      rough_match call in astromon/scripts/get_cat_obs_data.py).
   2. Stamp obsid/id/y_angle/z_angle and the celldetect anchor onto the candidates via
      :any:`astromon.cross_match.assign_cat_src_ids` -- the same helper
      `_add_obsid_and_anchor` in get_cat_obs_data.py uses. The anchor is provenance
-     only; it is not a match key.
+     only; it is not a match key. The quaternion comes from the evt2 header
+     (:any:`astromon.scripts.maintenance.requery_cat_src.evt2_pointing`), not
+     astromon_obs's ra/dec/roll: those are the nominal target values, not the
+     pointing, and astromon_xray_src's own y_angle/z_angle are computed from the
+     evt2 header -- a candidate's y_angle/z_angle has to come from the same
+     source, or dy/dz/dr stops canceling a shared pointing error and picks up
+     the mismatch as if it were a real astrometric offset.
   3. Cross-match once with :any:`astromon.cross_match.compute_cross_matches`
      (name="icrf2"), passing every detect_method present for the obsid together --
      `simple_cross_match` handles the per-method pairing internally.
 
 Usage
 -----
-    python -m astromon.scripts.backfill_icrf2 --dbfile PATH [--dry-run] [--limit N]
+    python -m astromon.scripts.backfill_icrf2 --dbfile PATH \\
+        --workdir WORKDIR --archive-dir ARCHIVE_DIR [--dry-run] [--limit N]
 """
 
 import argparse
@@ -31,37 +39,46 @@ import logging
 
 import numpy as np
 from astropy.table import Table, vstack
-from cxotime import CxoTime
-from Quaternion import Quat
 
 from astromon import cross_match, db
+from astromon.scripts.maintenance.requery_cat_src import evt2_pointing
 
 logger = logging.getLogger("backfill_icrf2")
 
 
-def _build_icrf2_candidates(obsid: int, obs_row, celldetect_sources: Table) -> Table:
+def _build_icrf2_candidates(
+    obsid: int, celldetect_sources: Table, workdir, archive_dir
+) -> Table | None:
     """Rough-match ICRF2 against one obsid's celldetect sources.
 
     Returns an astromon_cat_src-shaped Table (catalog="ICRF2"), celldetect_x_id
     anchored to `celldetect_sources`; empty (but correctly shaped) if there are no
-    candidates.
+    candidates. None if no evt2 file is available locally for this obsid's
+    pointing -- the caller's cue to skip rather than fall back to a less
+    reliable pointing source.
     """
-    obs_time = CxoTime(str(obs_row["date_obs"]))
+    pointing = evt2_pointing(obsid, workdir, archive_dir)
+    if pointing is None:
+        return None
+    quat, obs_time = pointing
     candidates = cross_match.rough_match(
         celldetect_sources, obs_time, catalogs=("ICRF2",)
     )
     if len(candidates) == 0:
         return candidates
 
-    q = Quat(
-        equatorial=(float(obs_row["ra"]), float(obs_row["dec"]), float(obs_row["roll"]))
-    )
-    cross_match.assign_cat_src_ids(candidates, obsid, celldetect_sources, q)
+    cross_match.assign_cat_src_ids(candidates, obsid, celldetect_sources, quat)
     return candidates
 
 
-def backfill(dbfile, limit: int | None = None) -> tuple[Table, Table]:
+def backfill(
+    dbfile, limit: int | None = None, workdir=None, archive_dir=None
+) -> tuple[Table, Table]:
     """Build ICRF2 cat_src and icrf2 xcorr rows for every obsid already in `dbfile`.
+
+    `workdir`/`archive_dir` only have to hold each obsid's evt2 file (see
+    :func:`astromon.scripts.maintenance.requery_cat_src.evt2_pointing`) -- an
+    obsid missing one locally is skipped, not re-downloaded.
 
     Returns
     -------
@@ -92,7 +109,12 @@ def backfill(dbfile, limit: int | None = None) -> tuple[Table, Table]:
         if len(celldetect_sources) == 0:
             continue
 
-        candidates = _build_icrf2_candidates(obsid, obs_row, celldetect_sources)
+        candidates = _build_icrf2_candidates(
+            obsid, celldetect_sources, workdir, archive_dir
+        )
+        if candidates is None:
+            logger.warning(f"OBSID={obsid} skipped: no evt2 file available")
+            continue
         if len(candidates) == 0:
             continue
         all_cat_src.append(candidates)
@@ -131,6 +153,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dbfile", required=True, help="Path to the astromon DB file")
     parser.add_argument(
+        "--workdir",
+        required=True,
+        help="top-level working directory holding each obsid's evt2 file",
+    )
+    parser.add_argument(
+        "--archive-dir",
+        required=True,
+        help="top-level archive directory holding each obsid's evt2 file",
+    )
+    parser.add_argument(
         "--dry-run", action="store_true", help="Build the rows but do not save them"
     )
     parser.add_argument(
@@ -146,7 +178,12 @@ def main() -> None:
         existing_cat["obsid"][existing_cat["catalog"] == "ICRF2"]
     )
 
-    cat_src, xcorr = backfill(args.dbfile, limit=args.limit)
+    cat_src, xcorr = backfill(
+        args.dbfile,
+        limit=args.limit,
+        workdir=args.workdir,
+        archive_dir=args.archive_dir,
+    )
     n_obsids_cat = len(np.unique(cat_src["obsid"])) if len(cat_src) else 0
     n_obsids_xcorr = len(np.unique(xcorr["obsid"])) if len(xcorr) else 0
     logger.info(

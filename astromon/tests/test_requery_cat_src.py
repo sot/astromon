@@ -101,6 +101,59 @@ def test_next_cat_src_id_is_above_every_stored_id():
     assert requery_cat_src.next_cat_src_id(cat, 7003) == 0
 
 
+# ─── pointing: evt2 header, not obspar ───────────────────────────────────────
+
+
+def test_evt2_pointing_returns_quat_and_time_from_the_evt2_header(
+    tmp_path, monkeypatch
+):
+    """Must read the same source as Observation.get_info()/get_evt2_info(), not
+    mica's local obspar archive: obspar is a separately-versioned product that
+    can disagree with the evt2 header's measured pointing by tens of arcsec
+    (see Observation.get_evt2_info's docstring), and astromon_xray_src's own
+    y_angle/z_angle are already computed from the evt2 header -- a candidate's
+    y_angle/z_angle has to come from the same source, or dy/dz/dr (computed as
+    a difference between the two) stops canceling a shared pointing error and
+    picks up the mismatch as if it were real."""
+    from astromon.observation import Observation
+
+    monkeypatch.setattr(
+        Observation,
+        "get_evt2_info",
+        lambda self: {
+            "ra_pnt": 150.0,
+            "dec_pnt": 2.0,
+            "roll_pnt": 30.0,
+            "date_obs": "2020-01-01T00:00:00",
+        },
+        raising=False,  # get_evt2_info is decorated (stored_result/dependencies),
+        # whose descriptor protocol raises when read unbound at class level --
+        # monkeypatch's own "does this already exist" check trips on that.
+    )
+
+    result = requery_cat_src.evt2_pointing(
+        7001, tmp_path / "work", tmp_path / "archive"
+    )
+
+    assert result is not None
+    quat, obs_time = result
+    ra, dec, roll = quat.equatorial
+    assert ra == pytest.approx(150.0)
+    assert dec == pytest.approx(2.0)
+    assert roll == pytest.approx(30.0)
+    assert obs_time.date.startswith("2020")
+
+
+def test_evt2_pointing_returns_none_when_no_evt2_file_is_available(tmp_path):
+    """No event file locally (never downloaded, or already cleaned up) is a
+    skip, not a fall back to a less reliable pointing source."""
+    result = requery_cat_src.evt2_pointing(
+        7001, tmp_path / "work", tmp_path / "archive"
+    )
+
+    assert result is None
+
+
 # ─── assembling one obsid's re-query ─────────────────────────────────────────
 
 
@@ -587,7 +640,9 @@ def test_requery_marks_catalog_matched_when_the_full_catalog_set_is_covered(
     )
 
     monkeypatch.setattr(
-        requery_cat_src, "obspar_pointing", lambda obsid: (QUAT, "2020:001")
+        requery_cat_src,
+        "evt2_pointing",
+        lambda obsid, workdir, archive_dir: (QUAT, "2020:001"),
     )
     fake_getters = dict.fromkeys(requery_cat_src.ALL_CATALOGS, _empty_getter)
 
@@ -618,7 +673,9 @@ def test_requery_does_not_mark_catalog_matched_for_a_partial_catalog_set(
     )
 
     monkeypatch.setattr(
-        requery_cat_src, "obspar_pointing", lambda obsid: (QUAT, "2020:001")
+        requery_cat_src,
+        "evt2_pointing",
+        lambda obsid, workdir, archive_dir: (QUAT, "2020:001"),
     )
 
     with patch.dict(
@@ -638,7 +695,9 @@ def test_requery_does_not_mark_catalog_matched_in_dry_run(tmp_path, monkeypatch)
     )
 
     monkeypatch.setattr(
-        requery_cat_src, "obspar_pointing", lambda obsid: (QUAT, "2020:001")
+        requery_cat_src,
+        "evt2_pointing",
+        lambda obsid, workdir, archive_dir: (QUAT, "2020:001"),
     )
     fake_getters = dict.fromkeys(requery_cat_src.ALL_CATALOGS, _empty_getter)
 
@@ -678,7 +737,9 @@ def test_requery_marks_db_before_recording_progress_file_completion(
     progress = tmp_path / "done.txt"
 
     monkeypatch.setattr(
-        requery_cat_src, "obspar_pointing", lambda obsid: (QUAT, "2020:001")
+        requery_cat_src,
+        "evt2_pointing",
+        lambda obsid, workdir, archive_dir: (QUAT, "2020:001"),
     )
 
     def raise_crash(*args, **kwargs):
