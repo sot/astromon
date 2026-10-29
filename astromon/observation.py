@@ -1079,6 +1079,13 @@ class Observation:
                 continue
             logger.info(f"{self}   {ftype=}")
             dest_files = self.file_glob(f"{dest}/*{ftype}*")
+            if ftype == "evt2":
+                # The filtered copy filter_events writes matches this glob too, and
+                # cleanup_downloads keeps only it: it does not mean the archive
+                # evt2 is here.
+                dest_files = [
+                    path for path in dest_files if utils.is_archive_evt2(path)
+                ]
             if dest_files and not force:
                 logger.info(f"{self}     skipping download of *{ftype}*")
                 continue

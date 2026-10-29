@@ -28,6 +28,7 @@ __all__ = [
     "get_latest_calalign_matrix",
     "get_rebased_offsets",
     "get_wcs_from_fits_header",
+    "is_archive_evt2",
     "find_archive_evt2",
     "read_gti_span",
     "get_near_neighbor_dist",
@@ -1025,24 +1026,32 @@ def get_wcs_from_fits_header(filename=None, hdu=0, header=None):
     return wcs
 
 
-def find_archive_evt2(paths: list[Path]) -> Path | None:
-    """The archive level-2 event file among `paths`, or None if there is none.
+def is_archive_evt2(path: Path | str) -> bool:
+    """Whether `path` is an archive level-2 event file.
 
     Matches ``*_evt2.fits*`` (e.g. acisf25741N002_evt2.fits.gz) and leaves out
     ``<obsid>_evt2_filtered.fits.gz``, the copy filter_events writes next to it.
-    Two archive files (two revisions) is ambiguous, so it raises ValueError rather
-    than pick one.
+
+    >>> is_archive_evt2("acisf25741N002_evt2.fits.gz")
+    True
+    >>> is_archive_evt2("25741_evt2_filtered.fits.gz")
+    False
+    """
+    name = Path(path).name
+    return fnmatch.fnmatch(name, "*_evt2.fits*") and "_filtered" not in name
+
+
+def find_archive_evt2(paths: list[Path]) -> Path | None:
+    """The archive level-2 event file among `paths`, or None if there is none.
+
+    See :func:`is_archive_evt2`. Two archive files (two revisions) is ambiguous,
+    so it raises ValueError rather than pick one.
 
     >>> find_archive_evt2([Path("25741_evt2_filtered.fits.gz"),
     ...                    Path("acisf25741N002_evt2.fits.gz")])
     PosixPath('acisf25741N002_evt2.fits.gz')
     """
-    archive_files = sorted(
-        Path(path)
-        for path in paths
-        if fnmatch.fnmatch(Path(path).name, "*_evt2.fits*")
-        and "_filtered" not in Path(path).name
-    )
+    archive_files = sorted(Path(path) for path in paths if is_archive_evt2(path))
     if len(archive_files) > 1:
         names = ", ".join(path.name for path in archive_files)
         raise ValueError(f"more than one archive evt2 file: {names}")
