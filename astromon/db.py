@@ -149,6 +149,20 @@ ASTROMON_OBS_DTYPE = np.dtype(
 )
 
 
+# The time span the observation's event data cover, in CXC seconds: the first GTI
+# START and last GTI STOP over every GTI extension of the archive evt2 (ACIS has
+# one per CCD). Telemetry averaged over an observation should use this span. The
+# evt2 header's TSTOP can run well past the last GTI (8 h for obsid 17615), and
+# astromon_obs.tstart is float32, about 64 s resolution at current times.
+ASTROMON_OBS_GTI_DTYPE = np.dtype(
+    [
+        ("obsid", np.int32),
+        ("gti_start", np.float64),
+        ("gti_stop", np.float64),
+    ]
+)
+
+
 ASTROMON_REGION_DTYPE = np.dtype(
     [
         ("region_id", np.int32),
@@ -222,7 +236,14 @@ DTYPES = {
     "astromon_regions": ASTROMON_REGION_DTYPE,
     "astromon_meta": ASTROMON_META_DTYPE,
     "astromon_status": ASTROMON_STATUS_DTYPE,
+    "astromon_obs_gti": ASTROMON_OBS_GTI_DTYPE,
 }
+
+#: Tables added after astromon databases were already in use, so older files lack
+#: them. get_table reads an absent one as empty, and save creates it on its first
+#: write even with expect_existing=True -- unless an interrupted save left the
+#: table's temporary node behind, which is the damage expect_existing catches.
+OPTIONAL_TABLES = ("astromon_obs_gti",)
 
 
 def create_table(table_name):
@@ -238,6 +259,7 @@ def create_table(table_name):
     - astromon_regions
     - astromon_meta
     - astromon_status
+    - astromon_obs_gti
 
     Parameters
     ----------
@@ -389,12 +411,14 @@ def get_table(table_name, dbfile=None):
     - astromon_regions
     - astromon_meta
     - astromon_status
+    - astromon_obs_gti
 
     Parameters
     ----------
     table_name: str
         Name of the table to retrieve. If the requested table is not in the file,
-        an exception will be raised.
+        an exception will be raised, except for the tables in
+        :data:`OPTIONAL_TABLES`, which read as empty.
     dbfile: :any:`pathlib.Path`
         File where tables are stored.
         The default is `$ASTROMON_FILE` or `$SKA/data/astromon/astromon.h5`
@@ -410,18 +434,20 @@ def get_table(table_name, dbfile=None):
     with connect(dbfile) as con:
         try:
             res = con.get_node(f"/{table_name}")[:]
-            if table_name in DTYPES:
-                res = _cast_to_dtype(res, DTYPES[table_name])
-            result = table.Table(res)
-            result.convert_bytestring_to_unicode()
-            set_formats(result)
-            if "obsid" in result.colnames:
-                result.add_index("obsid")
         except tables.NoSuchNodeError:
-            names = sorted(set([n.name for n in con.root] + list(DTYPES.keys())))
-            raise MissingTableException(
-                f"{table_name} not in file. Available tables: {names}"
-            ) from None
+            if table_name not in OPTIONAL_TABLES:
+                names = sorted(set([n.name for n in con.root] + list(DTYPES.keys())))
+                raise MissingTableException(
+                    f"{table_name} not in file. Available tables: {names}"
+                ) from None
+            res = np.zeros(0, dtype=DTYPES[table_name])
+        if table_name in DTYPES:
+            res = _cast_to_dtype(res, DTYPES[table_name])
+        result = table.Table(res)
+        result.convert_bytestring_to_unicode()
+        set_formats(result)
+        if "obsid" in result.colnames:
+            result.add_index("obsid")
 
     return result
 
@@ -558,7 +584,8 @@ def save(  # noqa: PLR0912
         Without this flag the next `save` recreates it holding only its own rows,
         silently discarding every other obsid. Initialize a new database with
         :func:`create_empty_tables` so that a missing table always means corruption
-        rather than a first write.
+        rather than a first write. A table in :data:`OPTIONAL_TABLES` is created
+        anyway, since older files lack it, unless its temporary node is present.
     """
     with connect(dbfile, mode="r+") as h5:
         if not h5.isopen:
@@ -607,7 +634,18 @@ def save(  # noqa: PLR0912
                 select_name_key,
             )
 
-        if expect_existing and table_name not in h5.root:
+        # A swap interrupted between removing the table and renaming its
+        # replacement leaves the data under the temporary name (see
+        # _atomic_replace_table): damage, even for an optional table.
+        first_write_of_optional_table = (
+            table_name in OPTIONAL_TABLES
+            and _temp_table_name(table_name) not in h5.root
+        )
+        if (
+            expect_existing
+            and table_name not in h5.root
+            and not first_write_of_optional_table
+        ):
             raise MissingTableException(
                 f"{table_name} is missing from {h5.filename} but expect_existing=True. "
                 "The table may have been destroyed by a process killed during a save; "
@@ -683,6 +721,11 @@ def _replace_delete_key(data_out: np.ndarray, key_cols: list, has_detect: bool):
     return delete_key
 
 
+def _temp_table_name(table_name: str) -> str:
+    """The node _atomic_replace_table writes `table_name`'s new data to first."""
+    return f"__{table_name}_tmp"
+
+
 def _atomic_replace_table(h5, table_name: str, data: np.ndarray) -> None:
     """Write `data` under `table_name`, swapping it in instead of remove-then-create.
 
@@ -693,7 +736,7 @@ def _atomic_replace_table(h5, table_name: str, data: np.ndarray) -> None:
     remove+rename below, which are fast metadata-only HDF5 operations, instead of
     spanning the whole write.
     """
-    temp_name = f"__{table_name}_tmp"
+    temp_name = _temp_table_name(table_name)
     if temp_name in h5.root:
         h5.remove_node(f"/{temp_name}")
     with warnings.catch_warnings():

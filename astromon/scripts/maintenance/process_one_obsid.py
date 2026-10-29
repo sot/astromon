@@ -341,6 +341,7 @@ def main():
                 "astromon_xray_src": result["astromon_xray_src"],
                 "astromon_cat_src": result["astromon_cat_src"],
                 "astromon_xcorr": result["astromon_xcorr"],
+                "astromon_obs_gti": result["astromon_obs_gti"],
             },
             obsid=obsid,
             # The pipeline recomputes this obsid's catalog candidates from

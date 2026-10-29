@@ -1,3 +1,4 @@
+import fnmatch
 import functools
 import logging
 import os
@@ -27,6 +28,8 @@ __all__ = [
     "get_latest_calalign_matrix",
     "get_rebased_offsets",
     "get_wcs_from_fits_header",
+    "find_archive_evt2",
+    "read_gti_span",
     "get_near_neighbor_dist",
     "NEAR_NEIGHBOR_DIST_ARCSEC",
     "ASTROMON_DATA_DIR",
@@ -1020,6 +1023,58 @@ def get_wcs_from_fits_header(filename=None, hdu=0, header=None):
         warnings.simplefilter("ignore", category=FITSFixedWarning)
         wcs = WCS(params)
     return wcs
+
+
+def find_archive_evt2(paths: list[Path]) -> Path | None:
+    """The archive level-2 event file among `paths`, or None if there is none.
+
+    Matches ``*_evt2.fits*`` (e.g. acisf25741N002_evt2.fits.gz) and leaves out
+    ``<obsid>_evt2_filtered.fits.gz``, the copy filter_events writes next to it.
+    Two archive files (two revisions) is ambiguous, so it raises ValueError rather
+    than pick one.
+
+    >>> find_archive_evt2([Path("25741_evt2_filtered.fits.gz"),
+    ...                    Path("acisf25741N002_evt2.fits.gz")])
+    PosixPath('acisf25741N002_evt2.fits.gz')
+    """
+    archive_files = sorted(
+        Path(path)
+        for path in paths
+        if fnmatch.fnmatch(Path(path).name, "*_evt2.fits*")
+        and "_filtered" not in Path(path).name
+    )
+    if len(archive_files) > 1:
+        names = ", ".join(path.name for path in archive_files)
+        raise ValueError(f"more than one archive evt2 file: {names}")
+    return archive_files[0] if archive_files else None
+
+
+def read_gti_span(evt2_path: Path | str) -> tuple[float, float]:
+    """The first GTI START and last GTI STOP over every GTI extension of an evt2 file.
+
+    ACIS event files have one GTI extension per CCD, HRC one. Only the headers and
+    GTI extensions are read (a gzipped file still has to be decompressed up to
+    them). Raises ValueError if the file has no GTI rows.
+
+    Returns
+    -------
+    tuple of float
+        (gti_start, gti_stop), CXC seconds.
+    """
+    starts = []
+    stops = []
+    with fits.open(evt2_path, memmap=True) as hdus:
+        for hdu in hdus:
+            if hdu.name == "GTI" and hdu.data is not None:
+                starts.append(np.asarray(hdu.data["START"], dtype=np.float64))
+                stops.append(np.asarray(hdu.data["STOP"], dtype=np.float64))
+    starts = np.concatenate(starts) if starts else np.zeros(0)
+    stops = np.concatenate(stops) if stops else np.zeros(0)
+    starts = starts[np.isfinite(starts)]
+    stops = stops[np.isfinite(stops)]
+    if len(starts) == 0 or len(stops) == 0:
+        raise ValueError(f"{evt2_path} has no GTI rows")
+    return float(starts.min()), float(stops.max())
 
 
 def get_near_neighbor_dist(sources, all_sources=None, id_col="COMPONENT"):

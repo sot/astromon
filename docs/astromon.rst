@@ -116,6 +116,8 @@ Database
 The main data product of Astromon is a database that contains the following tables:
 
 * Observations (astromon_obs). Observation info from OBSPARS.
+* Observation time spans (astromon_obs_gti). The first GTI START and last GTI STOP of each
+  observation's event data, in CXC seconds, read from the archive evt2 file.
 * X-ray sources (astromon_xray_src). Point-sources detected in Chandra observations.
 * Catalog sources (astromon_cat_src). Optical/Radio catalog entries in the vicinity of the X-ray
   sources

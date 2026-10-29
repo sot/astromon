@@ -86,6 +86,7 @@ _MERGED_TABLE_NAMES = (
     "astromon_cat_src",
     "astromon_xcorr",
     "astromon_status",
+    "astromon_obs_gti",
 )
 
 

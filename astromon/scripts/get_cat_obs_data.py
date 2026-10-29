@@ -177,7 +177,13 @@ def save(data, db_file):  # noqa: PLR0912, PLR0915
         d["obsid"] for d in data if d["ok"] and len(d["astromon_cat_src"]) == 0
     ]
 
-    names = ["astromon_obs", "astromon_xray_src", "astromon_cat_src", "astromon_xcorr"]
+    names = [
+        "astromon_obs",
+        "astromon_xray_src",
+        "astromon_cat_src",
+        "astromon_xcorr",
+        "astromon_obs_gti",
+    ]
     if len(data) == 0:
         logger.info("Nothing to save")
     else:
@@ -185,7 +191,9 @@ def save(data, db_file):  # noqa: PLR0912, PLR0915
         # vstack so I decided to only vstack the columns that are in the dtype,
         # but it turns out that not all columns in the dtype are actually in the data...
         # and the data itself could be an empty array...
-        data = {name: [d[name] for d in data if len(d[name])] for name in names}
+        # A result dict without an astromon_obs_gti entry (from a caller that
+        # predates the table) has nothing to save for it.
+        data = {name: [d[name] for d in data if len(d.get(name, []))] for name in names}
         for name in names:
             if len(data[name]):
                 cols = [
@@ -257,6 +265,25 @@ def _split_versions(versions):
     return saved, diagnostic
 
 
+def obs_gti_table(observation: Observation) -> Table:
+    """astromon_obs_gti for `observation`: one row, or none if the span can't be read.
+
+    Not being able to read it (e.g. a cleaned-up work dir whose archive evt2 is
+    gone) does not fail the obsid: its other results are still good, and
+    backfill_obs_gti.py can fill the row in later.
+    """
+    try:
+        span = observation.get_gti_span()
+    except Exception as exc:
+        logging.getLogger("astromon").warning(
+            f"{observation} no astromon_obs_gti row: {exc}"
+        )
+        return db.create_table("astromon_obs_gti")
+    obs_gti = db.create_table("astromon_obs_gti")
+    obs_gti.add_row([int(observation.obsid), span["gti_start"], span["gti_stop"]])
+    return obs_gti
+
+
 def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
     obsid,
     workdir,
@@ -272,8 +299,8 @@ def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
     Core processing logic for a single obsid. Raises on failure.
 
     Returns a dict with keys: obsid, astromon_obs, astromon_xray_src,
-    astromon_cat_src, astromon_xcorr.  Raises Skipped or SkippedWithWarning
-    for expected non-fatal cases, and Exception for real failures.
+    astromon_cat_src, astromon_xcorr, astromon_obs_gti.  Raises Skipped or
+    SkippedWithWarning for expected non-fatal cases, and Exception for real failures.
 
     This is the single source of truth for per-obsid processing. Both the
     astromon-cross-match CLI (via process()) and process_one_obsid.py call
@@ -369,6 +396,7 @@ def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
                 logger.warning(f"OBSID={obsid} {version} failed: {failed[0].msg}")
 
         obspar = Table([observation.get_info()])
+        obs_gti = obs_gti_table(observation)
 
         # Rough-match catalog sources once from celldetect positions, which are always
         # available after observation.process(). The positions are nearly identical across
@@ -753,6 +781,7 @@ def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
             "astromon_xray_src": sources,
             "astromon_cat_src": _all_cat_src,
             "astromon_xcorr": matches,
+            "astromon_obs_gti": obs_gti,
         }
 
         (observation.workdir / "results").mkdir(exist_ok=True)
@@ -763,6 +792,7 @@ def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
             "astromon_xray_src",
             "astromon_cat_src",
             "astromon_xcorr",
+            "astromon_obs_gti",
         ]:
             fn = observation.workdir / "results" / f"{name}.fits"
             fn.unlink(missing_ok=True)
@@ -775,6 +805,7 @@ def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
                 "astromon_xray_src.fits",
                 "astromon_cat_src.fits",
                 "astromon_xcorr.fits",
+                "astromon_obs_gti.fits",
             )
 
         return result
@@ -830,6 +861,7 @@ def process(  # noqa: PLR0917
             "astromon_xray_src": [],
             "astromon_cat_src": [],
             "astromon_xcorr": [],
+            "astromon_obs_gti": [],
         }
     except SkippedWithWarning as e:
         logger.warning(f"OBSID={obsid} WARNING - skipped: {e}")
@@ -842,6 +874,7 @@ def process(  # noqa: PLR0917
             "astromon_xray_src": [],
             "astromon_cat_src": [],
             "astromon_xcorr": [],
+            "astromon_obs_gti": [],
         }
     except Exception as e:
         logger.error(f"OBSID={obsid} failed: {e}")
@@ -860,6 +893,7 @@ def process(  # noqa: PLR0917
             "astromon_xray_src": [],
             "astromon_cat_src": [],
             "astromon_xcorr": [],
+            "astromon_obs_gti": [],
         }
 
 

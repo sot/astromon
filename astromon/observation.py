@@ -754,6 +754,33 @@ class Observation:
 
         return info
 
+    @stored_result("gti_span", fmt="json", subdir="cache")
+    @dependencies(download=["evt2"])
+    def get_gti_span(self):
+        """
+        Get the time span of the event data: the first GTI START and last GTI STOP.
+
+        Read over every GTI extension (ACIS has one per CCD) of the archive evt2,
+        never the filtered copy (see :any:`utils.find_archive_evt2`). This is
+        what astromon_obs_gti stores. The evt2 header's TSTART/TSTOP are not the
+        same thing: TSTOP can run hours past the last GTI.
+
+        Cached like :any:`get_evt2_info`, so a work directory whose archive evt2
+        was later removed by :any:`cleanup_downloads` still has it.
+
+        Returns
+        -------
+        dict
+            gti_start, gti_stop: CXC seconds.
+        """
+        event_file = utils.find_archive_evt2(self.file_glob("primary/*_evt2.fits*"))
+        if event_file is None:
+            raise FileNotFoundError(
+                f"{self} no archive evt2 file for OBSID {self.obsid}"
+            )
+        gti_start, gti_stop = utils.read_gti_span(event_file)
+        return {"gti_start": gti_start, "gti_stop": gti_stop}
+
     @stored_result("ra_dec_wcs", fmt="pickle", subdir="cache")
     @dependencies(download=["evt2"])
     def get_ra_dec_wcs(self):
