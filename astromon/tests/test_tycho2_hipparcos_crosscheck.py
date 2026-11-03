@@ -109,9 +109,7 @@ def test_hip_linked_stars_agree_with_hipparcos(
         "expected a full Tycho-2 index and Hipparcos snapshot"
     )
 
-    for_propagation = merged.rename(
-        columns={"pmRA_tyc": "pmRA", "pmDE_tyc": "pmDE"}
-    )
+    for_propagation = merged.rename(columns={"pmRA_tyc": "pmRA", "pmDE_tyc": "pmDE"})
     ra_prop, dec_prop = propagate_positions(for_propagation, HIPPARCOS_EPOCH)
     sep_arcsec = 3600 * np.hypot(
         (ra_prop - merged["ra"].to_numpy()) * np.cos(np.radians(merged["dec"])),
