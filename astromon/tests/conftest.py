@@ -150,7 +150,13 @@ def local_catalogs_never_refresh(monkeypatch):
             continue
 
         def replacement(
-            pos, radius, logging_tag="", _name=name, _path=cache_path, _reader=reader
+            pos,
+            radius,
+            logging_tag="",
+            time=None,  # noqa: ARG001 -- RFC/ICRF3 have no proper motion; unused
+            _name=name,
+            _path=cache_path,
+            _reader=reader,
         ):
             catalog = cross_match._read_catalog_cached(Path(_path), _reader)
             return cross_match._local_catalog_near(
@@ -158,3 +164,51 @@ def local_catalogs_never_refresh(monkeypatch):
             )
 
         monkeypatch.setitem(cross_match.LOCAL_CATALOG_GETTERS, name, replacement)
+
+
+_TYCHO2_TEST_CACHE: dict = {}
+
+
+@pytest.fixture(autouse=True)
+def tycho2_local_index_never_refreshes(monkeypatch):
+    """Read the real local Tycho-2 index; never let a test build or refresh it.
+
+    Tycho-2 does not fit ``_LOCAL_CATALOG_CACHES``/``_local_catalog_near`` above:
+    unlike RFC/ICRF3, its stars have significant proper motion, so its getter cone-
+    searches via ``astromon.tycho2_local_index.query_cone`` instead (see
+    ``cross_match._tycho2_cone_search``). Same rationale as
+    ``local_catalogs_never_refresh``: read the already-built index file directly,
+    and never call ``cross_match._get_tycho2_local_data``/``get_tycho2_local_index``,
+    which downloads and parses a ~500 MB index from ESO on a cache miss.
+
+    When no index is present yet, the real getter is left in place -- nothing to
+    protect, and building it is the intended way to populate the cache (see
+    ``astromon/scripts/build_tycho2_local_index.py``).
+    """
+    if "Tycho2" not in cross_match.LOCAL_CATALOG_GETTERS:
+        return
+
+    from astromon.tycho2_local_index import (  # noqa: PLC0415
+        TYCHO2_INDEX_PATH,
+        build_kdtree,
+        load_star_table,
+        max_pm_mas_per_yr,
+    )
+
+    if not TYCHO2_INDEX_PATH.exists():
+        return
+
+    def replacement(pos, radius, logging_tag="", time=None):
+        mtime = TYCHO2_INDEX_PATH.stat().st_mtime
+        cached = _TYCHO2_TEST_CACHE.get(TYCHO2_INDEX_PATH)
+        if cached is None or cached[0] != mtime:
+            stars = load_star_table(str(TYCHO2_INDEX_PATH))
+            tree = build_kdtree(stars)
+            cached = (mtime, stars, tree, max_pm_mas_per_yr(stars))
+            _TYCHO2_TEST_CACHE[TYCHO2_INDEX_PATH] = cached
+        _, stars, tree, global_max_pm = cached
+        return cross_match._tycho2_cone_search(
+            stars, tree, global_max_pm, pos, radius, logging_tag, time
+        )
+
+    monkeypatch.setitem(cross_match.LOCAL_CATALOG_GETTERS, "Tycho2", replacement)

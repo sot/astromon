@@ -1,18 +1,15 @@
-"""Standalone local Tycho-2 cone-search, proper-motion propagation, and admission gate.
+"""Local Tycho-2 cone-search, proper-motion propagation, and admission gate.
 
-Used to validate whether a locally-built Tycho-2 index (from the ESO Science Archive
-mirror of CDS I/259) can replace astromon's live VizieR-based Tycho2 lookup in
-:any:`astromon.cross_match`.
-
-.. Important::
-
-    This module is **not** wired into :any:`astromon.cross_match` or any other
-    production code path. It exists purely to support the held-out regression test in
-    :any:`astromon.tests.test_tycho2_local_index`, the offline Hipparcos cross-check in
-    :any:`astromon.tests.test_tycho2_hipparcos_crosscheck`, and the companion
-    fixture/validation scripts, while the live-VizieR-vs-local-index cutover decision is
-    still pending (see the Part 2 validation campaign notes). Nothing here is imported
-    by production code.
+Built from the ESO Science Archive mirror of CDS I/259, replacing astromon's former
+live VizieR-based Tycho2 lookup (CDS Strasbourg/VizieR has been unavailable since
+2026-10-28, no ETA): :any:`astromon.cross_match`'s ``_get_tycho2_local`` /
+``_tycho2_cone_search`` call :func:`query_cone` and :func:`admit_tycho2_match` from
+here directly, dispatched via ``LOCAL_CATALOG_GETTERS["Tycho2"]`` exactly like RFC/
+ICRF3/ICRF2. :any:`astromon.tests.test_tycho2_local_index` (a held-out regression
+against the production DB's prior VizieR-sourced cross-matches) and
+:any:`astromon.tests.test_tycho2_hipparcos_crosscheck` (an offline cross-check against
+HEASARC's independently-sourced Hipparcos catalog) are what validated this cutover; see
+the Part 2 validation campaign notes.
 
 :func:`get_tycho2_local_index` and :func:`get_hipparcos_snapshot` download and build
 their respective index files on first use and cache them under

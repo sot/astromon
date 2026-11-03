@@ -690,7 +690,10 @@ def get_rfc(
 
 
 def _get_rfc(
-    pos: coords.SkyCoord, radius: u.Quantity, logging_tag: str = ""
+    pos: coords.SkyCoord,
+    radius: u.Quantity,
+    logging_tag: str = "",
+    time=None,  # noqa: ARG001 -- accepted for LOCAL_CATALOG_GETTERS dispatch parity, unused
 ) -> table.Table:
     """Return RFC sources near *pos* within *radius*, formatted like VizieR results."""
     return _local_catalog_near(get_rfc(), "RFC", pos, radius, logging_tag)
@@ -771,7 +774,10 @@ def get_icrf3(
 
 
 def _get_icrf3(
-    pos: coords.SkyCoord, radius: u.Quantity, logging_tag: str = ""
+    pos: coords.SkyCoord,
+    radius: u.Quantity,
+    logging_tag: str = "",
+    time=None,  # noqa: ARG001 -- accepted for LOCAL_CATALOG_GETTERS dispatch parity, unused
 ) -> table.Table:
     """Return ICRF3 sources near *pos* within *radius*, formatted like VizieR results."""
     return _local_catalog_near(get_icrf3(), "ICRF3", pos, radius, logging_tag)
@@ -850,10 +856,131 @@ def get_icrf2(
 
 
 def _get_icrf2(
-    pos: coords.SkyCoord, radius: u.Quantity, logging_tag: str = ""
+    pos: coords.SkyCoord,
+    radius: u.Quantity,
+    logging_tag: str = "",
+    time=None,  # noqa: ARG001 -- accepted for LOCAL_CATALOG_GETTERS dispatch parity, unused
 ) -> table.Table:
     """Return ICRF2 sources near *pos* within *radius*, formatted like VizieR results."""
     return _local_catalog_near(get_icrf2(), "ICRF2", pos, radius, logging_tag)
+
+
+# ---------------------------------------------------------------------------
+# Tycho-2 — locally built from the ESO Science Archive mirror of CDS I/259,
+# replacing a live VizieR query (CDS Strasbourg/VizieR has been unavailable since
+# 2026-10-28, no ETA). See astromon.tycho2_local_index for the held-out regression
+# tests and Hipparcos cross-check that validated this cutover.
+#
+# Unlike RFC/ICRF2/ICRF3 (effectively fixed radio/quasar positions), Tycho-2 stars
+# have proper motion significant enough that it must be propagated to each
+# observation's epoch -- so this does not go through _local_catalog_near, and needs
+# `time`, unlike the other local getters.
+
+_TYCHO2_LOCAL_CACHE: dict[Path, tuple] = {}
+
+
+def _get_tycho2_local_data():
+    """Load (and cache, keyed on the index file's mtime) the local Tycho-2 index."""
+    from astromon.tycho2_local_index import (  # noqa: PLC0415
+        build_kdtree,
+        get_tycho2_local_index,
+        load_star_table,
+        max_pm_mas_per_yr,
+    )
+
+    path = get_tycho2_local_index()
+    mtime = path.stat().st_mtime
+    cached = _TYCHO2_LOCAL_CACHE.get(path)
+    if cached is None or cached[0] != mtime:
+        stars = load_star_table(str(path))
+        tree = build_kdtree(stars)
+        global_max_pm = max_pm_mas_per_yr(stars)
+        cached = (mtime, stars, tree, global_max_pm)
+        _TYCHO2_LOCAL_CACHE[path] = cached
+    return cached[1], cached[2], cached[3]
+
+
+def _tycho2_cone_search(
+    stars,
+    tree,
+    global_max_pm: float,
+    pos: coords.SkyCoord,
+    radius: u.Quantity,
+    logging_tag: str = "",
+    time=None,
+) -> table.Table:
+    """Cone-search an already-loaded local Tycho-2 index, formatted like VizieR results.
+
+    Split out from :func:`_get_tycho2_local` so tests can reuse this against a
+    pre-loaded index (see ``astromon/tests/conftest.py``) without going through
+    :func:`_get_tycho2_local_data`, which downloads/builds the index if missing.
+
+    `time` (a CxoTime-compatible observation time) is required: each candidate's
+    position is propagated from its catalog epoch to `time` by proper motion before
+    the separation cut, exactly as VizieR's ``_RAJ2000(J2000,Jepoch)`` did.
+    """
+    import pandas as pd  # noqa: PLC0415
+
+    from astromon.tycho2_local_index import query_cone  # noqa: PLC0415
+
+    if not pos.isscalar and len(pos) == 0:
+        return table.Table(dtype=CROSS_MATCH_DTYPE)
+    if time is None:
+        raise ValueError("_tycho2_cone_search requires `time` (for proper motion)")
+
+    radius_arcsec = radius.to_value(u.arcsec)
+    frac_year = float(time.frac_year)
+
+    found = [
+        candidates
+        for ra, dec in zip(
+            np.atleast_1d(pos.ra.deg), np.atleast_1d(pos.dec.deg), strict=True
+        )
+        if len(
+            candidates := query_cone(
+                tree,
+                stars,
+                ra,
+                dec,
+                frac_year,
+                radius_arcsec=radius_arcsec,
+                global_max_pm_mas_per_yr=global_max_pm,
+            )
+        )
+    ]
+    if not found:
+        logger.debug(f"{logging_tag}Tycho2 (local) has 0 results")
+        return table.Table(dtype=CROSS_MATCH_DTYPE)
+
+    bulk = pd.concat(found, ignore_index=True)
+    mag_vals = bulk["VT"].to_numpy(dtype=np.float32)
+    mag = table.MaskedColumn(
+        mag_vals, dtype=CROSS_MATCH_DTYPE["mag"], mask=~np.isfinite(mag_vals)
+    )
+    output = table.Table(
+        {
+            "catalog": np.full(len(bulk), "Tycho2"),
+            "name": np.asarray(bulk["tyc_name"], dtype=CROSS_MATCH_DTYPE["name"]),
+            "ra": bulk["ra_t"].to_numpy(dtype=float),
+            "dec": bulk["dec_t"].to_numpy(dtype=float),
+            "mag": mag,
+        }
+    )
+    logger.debug(f"{logging_tag}Tycho2 (local) has {len(output)} results")
+    return output
+
+
+def _get_tycho2_local(
+    pos: coords.SkyCoord, radius: u.Quantity, logging_tag: str = "", time=None
+) -> table.Table:
+    """Return Tycho-2 sources near *pos* within *radius*, formatted like VizieR results.
+
+    Downloads/builds the local index on first use; see :func:`_get_tycho2_local_data`.
+    """
+    stars, tree, global_max_pm = _get_tycho2_local_data()
+    return _tycho2_cone_search(
+        stars, tree, global_max_pm, pos, radius, logging_tag, time
+    )
 
 
 _MILLIQUAS_URL = "https://cdsarc.cds.unistra.fr/ftp/VII/294/catalog.dat.gz"
@@ -1125,16 +1252,8 @@ def get_quaia_candidates(
 
 
 VIZIER_CATALOGS = {
-    "Tycho2": {
-        "catalog": "Tycho2",
-        "cat_identifier": "I/259/tyc2",
-        "name_cols": ["TYC1", "TYC2", "TYC3"],
-        "columns": {
-            "ra": "_RAJ2000/{time.frac_year:.3f}",
-            "dec": "_DEJ2000/{time.frac_year:.3f}",
-            "mag": "VTmag",
-        },
-    },
+    # Tycho2 used to be queried here too (I/259/tyc2), but is now served locally by
+    # _get_tycho2_local via LOCAL_CATALOG_GETTERS -- see astromon.tycho2_local_index.
     # https://vizier.u-strasbg.fr/viz-bin/VizieR?-source=I/284
     "USNO-B1.0": {
         "catalog": "USNO-B1.0",
@@ -2218,6 +2337,7 @@ LOCAL_CATALOG_GETTERS = {
     "RFC": _get_rfc,
     "ICRF3": _get_icrf3,
     "ICRF2": _get_icrf2,
+    "Tycho2": _get_tycho2_local,
 }
 
 
@@ -2238,7 +2358,7 @@ def _get(
     elif ra is not None or dec is not None:
         raise Exception("ra/dec not required if giving pos")
     if getter := LOCAL_CATALOG_GETTERS.get(catalog):
-        return getter(pos=pos, radius=radius, logging_tag=logging_tag)
+        return getter(pos=pos, radius=radius, logging_tag=logging_tag, time=time)
     params = VIZIER_CATALOGS[catalog].copy()
     columns = {}
     for name, col in params["columns"].items():

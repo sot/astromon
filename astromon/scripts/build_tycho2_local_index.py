@@ -1,16 +1,15 @@
 #!/usr/bin/env python
-"""Pre-build the local Tycho-2 + Hipparcos validation index.
+"""Pre-build the local Tycho-2 + Hipparcos index.
 
-astromon.tycho2_local_index.get_tycho2_local_index() / get_hipparcos_snapshot()
-already download and build these files automatically on first use (the same
-download-and-cache-on-first-use convention astromon.cross_match uses for Milliquas,
-Quaia, ICRF3, etc.), so running this script is never required. It exists to pay the
-one-time cost (the Tycho-2 index is a few hundred MB and takes a couple of minutes to
-parse) up front, in one place, rather than inside whichever of several parallel
-per-obsid worker processes happens to need it first.
-
-This module is purely a validation tool for a potential VizieR cutover (see
-astromon.tycho2_local_index); nothing here is called by production cross-matching.
+Production cross-matching gets its Tycho-2 data from
+astromon.tycho2_local_index (via astromon.cross_match's "Tycho2" entry in
+LOCAL_CATALOG_GETTERS), not live VizieR -- see astromon.tycho2_local_index for why.
+get_tycho2_local_index() / get_hipparcos_snapshot() already download and build these
+files automatically on first use (the same download-and-cache-on-first-use convention
+astromon.cross_match uses for Milliquas, Quaia, ICRF3, etc.), so running this script is
+never required. It exists to pay the one-time cost (the Tycho-2 index is a few hundred
+MB and takes a couple of minutes to parse) up front, in one place, rather than inside
+whichever of several parallel per-obsid worker processes happens to need it first.
 
 Usage
 -----
