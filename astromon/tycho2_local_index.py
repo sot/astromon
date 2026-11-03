@@ -8,24 +8,38 @@ mirror of CDS I/259) can replace astromon's live VizieR-based Tycho2 lookup in
 
     This module is **not** wired into :any:`astromon.cross_match` or any other
     production code path. It exists purely to support the held-out regression test in
-    :any:`astromon.tests.test_tycho2_local_index` and the companion fixture/validation
-    scripts, while the live-VizieR-vs-local-index cutover decision is still pending (see
-    the Part 2 validation campaign notes). Nothing here is imported by production code.
+    :any:`astromon.tests.test_tycho2_local_index`, the offline Hipparcos cross-check in
+    :any:`astromon.tests.test_tycho2_hipparcos_crosscheck`, and the companion
+    fixture/validation scripts, while the live-VizieR-vs-local-index cutover decision is
+    still pending (see the Part 2 validation campaign notes). Nothing here is imported
+    by production code.
 
-The built index itself (a parquet file of ~2.5 million parsed Tycho-2 + supplement
-stars, built by a separate offline parsing script from the ESO flat files) is a few
-hundred MB and is not committed to this repository; its location is given by the
-``ASTROMON_TYCHO2_INDEX`` environment variable.
+:func:`get_tycho2_local_index` and :func:`get_hipparcos_snapshot` download and build
+their respective index files on first use and cache them under
+``$ASTROMON_DATA_DIR/tycho2_local_index/`` (default
+``$SKA/data/astromon/tycho2_local_index/``), the same download-and-cache-on-first-use
+convention :any:`astromon.cross_match` uses for Milliquas, Quaia, ICRF3, etc. The
+Tycho-2 index is a few hundred MB and takes a couple of minutes to build; see
+``astromon/scripts/build_tycho2_local_index.py`` to pre-build it ahead of time rather
+than paying that cost inside whichever process happens to need it first.
 """
 
 from __future__ import annotations
 
+import logging
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
+import requests
 from chandra_aca.transform import radec_to_yagzag
 from Quaternion import Quat
 from scipy.optimize import least_squares
 from scipy.spatial import cKDTree
+
+from astromon import utils
+
+logger = logging.getLogger("astromon")
 
 ARCSEC_PER_DEG = 3600.0
 MAS_PER_DEG = 3_600_000.0
@@ -264,3 +278,395 @@ def fit_pointing_quat(
     dra, ddec = result.x[0], result.x[1]
     droll = result.x[2] if fit_roll else 0.0
     return Quat(equatorial=(ra_nom + dra, dec_nom + ddec, roll_nom + droll))
+
+
+# ---------------------------------------------------------------------------------
+# Download-and-cache-on-first-use index building, mirroring astromon.cross_match's
+# get_milliquas / get_quaia convention (pinned-release cache, rebuilt only when the
+# recorded release no longer matches, not on a timer -- both source catalogs are
+# static CDS releases).
+# ---------------------------------------------------------------------------------
+
+_TYCHO2_CACHE_DIR = utils.ASTROMON_DATA_DIR / "tycho2_local_index"
+TYCHO2_INDEX_PATH = _TYCHO2_CACHE_DIR / "tyc2_stars.parquet"
+HIPPARCOS_INDEX_PATH = _TYCHO2_CACHE_DIR / "hipparcos_stars.parquet"
+
+_ESO_TYC2_BASE_URL = "https://archive.eso.org/ASTROM/TYC-2/data"
+_TYCHO2_RAW_FILES = ("catalog.dat", "suppl_1.dat", "suppl_2.dat")
+# CDS Tycho-2 catalog number; the catalog is a fixed historical dataset, so this only
+# ever changes if a parsing bug forces a new build of this index.
+_TYCHO2_VERSION = "I/259"
+
+_HEASARC_TAP_URL = "https://heasarc.gsfc.nasa.gov/xamin/vo/tap/sync"
+_HEASARC_HIP_COLUMNS = (
+    "hip_number, ra_deg, dec_deg, pm_ra, pm_dec, vt_mag, bt_mag, ccdm_id, "
+    "ccdm_n_comp, ccdm_history"
+)
+# HEASARC's TAP sync service silently truncates a single query at 100000 rows; the
+# full catalog (118218 rows) is fetched in two halves split on this hip_number.
+_HEASARC_HIP_SPLIT = 60000
+# CDS Hipparcos catalog number; static like Tycho-2 above.
+_HIPPARCOS_VERSION = "I/239"
+_HIPPARCOS_EXPECTED_ROWS = 118218
+
+
+def _release_marker(cache_path: Path) -> Path:
+    """Path to the small sidecar file recording which release `cache_path` holds."""
+    return cache_path.with_name(cache_path.name + ".release")
+
+
+def _cache_needs_refresh(cache_path: Path, version: str) -> bool:
+    """Whether a locally cached index file should be (re)built.
+
+    Both source catalogs are pinned, static CDS releases, so a mismatch between the
+    recorded release and the declared one is what invalidates a cache, not file age
+    (see astromon.cross_match._cache_needs_refresh for the same convention applied to
+    Milliquas/Quaia/ICRF3/etc.). A cache with no recorded release is adopted as-is.
+    """
+    if not cache_path.exists():
+        return True
+    marker = _release_marker(cache_path)
+    if not marker.exists():
+        return False
+    return marker.read_text().strip() != version
+
+
+def _record_catalog_version(cache_path: Path, version: str) -> None:
+    _release_marker(cache_path).write_text(version)
+
+
+# --- Tycho-2: ESO Science Archive mirror of CDS I/259 -----------------------------
+
+# (name, start_byte_1based, width, kind) kind in {"i", "f", "a"}; byte layout from the
+# ESO ASTROM/TYC-2 format description (https://archive.eso.org/ASTROM/TYC-2/format.html),
+# the same layout as CDS I/259.
+_TYCHO2_RECORD_LEN = 206 + 2  # 206 data bytes + CRLF
+_TYCHO2_CATALOG_FIELDS = [
+    ("TYC1", 1, 4, "i"),
+    ("TYC2", 6, 5, "i"),
+    ("TYC3", 12, 1, "i"),
+    ("pflag", 14, 1, "a"),
+    ("mRAdeg", 16, 12, "f"),
+    ("mDEdeg", 29, 12, "f"),
+    ("pmRA", 42, 7, "f"),
+    ("pmDE", 50, 7, "f"),
+    ("BT", 111, 6, "f"),
+    ("VT", 124, 6, "f"),
+    ("HIP", 143, 6, "i"),
+    ("RAdeg", 153, 12, "f"),
+    ("DEdeg", 166, 12, "f"),
+    ("epRA", 179, 4, "f"),
+]
+_TYCHO2_SUPPL_RECORD_LEN = 122 + 2
+_TYCHO2_SUPPL_FIELDS = [
+    ("TYC1", 1, 4, "i"),
+    ("TYC2", 6, 5, "i"),
+    ("TYC3", 12, 1, "i"),
+    ("flag", 14, 1, "a"),
+    ("RAdeg", 16, 12, "f"),
+    ("DEdeg", 29, 12, "f"),
+    ("pmRA", 42, 7, "f"),
+    ("pmDE", 50, 7, "f"),
+    ("BT", 84, 6, "f"),
+    ("VT", 97, 6, "f"),
+    ("HIP", 116, 6, "i"),
+]
+
+
+def _download_tycho2_raw_files(raw_dir: Path) -> None:
+    """Download the ESO mirror of CDS I/259 into `raw_dir` (skips files already there).
+
+    ESO independently mirrors the Tycho-2 flat files byte-for-byte identical to the
+    CDS release, which matters while CDS Strasbourg/VizieR itself is down (as of
+    2026-10-28, no ETA) -- see the Part 2 cutover validation report.
+    """
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    for name in _TYCHO2_RAW_FILES:
+        dest = raw_dir / name
+        if dest.exists():
+            continue
+        url = f"{_ESO_TYC2_BASE_URL}/{name}"
+        logger.info(f"Downloading {url} -> {dest}")
+        resp = requests.get(url, timeout=600, stream=True)
+        resp.raise_for_status()
+        tmp = dest.with_name(dest.name + ".tmp")
+        with tmp.open("wb") as fh:
+            for chunk in resp.iter_content(chunk_size=1 << 20):
+                fh.write(chunk)
+        tmp.rename(dest)
+
+
+def _read_tycho2_fixed_width(
+    path: Path, record_len: int, fields: list[tuple[str, int, int, str]]
+) -> pd.DataFrame:
+    raw = np.fromfile(path, dtype=np.uint8)
+    if raw.size % record_len != 0:
+        raise ValueError(
+            f"{path}: file size {raw.size} is not a multiple of record length "
+            f"{record_len} -- corrupt or incomplete download"
+        )
+    n_records = raw.size // record_len
+    raw = raw.reshape(n_records, record_len)
+
+    columns: dict[str, np.ndarray] = {}
+    for name, start, width, kind in fields:
+        start0 = start - 1
+        chunk = np.ascontiguousarray(raw[:, start0 : start0 + width])
+        strs = np.char.decode(chunk.view(f"S{width}").reshape(n_records), "ascii")
+        if kind == "a":
+            columns[name] = np.char.strip(strs)
+        else:
+            stripped = np.char.strip(strs)
+            values = np.full(n_records, np.nan, dtype=np.float64)
+            non_blank = stripped != ""
+            values[non_blank] = stripped[non_blank].astype(np.float64)
+            columns[name] = values
+    return pd.DataFrame(columns)
+
+
+def _build_tycho2_star_table(raw_dir: Path) -> pd.DataFrame:
+    """Parse the ESO/CDS I/259 flat files into one combined per-star table.
+
+    Columns: ``tyc_name``, ``source`` ("main"/"suppl1"/"suppl2"), ``ra0``/``dec0``
+    (anchor position, deg), ``anchor_epoch`` (fractional year), ``pmRA``/``pmDE``
+    (mas/yr, NaN if unavailable), ``has_pm``, ``VT``/``BT``, ``HIP``.
+    """
+    catalog = _read_tycho2_fixed_width(
+        raw_dir / "catalog.dat", _TYCHO2_RECORD_LEN, _TYCHO2_CATALOG_FIELDS
+    )
+    catalog["TYC1"] = catalog["TYC1"].astype(np.int32)
+    catalog["TYC2"] = catalog["TYC2"].astype(np.int32)
+    catalog["TYC3"] = catalog["TYC3"].astype(np.int16)
+
+    # a blank pflag (the normal case: full astrometric + proper-motion solution) is
+    # represented as a single space, matching the printed catalog's fixed-width column
+    catalog["pflag"] = catalog["pflag"].replace("", " ")
+    has_mean_pos = catalog["pflag"] != "X"
+    ra0 = np.where(has_mean_pos, catalog["mRAdeg"], catalog["RAdeg"])
+    dec0 = np.where(has_mean_pos, catalog["mDEdeg"], catalog["DEdeg"])
+    anchor_epoch = np.where(
+        has_mean_pos,
+        2000.0,
+        np.where(~np.isnan(catalog["epRA"]), 1990.0 + catalog["epRA"], 1990.0),
+    )
+    pmRA = np.where(has_mean_pos, catalog["pmRA"], np.nan)
+    pmDE = np.where(has_mean_pos, catalog["pmDE"], np.nan)
+    has_pm = has_mean_pos & ~np.isnan(catalog["pmRA"]) & ~np.isnan(catalog["pmDE"])
+
+    tables = [
+        pd.DataFrame(
+            {
+                "TYC1": catalog["TYC1"],
+                "TYC2": catalog["TYC2"],
+                "TYC3": catalog["TYC3"],
+                "source": "main",
+                "pflag": catalog["pflag"],
+                "ra0": ra0,
+                "dec0": dec0,
+                "anchor_epoch": anchor_epoch,
+                "pmRA": pmRA,
+                "pmDE": pmDE,
+                "has_pm": has_pm,
+                "VT": catalog["VT"],
+                "BT": catalog["BT"],
+                "HIP": catalog["HIP"],
+            }
+        )
+    ]
+    for name, source_name in [("suppl_1.dat", "suppl1"), ("suppl_2.dat", "suppl2")]:
+        suppl = _read_tycho2_fixed_width(
+            raw_dir / name, _TYCHO2_SUPPL_RECORD_LEN, _TYCHO2_SUPPL_FIELDS
+        )
+        suppl["TYC1"] = suppl["TYC1"].astype(np.int32)
+        suppl["TYC2"] = suppl["TYC2"].astype(np.int32)
+        suppl["TYC3"] = suppl["TYC3"].astype(np.int16)
+        has_pm_s = suppl["flag"] == "H"
+        tables.append(
+            pd.DataFrame(
+                {
+                    "TYC1": suppl["TYC1"],
+                    "TYC2": suppl["TYC2"],
+                    "TYC3": suppl["TYC3"],
+                    "source": source_name,
+                    "pflag": suppl["flag"],
+                    "ra0": suppl["RAdeg"],
+                    "dec0": suppl["DEdeg"],
+                    # supplement positions are quoted at the fixed epoch J1991.25,
+                    # unlike the main catalog's per-star mean epoch above.
+                    "anchor_epoch": 1991.25,
+                    "pmRA": np.where(has_pm_s, suppl["pmRA"], np.nan),
+                    "pmDE": np.where(has_pm_s, suppl["pmDE"], np.nan),
+                    "has_pm": (
+                        has_pm_s & ~np.isnan(suppl["pmRA"]) & ~np.isnan(suppl["pmDE"])
+                    ),
+                    "VT": suppl["VT"],
+                    "BT": suppl["BT"],
+                    "HIP": suppl["HIP"],
+                }
+            )
+        )
+
+    combined = pd.concat(tables, ignore_index=True)
+    no_position = np.isnan(combined["ra0"]) | np.isnan(combined["dec0"])
+    if no_position.any():
+        logger.warning(
+            f"dropping {int(no_position.sum())} Tycho-2 rows with no usable position"
+        )
+        combined = combined[~no_position].reset_index(drop=True)
+    combined["tyc_name"] = (
+        combined["TYC1"].astype(str)
+        + "-"
+        + combined["TYC2"].astype(str)
+        + "-"
+        + combined["TYC3"].astype(str)
+    )
+    return combined
+
+
+def _build_tycho2_index() -> None:
+    import tempfile  # noqa: PLC0415 — only needed for this one-time build
+
+    TYCHO2_INDEX_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="tycho2_raw_") as raw_dir_name:
+        raw_dir = Path(raw_dir_name)
+        _download_tycho2_raw_files(raw_dir)
+        stars = _build_tycho2_star_table(raw_dir)
+    stars.to_parquet(TYCHO2_INDEX_PATH, index=False)
+    _record_catalog_version(TYCHO2_INDEX_PATH, _TYCHO2_VERSION)
+    logger.info(f"Built {len(stars)}-row Tycho-2 local index at {TYCHO2_INDEX_PATH}")
+
+
+def get_tycho2_local_index(force_rebuild: bool = False) -> Path:
+    """Return the path to a built local Tycho-2 index, building it first if needed.
+
+    Downloads the ESO mirror of CDS I/259 and parses it into
+    ``$ASTROMON_DATA_DIR/tycho2_local_index/tyc2_stars.parquet`` on first use (a
+    few hundred MB, taking a couple of minutes); later calls reuse that file until
+    ``force_rebuild=True`` or the recorded release no longer matches
+    :data:`_TYCHO2_VERSION`. Pass the returned path to :func:`load_star_table`.
+    """
+    if force_rebuild or _cache_needs_refresh(TYCHO2_INDEX_PATH, _TYCHO2_VERSION):
+        _build_tycho2_index()
+    return TYCHO2_INDEX_PATH
+
+
+# --- Hipparcos: HEASARC's independently-sourced snapshot of CDS I/239 -------------
+
+
+def _query_heasarc_hipparcos_half(hip_min: int | None, hip_max: int | None) -> str:
+    where = []
+    if hip_min is not None:
+        where.append(f"hip_number > {hip_min}")
+    if hip_max is not None:
+        where.append(f"hip_number <= {hip_max}")
+    query = f"SELECT {_HEASARC_HIP_COLUMNS} FROM hipparcos"
+    if where:
+        query += " WHERE " + " AND ".join(where)
+    resp = requests.get(
+        _HEASARC_TAP_URL,
+        params={"REQUEST": "doQuery", "LANG": "ADQL", "FORMAT": "text", "QUERY": query},
+        timeout=300,
+    )
+    resp.raise_for_status()
+    if "OVERFLOW" in resp.text:
+        raise RuntimeError(
+            "HEASARC TAP query overflowed its row cap -- the hip_number split needs "
+            "to be narrower"
+        )
+    return resp.text
+
+
+def _parse_heasarc_hipparcos_text(text: str) -> pd.DataFrame:
+    import io  # noqa: PLC0415 — only needed for this one-time parse
+
+    lines = text.splitlines()
+    # the data rows are followed by a blank line and then a "Number of rows: ..."
+    # footer (an overflowed query instead gets a "---- Messages ----" block, but
+    # that is already raised on by _query_heasarc_hipparcos_half before this is
+    # ever called)
+    end = next(i for i, line in enumerate(lines) if line.strip() == "")
+    body = "\n".join(lines[:end])
+    df = pd.read_csv(
+        io.StringIO(body),
+        sep="|",
+        skiprows=1,
+        engine="python",
+        names=[
+            "hip_number",
+            "ra_deg",
+            "dec_deg",
+            "pm_ra",
+            "pm_dec",
+            "vt_mag",
+            "bt_mag",
+            "ccdm_id",
+            "ccdm_n_comp",
+            "ccdm_history",
+        ],
+    )
+    for col in df.columns:
+        if df[col].dtype == object:
+            df[col] = df[col].str.strip().replace("null", pd.NA)
+    numeric_columns = [
+        "hip_number",
+        "ra_deg",
+        "dec_deg",
+        "pm_ra",
+        "pm_dec",
+        "vt_mag",
+        "bt_mag",
+        "ccdm_n_comp",
+    ]
+    for col in numeric_columns:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+    return df
+
+
+def _build_hipparcos_snapshot() -> None:
+    """Fetch and write a full snapshot of HEASARC's `hipparcos` table (CDS I/239).
+
+    Independent of CDS/VizieR -- see the Part 2 cutover validation report -- and
+    written to ``$ASTROMON_DATA_DIR/tycho2_local_index/hipparcos_stars.parquet``.
+    """
+    HIPPARCOS_INDEX_PATH.parent.mkdir(parents=True, exist_ok=True)
+    logger.info(f"Downloading Hipparcos Main Catalog snapshot from {_HEASARC_TAP_URL}")
+    half1 = _parse_heasarc_hipparcos_text(
+        _query_heasarc_hipparcos_half(None, _HEASARC_HIP_SPLIT)
+    )
+    half2 = _parse_heasarc_hipparcos_text(
+        _query_heasarc_hipparcos_half(_HEASARC_HIP_SPLIT, None)
+    )
+    stars = pd.concat([half1, half2], ignore_index=True)
+    if len(stars) != _HIPPARCOS_EXPECTED_ROWS:
+        raise RuntimeError(
+            f"expected {_HIPPARCOS_EXPECTED_ROWS} Hipparcos rows, got {len(stars)}"
+        )
+
+    stars["hip_number"] = stars["hip_number"].astype("int64")
+    stars["ccdm_n_comp"] = stars["ccdm_n_comp"].fillna(1).astype("int64")
+    stars = stars.rename(
+        columns={
+            "hip_number": "HIP",
+            "ra_deg": "ra",
+            "dec_deg": "dec",
+            "pm_ra": "pmRA",
+            "pm_dec": "pmDE",
+            "vt_mag": "VT",
+            "bt_mag": "BT",
+        }
+    )
+    stars.to_parquet(HIPPARCOS_INDEX_PATH, index=False)
+    _record_catalog_version(HIPPARCOS_INDEX_PATH, _HIPPARCOS_VERSION)
+    logger.info(f"Built {len(stars)}-row Hipparcos snapshot at {HIPPARCOS_INDEX_PATH}")
+
+
+def get_hipparcos_snapshot(force_rebuild: bool = False) -> Path:
+    """Return the path to a built local Hipparcos snapshot, building it first if needed.
+
+    See :func:`get_tycho2_local_index` for the caching convention; this one is a
+    single bulk HEASARC query (a few tens of MB, well under a minute) rather than a
+    multi-hundred-MB file parse.
+    """
+    if force_rebuild or _cache_needs_refresh(HIPPARCOS_INDEX_PATH, _HIPPARCOS_VERSION):
+        _build_hipparcos_snapshot()
+    return HIPPARCOS_INDEX_PATH
