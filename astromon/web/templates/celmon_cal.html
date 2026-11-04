@@ -192,31 +192,29 @@
 				<li> SIM-Z at the nominal detector value. </li>
 				<li> <code>obs_mode==POINTING</code> </li>
 				<li> If it is an ACIS observation: <code> readmode==TIMED</code> and <code> dtycycle==0. </code> </li>
-				<li> Not an observation of targets known to confound the source detection. </li>
-				<li> Not in any of the following science categories: "SN, SNR, and isolated NS", "Clusters of
-					Galaxies", or "Solar System and Misc". Observations in these categories
-					are likely to confound <tt>celldetect</tt> and produce too many spurious
-					sources.
-				</li>
+				<li> Not an observation of targets known to confound the source detection, nor one the
+					absolute-astrometry calibration excludes. </li>
 			</ul>
 		</p>
 	
 		<p>
-			Sources are detected with <tt>gaussian_detect</tt>, and fulfill the following requirements:
+			Sources are detected with <tt>celldetect</tt>, and fulfill the following requirements:
 			<ul>
-				<li> <code> SNR > {{ data.cal.snr }} </code> (on the gaussian_detect SNR scale --
-					see the code comments on <code>create_figures_cal</code>'s <code>snr</code>
-					default for how this value was chosen) </li>
-				<li> Sources must be within 2 arcmin of the optical axis, for both grating and
+				<li> <code> SNR > {{ data.cal.snr }} </code> </li>
+				<li> Sources must be within 160 arcsec of the optical axis, for both grating and
 					imaging observations. </li>
+				<li> No other X-ray source within 6 arcsec. </li>
+				<li> Not a catalog source the absolute-astrometry calibration excludes (a blend, a
+					lensed or extended source, or a wrong counterpart). </li>
 			</ul>
 		</p>
 
 		<p>
 			An X-ray source matches an optical/radio source if the offset is less than 3
 			arcsec. If a source is matched in more than one catalog, the most accurate
-			catalog is used, in the following order of preference: ICRF3, RFC, GaiaAGN, Quaia,
-			DESIV161, MilliquasGaia, GaiaQSO, GaiaVarStar, Tycho2.
+			catalog is used, in the following order of preference: ICRF3, RFC, GaiaAGN, DESIV161,
+			MilliquasGaia, GaiaQSO, Tycho2. These are the absolute-astrometry calibration's
+			catalogs, and its selection.
 		</p>
 
 		<a id="offset_definition" />
@@ -287,13 +285,6 @@
 				documentation</a>.
 			</li>
 			<li>
-				<b>Quaia</b> (optical + mid-IR, Gaia DR3 + unWISE) -
-				755,850 quasars, G &lt; 20.0, built from Gaia DR3 quasar candidates refined with unWISE
-				infrared photometry. Gaia DR3 position, as provided in the Quaia catalog.
-				<a href="https://doi.org/10.3847/1538-4357/ad1328">Storey-Fisher et al. 2024, ApJ 964,
-				69</a>; data at <a href="https://zenodo.org/records/10403370">Zenodo</a>.
-			</li>
-			<li>
 				<b>DESIV161</b> (optical spectroscopy + imaging) -
 				DESI Early Data Release spectra with <tt>OType</tt> QSO or GALAXY and
 				<tt>ZWARN == 0</tt> (reliable redshift), ~4100 sq deg EDR footprint. Position from Legacy
@@ -313,14 +304,6 @@
 				~6.6M quasar candidates (<tt>gaiadr3.qso_candidates</tt>) classified from Gaia
 				astrometry, photometry and colour; extends GaiaAGN fainter (G &gt; 20). Gaia DR3
 				position, as-is. See the
-				<a href="https://gea.esac.esa.int/archive/documentation/GDR3/">Gaia DR3 archive
-				documentation</a>.
-			</li>
-			<li>
-				<b>GaiaVarStar</b> (optical, Gaia DR3) -
-				Rotation-modulation variable stars (<tt>gaiadr3.vari_rotation_modulation</tt>),
-				RUWE &lt; 1.4. Gaia DR3 position, propagated from the DR3 reference epoch (J2016.0) to
-				the observation epoch using the source's proper motion. See the
 				<a href="https://gea.esac.esa.int/archive/documentation/GDR3/">Gaia DR3 archive
 				documentation</a>.
 			</li>

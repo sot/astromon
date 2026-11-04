@@ -90,3 +90,46 @@ def test_parser_accepts_a_caldb_dir():
 
     assert parser.parse_args([]).caldb_dir is None
     assert parser.parse_args(["--caldb-dir", "/tmp/sdp"]).caldb_dir == Path("/tmp/sdp")
+
+
+@pytest.mark.parametrize(
+    ("create_figures", "snr"),
+    [(celmon.create_figures_mta, None), (celmon.create_figures_cal, 5)],
+)
+def test_both_pages_read_the_calibrations_selection(
+    tmp_path, monkeypatch, _no_plotting, create_figures, snr
+):
+    """The default selection (celldetect, seven catalogs, 160 arcsec), its exclusions,
+    nominal SIM-Z, and no science-category cut, as the calibration uses. The cal page
+    keeps its stricter SNR floor, celldetect's historical 5."""
+    calls = []
+
+    def get_cross_matches(**kwargs):
+        calls.append(kwargs)
+        return _fake_matches()
+
+    monkeypatch.setattr(db, "get_cross_matches", get_cross_matches)
+    monkeypatch.setattr(
+        utils,
+        "get_calalign_offsets",
+        lambda all_matches, **kwargs: Table(
+            {
+                "after_caldb": np.zeros(len(all_matches), dtype=bool),
+                "calalign_dy": np.zeros(len(all_matches)),
+                "calalign_dz": np.zeros(len(all_matches)),
+                "ref_calalign_dy": np.zeros(len(all_matches)),
+                "ref_calalign_dz": np.zeros(len(all_matches)),
+            }
+        ),
+    )
+
+    create_figures(tmp_path)
+
+    assert len(calls) == 1
+    kwargs = calls[0]
+    assert kwargs.get("name") is None
+    assert kwargs["exclude_bad_targets"] is True
+    assert kwargs["exclude_regions"] is True
+    assert kwargs["sim_z"] == 4
+    assert "exclude_categories" not in kwargs
+    assert kwargs.get("snr") == snr

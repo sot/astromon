@@ -40,10 +40,10 @@ Pre-promotion checklist
 These apply to the dev file before it (or its content) is promoted:
 
 #. **Code is already deployed.** Any code the dev database's content depends on -- new catalog
-   getters, new ``CROSS_MATCHES_ARGS`` selections (for example ``astromon_25``), changed SNR
-   defaults, detection-time exclusions -- must already be released to the production Ska3
-   environment. A promoted database with ``select_name="astromon_25"`` rows is useless if the
-   deployed ``astromon.cross_match`` does not know what ``astromon_25`` means yet.
+   getters, changes to ``CROSS_MATCHES_ARGS`` (the stored ``astromon_21`` or the computed
+   ``default`` selection), changed SNR defaults, detection-time exclusions -- must already be
+   released to the production Ska3 environment. A promoted database whose catalog candidates
+   the deployed default selection does not know how to use is no better than the old one.
 #. **Validate the reprocessing.** Use the catalog validation notebook's checks (offset
    distributions, magnitude coverage, celldetect-vs-gaussian_detect comparison) and a celmon dry
    run against the dev file (``astromon-web-pages --db-file <dev-file> --out <scratch-dir>``) to

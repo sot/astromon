@@ -453,9 +453,8 @@ def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
                 )
             )
             obs_time = CxoTime(obspar["date_obs"][0])
-            # Include RFC and ICRF3 (both local-cache, no network) so astromon_23 can match
-            # against radio sources and icrf3 can label ICRF3-specific matches separately.
-            # Tycho2/USNO-B1.0/2MASS/SDSS are VizieR queries.
+            # RFC and ICRF3 are local caches (no network), as is Tycho2; the default
+            # selection matches against all three. USNO-B1.0/2MASS/SDSS are VizieR queries.
             match_candidates = rough_match(
                 celldetect_sources,
                 obs_time,

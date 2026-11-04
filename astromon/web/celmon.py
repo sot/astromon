@@ -14,11 +14,9 @@ from astropy.table import Table
 from cxotime import CxoTime
 from cxotime import units as u
 from scipy.interpolate import interp1d
-
-# from astromon import cross_match
 from Ska.Matplotlib import cxctime2plotdate, plot_cxctime
 
-from astromon import db, utils
+from astromon import cross_match, db, utils
 
 plt.rcParams["font.size"] = "16"
 plt.rcParams["figure.max_open_warning"] = 100
@@ -397,22 +395,23 @@ def plot_cdf_2(
         plt.savefig(filename)
 
 
+#: How both pages filter the default selection, as the absolute-astrometry
+#: calibration does: its excluded targets and catalog sources (bad_sources.ecsv and
+#: astromon_regions), and no science-category cut -- the calibration excludes the
+#: individual sources that confound it rather than whole categories.
+CALIBRATION_FILTERS = {"exclude_bad_targets": True, "exclude_regions": True}
+
+
 def create_figures_mta(
     outdir, calalign_dir=None, use_reference_calalign=False, caldb_dir=None
 ):
     outdir = Path(outdir)
 
     n_years = 5
-    # astromon_25 (gaussian_detect, ICRF3/RFC/GaiaAGN/Quaia/DESIV161/MilliquasGaia/
-    # GaiaQSO/GaiaVarStar/Tycho2 hierarchy) already bakes in snr=9.5 as its own
-    # default. That value is the documented quantile-equivalent of celldetect's
-    # snr=3 (see the CROSS_MATCHES_ARGS notes in cross_match.py): gaussian_detect
-    # SNR runs ~13x celldetect SNR for the same source, but that ratio is not
-    # constant across sources, so the two are not interchangeable by a fixed
-    # multiplier -- the cut has to be chosen to match quantiles instead. Passed
-    # explicitly here (matching astromon_25's own default) so mta's SNR choice is
-    # visible next to cal's, not just inherited silently.
-    snr = 9.5
+    # The absolute-astrometry calibration's sample: astromon's default selection
+    # (celldetect, SNR > 3, seven catalogs, 160 arcsec), with its exclusions and
+    # nominal SIM-Z. No extra SNR cut; `snr` is reported on the page.
+    snr = cross_match.CROSS_MATCHES_ARGS["default"]["snr"]
     sim_z = 4  # max sim-z
     draw_median = True
 
@@ -425,17 +424,7 @@ def create_figures_mta(
         "end_date": end.iso.split()[0],
     }
 
-    all_matches = db.get_cross_matches(
-        name="astromon_25",
-        snr=snr,
-        exclude_bad_targets=True,
-        sim_z=sim_z,
-        exclude_categories=[
-            "SN, SNR, and Isolated NS",
-            "Solar System and Misc",
-            "Clusters of Galaxies",
-        ],
-    )
+    all_matches = db.get_cross_matches(**CALIBRATION_FILTERS, sim_z=sim_z)
     no_version = all_matches["caldb_version"] == "0.0"
     if np.any(no_version):
         logging.getLogger("celmon").warning("Some observations with no version")
@@ -547,7 +536,7 @@ def create_figures_mta(
 
 def create_figures_cal(
     outdir,
-    snr=43.8,
+    snr=5,
     n_years=5,
     draw_median=True,
     calalign_dir=None,
@@ -559,17 +548,8 @@ def create_figures_cal(
     Parameters
     ----------
     snr : float
-        Minimum gaussian_detect SNR (astromon_25's own default is 9.5 -- see
-        create_figures_mta -- so this is deliberately stricter for cal). Default
-        43.8: checked empirically against the live DB (2026-08) as the
-        gaussian_detect threshold that keeps the same fraction of sources
-        (~46%) as celldetect's historical cal cut of snr=5. Not derived by
-        multiplying 5 by the ~13x median gaussian/celldetect SNR ratio: that
-        ratio is not constant across sources (see the CROSS_MATCHES_ARGS notes
-        in cross_match.py), so a fixed multiplier does not preserve the same
-        selection -- the empirical 5<->43.8 correspondence gives an ~8.8x
-        factor here, not ~13x. Re-check this value if the SNR relationship
-        between the two methods changes materially.
+        Minimum celldetect SNR. Default 5, the cal page's historical cut, stricter
+        than the default selection's own floor of 3 (which the mta page uses).
     caldb_dir : pathlib.Path, optional
         A CALDB whose release table lists every processing version (e.g. the
         SDP CALDB). If given, `calalign_dir` must hold every alignment file
@@ -581,17 +561,7 @@ def create_figures_cal(
 
     end = CxoTime()
     start = end - n_years * u.year
-    matches = db.get_cross_matches(
-        name="astromon_25",
-        snr=snr,
-        exclude_bad_targets=True,
-        sim_z=sim_z,
-        exclude_categories=[
-            "SN, SNR, and Isolated NS",
-            "Solar System and Misc",
-            "Clusters of Galaxies",
-        ],
-    )
+    matches = db.get_cross_matches(**CALIBRATION_FILTERS, sim_z=sim_z, snr=snr)
 
     no_version = matches["caldb_version"] == "0.0"
     if np.any(no_version):
