@@ -536,7 +536,7 @@ def create_figures_mta(
 
 def create_figures_cal(
     outdir,
-    snr=5,
+    snr=None,
     n_years=5,
     draw_median=True,
     calalign_dir=None,
@@ -547,9 +547,10 @@ def create_figures_cal(
 
     Parameters
     ----------
-    snr : float
-        Minimum celldetect SNR. Default 5, the cal page's historical cut, stricter
-        than the default selection's own floor of 3 (which the mta page uses).
+    snr : float, optional
+        An extra minimum celldetect SNR on top of the default selection's own
+        floor (SNR > 3). Default None: no extra cut, so the page shows the
+        calibration's sample, as the mta page does.
     caldb_dir : pathlib.Path, optional
         A CALDB whose release table lists every processing version (e.g. the
         SDP CALDB). If given, `calalign_dir` must hold every alignment file
@@ -561,7 +562,10 @@ def create_figures_cal(
 
     end = CxoTime()
     start = end - n_years * u.year
-    matches = db.get_cross_matches(**CALIBRATION_FILTERS, sim_z=sim_z, snr=snr)
+    extra_cuts = {} if snr is None else {"snr": snr}
+    matches = db.get_cross_matches(**CALIBRATION_FILTERS, sim_z=sim_z, **extra_cuts)
+    if snr is None:
+        snr = cross_match.CROSS_MATCHES_ARGS["default"]["snr"]
 
     no_version = matches["caldb_version"] == "0.0"
     if np.any(no_version):

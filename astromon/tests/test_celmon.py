@@ -94,14 +94,14 @@ def test_parser_accepts_a_caldb_dir():
 
 @pytest.mark.parametrize(
     ("create_figures", "snr"),
-    [(celmon.create_figures_mta, None), (celmon.create_figures_cal, 5)],
+    [(celmon.create_figures_mta, None), (celmon.create_figures_cal, None)],
 )
 def test_both_pages_read_the_calibrations_selection(
     tmp_path, monkeypatch, _no_plotting, create_figures, snr
 ):
-    """The default selection (celldetect, seven catalogs, 160 arcsec), its exclusions,
-    nominal SIM-Z, and no science-category cut, as the calibration uses. The cal page
-    keeps its stricter SNR floor, celldetect's historical 5."""
+    """The default selection (celldetect, seven catalogs, 160 arcsec, SNR > 3), its
+    exclusions, nominal SIM-Z, and no science-category cut, as the calibration uses:
+    neither page adds an SNR cut of its own."""
     calls = []
 
     def get_cross_matches(**kwargs):
@@ -133,3 +133,20 @@ def test_both_pages_read_the_calibrations_selection(
     assert kwargs["sim_z"] == 4
     assert "exclude_categories" not in kwargs
     assert kwargs.get("snr") == snr
+
+
+def test_the_cal_page_reports_the_selections_own_snr(
+    tmp_path, monkeypatch, _no_plotting
+):
+    monkeypatch.setattr(db, "get_cross_matches", lambda **kwargs: _fake_matches())
+    monkeypatch.setattr(
+        utils,
+        "get_calalign_offsets",
+        lambda all_matches, **kwargs: Table(
+            {"after_caldb": np.zeros(len(all_matches), dtype=bool)}
+        ),
+    )
+
+    result = celmon.create_figures_cal(tmp_path)
+
+    assert result["snr"] == 3
