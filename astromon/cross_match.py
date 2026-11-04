@@ -2544,6 +2544,54 @@ def _join_dtype(dtype1, dtype2, keys):
     return np.dtype([(name, dtype1[name]) for name in dtype1])
 
 
+def _sky_separation_arcsec(
+    ra1: np.ndarray, dec1: np.ndarray, ra2: np.ndarray, dec2: np.ndarray
+) -> np.ndarray:
+    """Angular separation in arcsec between positions given in degrees (haversine).
+
+    >>> round(float(_sky_separation_arcsec(0.0, 0.0, 0.0, 1 / 3600)), 6)
+    1.0
+    """
+    ra1, dec1, ra2, dec2 = (
+        np.radians(np.asarray(v, dtype=float)) for v in (ra1, dec1, ra2, dec2)
+    )
+    haversine = (
+        np.sin((dec2 - dec1) / 2) ** 2
+        + np.cos(dec1) * np.cos(dec2) * np.sin((ra2 - ra1) / 2) ** 2
+    )
+    return np.degrees(2 * np.arcsin(np.sqrt(np.clip(haversine, 0, 1)))) * 3600
+
+
+def _drop_pairs_apart_on_the_sky(
+    matches: table.Table, dr: float, logging_tag: str = ""
+) -> table.Table:
+    """Drop pairs that are within `dr` in y/z but not on the sky, with a warning.
+
+    Pairs are made by their y/z difference, which is only meaningful if the X-ray
+    source's and the catalogue source's y/z were computed with the same pointing.
+    When they were not (a stale source cache wrote quick-look obspar y/z for 593
+    obsids' celldetect sources in 2026-10, ~20-30 arcsec off the evt2 pointing the
+    catalogue rows use), a source that far away on the sky can still land within
+    `dr` in y/z, and the true counterpart drops out. With both on the same pointing
+    the two separations agree to well under 0.001 arcsec, so this changes nothing
+    then. The warning names the obsids, whose y/z need repairing.
+    """
+    if len(matches) == 0:
+        return matches
+    sky_separation = _sky_separation_arcsec(
+        matches["x_ra"], matches["x_dec"], matches["c_ra"], matches["c_dec"]
+    )
+    apart = sky_separation >= dr
+    if np.any(apart):
+        obsids = sorted({int(obsid) for obsid in np.asarray(matches["obsid"])[apart]})
+        logger.warning(
+            f"{logging_tag} {int(apart.sum())} pair(s) within {dr} arcsec in y/z but"
+            f" not on the sky, dropped: the X-ray and catalog y/z of OBSID(s)"
+            f" {', '.join(str(obsid) for obsid in obsids)} use different pointings"
+        )
+    return matches[~apart]
+
+
 def simple_cross_match(
     astromon_obs,
     astromon_xray_src,
@@ -2713,6 +2761,7 @@ def simple_cross_match(
         | ((matches["grating"] != "NONE") & (matches["r_angle"] < r_angle_grating))
     ]
     matches = matches[matches["dr"] < dr]
+    matches = _drop_pairs_apart_on_the_sky(matches, dr, logging_tag)
 
     if len(matches) == 0:
         return matches

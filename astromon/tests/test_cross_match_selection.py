@@ -7,10 +7,12 @@ matching is positional, the celldetect anchor is metadata, and selection still
 groups by method as well as source.
 """
 
+import logging
 from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
+import pytest
 from astropy import units as u
 from astropy.table import Table, vstack
 from cxotime import CxoTime
@@ -192,3 +194,82 @@ def test_rough_match_keeps_same_named_sources_at_different_positions():
 
     assert len(result) == 2
     assert sorted(round(float(r), 4) for r in result["ra"]) == [10.0002, 10.0004]
+
+
+# ─── pairs close in y/z must also be close on the sky ────────────────────────
+
+
+class _Records(logging.Handler):
+    def __init__(self):
+        super().__init__(level=logging.WARNING)
+        self.messages = []
+
+    def emit(self, record):
+        self.messages.append(record.getMessage())
+
+
+@pytest.fixture
+def astromon_warnings():
+    """Warnings on the "astromon" logger, which does not propagate to caplog."""
+    astromon_logger = logging.getLogger("astromon")
+    handler = _Records()
+    level = astromon_logger.level
+    astromon_logger.addHandler(handler)
+    astromon_logger.setLevel(logging.WARNING)
+    yield handler.messages
+    astromon_logger.removeHandler(handler)
+    astromon_logger.setLevel(level)
+
+
+def _far_on_the_sky(obsid=99900, arcsec=25.0):
+    """A catalogue source at the X-ray source's y/z but `arcsec` away on the sky.
+
+    That is what a y/z written with a different pointing than the catalogue's
+    looks like (astromon_xray_src in 593 obsids, 2026-10): the y/z difference
+    says the pair is a match, the sky says it is not.
+    """
+    cat = _minimal_cat_src(obsid, ra=83.82 + arcsec / 3600 / np.cos(np.radians(-5.39)))
+    return cat
+
+
+def test_a_pair_close_in_y_z_but_far_on_the_sky_is_not_a_match(astromon_warnings):
+    matches = cross_match.compute_cross_matches(
+        astromon_obs=_minimal_obs(99900),
+        astromon_xray_src=_minimal_xray_src(99900),
+        astromon_cat_src=_far_on_the_sky(99900),
+    )
+
+    assert len(matches) == 0
+    assert any("99900" in message for message in astromon_warnings), astromon_warnings
+
+
+def test_a_wrong_pair_dropped_on_the_sky_leaves_the_right_one():
+    """The sky cut runs before one counterpart per source is chosen."""
+    cat = vstack(
+        [
+            _far_on_the_sky(99900),  # ICRF3 wins the hierarchy, if it is let through
+            _minimal_cat_src(99900, catalog="Tycho2", name="right"),
+        ],
+        metadata_conflicts="silent",
+    )
+    cat["catalog"] = ["ICRF3", "Tycho2"]
+    cat["id"] = [0, 1]
+
+    matches = cross_match.compute_cross_matches(
+        astromon_obs=_minimal_obs(99900),
+        astromon_xray_src=_minimal_xray_src(99900),
+        astromon_cat_src=cat,
+    )
+
+    assert list(matches["name"]) == ["right"]
+
+
+def test_consistent_pairs_raise_no_warning(astromon_warnings):
+    matches = cross_match.compute_cross_matches(
+        astromon_obs=_minimal_obs(99900),
+        astromon_xray_src=_minimal_xray_src(99900),
+        astromon_cat_src=_minimal_cat_src(99900),
+    )
+
+    assert len(matches) == 1
+    assert astromon_warnings == []
