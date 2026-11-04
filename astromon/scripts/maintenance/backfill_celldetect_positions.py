@@ -129,7 +129,7 @@ def main() -> None:
                     (obsid, "would trigger a real celldetect rerun, not a re-persist")
                 )
                 continue
-            obs.get_sources.invalidate_result(version="celldetect")
+            obs._cached_sources.invalidate_result(version="celldetect")
             sources = obs.get_sources(version="celldetect")
         except Exception as exc:
             needs_full_processing.append((obsid, f"{type(exc).__name__}: {exc}"))

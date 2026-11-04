@@ -44,7 +44,7 @@ def _sources_table(**extra_cols):
     return table.Table(cols)
 
 
-_GET_SOURCES_FUNC = observation.Observation.__dict__["get_sources"].func
+_GET_SOURCES_FUNC = observation.Observation.__dict__["_cached_sources"].func
 
 
 def test_get_sources_fills_gaussian_only_columns_for_celldetect():
@@ -1493,3 +1493,93 @@ def test_get_calalign_ignores_an_acal_newer_than_the_event_data(tmp_path, monkey
     assert calalign["caldb_version"] == "4.9.3"
     assert calalign["caldb_version_source"] == "asol1"
     assert "aca_misalign" not in calalign
+
+
+# ─── get_sources: angles never come from the cache ───────────────────────────
+#
+# get_sources' cache key is only its arguments, so a cached table written with an
+# older pointing (the quick-look obspar, before 2026-09-04) stayed a hit and its
+# y/z were saved back to the database (634 obsids' celldetect rows, 2026-09/10).
+# The angles are now recomputed from RA/Dec and the evt2 pointing on every call.
+
+_POINTING = {"ra_pnt": 83.82, "dec_pnt": -5.39, "roll_pnt": 30.0}
+
+
+def _stale_sources():
+    """Cached sources whose y/z were computed with a pointing ~25 arcsec off."""
+    from chandra_aca.transform import radec_to_yagzag
+
+    sources = _sources_table()
+    sources["ra"] = [83.82, 83.82 + 100 / 3600]
+    sources["dec"] = [-5.39, -5.39]
+    stale = Quat(equatorial=(83.82 + 20 / 3600, -5.39 + 15 / 3600, 30.0))
+    sources["y_angle"], sources["z_angle"] = radec_to_yagzag(
+        np.asarray(sources["ra"]), np.asarray(sources["dec"]), stale
+    )
+    sources["r_angle"] = np.hypot(sources["y_angle"], sources["z_angle"])
+    return sources
+
+
+def _obs_with_cache(cached):
+    obs = Mock()
+    obs._cached_sources.return_value = cached
+    obs.get_evt2_info.return_value = _POINTING
+    obs._with_current_angles = lambda sources: (
+        observation.Observation._with_current_angles(obs, sources)
+    )
+    return obs
+
+
+def test_get_sources_recomputes_cached_angles_from_ra_dec_and_the_evt2_pointing():
+    from chandra_aca.transform import radec_to_yagzag
+
+    obs = _obs_with_cache(_stale_sources())
+
+    result = observation.Observation.get_sources(obs, version="celldetect")
+
+    quat = Quat(equatorial=tuple(_POINTING.values()))
+    y_angle, z_angle = radec_to_yagzag(
+        np.asarray(result["ra"]), np.asarray(result["dec"]), quat
+    )
+    np.testing.assert_allclose(result["y_angle"], y_angle, atol=1e-6)
+    np.testing.assert_allclose(result["z_angle"], z_angle, atol=1e-6)
+    np.testing.assert_allclose(result["r_angle"], np.hypot(y_angle, z_angle), atol=1e-6)
+    obs._cached_sources.assert_called_once_with(
+        version="celldetect", astromon_format=True
+    )
+
+
+def test_get_sources_reapplies_the_180_arcsec_cut_with_the_current_angles():
+    cached = _stale_sources()
+    cached["ra"][1] = 83.82 + 200 / 3600 / np.cos(np.radians(5.39))  # ~200" out
+    obs = _obs_with_cache(cached)
+
+    result = observation.Observation.get_sources(obs, version="celldetect")
+
+    assert list(result["id"]) == [0]
+
+
+def test_get_sources_passes_an_empty_table_through():
+    empty = _sources_table()[:0]
+    obs = _obs_with_cache(empty)
+
+    result = observation.Observation.get_sources(obs, version="celldetect")
+
+    assert len(result) == 0
+    obs.get_evt2_info.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("version", "cache_hash"),
+    [
+        ("celldetect", "d9c8dab1a259c6355c91f8e9dd79041f"),
+        ("gaussian_detect", "62080401290e26adc129bc6513a2fdad"),
+    ],
+)
+def test_the_sources_cache_keeps_its_file_names(version, cache_hash):
+    """The caches already on disk must keep being found, as `sources__<hash>`."""
+    from astromon.stored_result import argument_hash
+
+    cached = observation.Observation.__dict__["_cached_sources"]
+    assert cached.name == "sources"
+    assert argument_hash(cached.func, None, version=version) == cache_hash

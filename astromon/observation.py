@@ -1485,9 +1485,10 @@ class Observation:
         calling get_sources and getting an indistinguishable "real fit" result back.
 
         This is deliberately a separate method rather than a flag on get_sources:
-        get_sources is wrapped by @stored_result, whose cache key is derived from
-        its own bound signature, so adding a parameter there would change the cache
-        key (and thus invalidate) every already-cached result across the archive.
+        its cached part, _cached_sources, is wrapped by @stored_result, whose cache
+        key is derived from its own bound signature, so adding a parameter there
+        would change the cache key (and thus invalidate) every already-cached result
+        across the archive.
         """
         params = self._get_sources.get_parameters(self, version=version)
         requested_files = list(
@@ -1496,12 +1497,52 @@ class Observation:
         )
         return bool(TASKS.get_tasks_to_run(self, requested_files=requested_files))
 
-    @stored_result("sources", fmt="table", subdir="cache")
     def get_sources(self, *, version="celldetect", astromon_format=True):
         """
         Returns a table of sources formatted for the astromon_xray_source SQL table.
 
         If astromon_format is False, returns all the columns in the source detection output.
+
+        The sources come from a cache (:meth:`_cached_sources`), but their
+        y_angle/z_angle/r_angle never do: they are recomputed from each source's
+        RA/Dec and the evt2 header pointing on every call, and the r_angle < 180
+        arcsec cut is applied again with them. The cache key is only this method's
+        arguments, so a table cached with an older pointing (the quick-look obspar,
+        before 2026-09-04) is still a hit; its angles used to be saved back to the
+        database (634 obsids' celldetect sources, 2026-09/10). RA/Dec come from the
+        detection's own WCS and are unaffected. A source that an older pointing put
+        past 180 arcsec is not in the cache and is not recovered here.
+        """
+        sources = self._cached_sources(version=version, astromon_format=astromon_format)
+        return self._with_current_angles(sources)
+
+    def _with_current_angles(self, sources):
+        """`sources` with y/z/r_angle from RA/Dec and the evt2 pointing, cut at 180"."""
+        if len(sources) == 0:
+            return sources
+        evt2_info = self.get_evt2_info()
+        quat = Quat(
+            equatorial=(
+                evt2_info["ra_pnt"],
+                evt2_info["dec_pnt"],
+                evt2_info["roll_pnt"],
+            )
+        )
+        sources["y_angle"], sources["z_angle"] = radec_to_yagzag(
+            np.asarray(sources["ra"], dtype=float),
+            np.asarray(sources["dec"], dtype=float),
+            quat,
+        )
+        sources["r_angle"] = np.sqrt(sources["y_angle"] ** 2 + sources["z_angle"] ** 2)
+        return sources[sources["r_angle"] < 180]
+
+    # The cache file name is `sources__<hash of version, astromon_format>`, as it was
+    # when get_sources itself was cached, so the caches already on disk keep being found.
+    @stored_result("sources", fmt="table", subdir="cache")
+    def _cached_sources(self, *, version="celldetect", astromon_format=True):
+        """The sources for `version`, cached; use :meth:`get_sources` instead.
+
+        get_sources also brings their angles up to date.
         """
 
         # default dtype to be used when returning an empty list

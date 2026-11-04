@@ -125,7 +125,7 @@ def main() -> None:
                     (obsid, "would trigger a real detection rerun, not a re-persist")
                 )
                 continue
-            obs.get_sources.invalidate_result(version=args.version)
+            obs._cached_sources.invalidate_result(version=args.version)
             sources = obs.get_sources(version=args.version)
         except Exception as exc:
             needs_attention.append((obsid, f"{type(exc).__name__}: {exc}"))
