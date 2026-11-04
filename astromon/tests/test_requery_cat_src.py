@@ -163,8 +163,8 @@ def test_requery_obsid_stacks_catalogs_with_unique_ids():
         "RFC": lambda sources, obs_time, logging_tag="": _candidates(
             [150.0], [2.0], catalog="RFC"
         ),
-        "Quaia": lambda sources, obs_time, logging_tag="": _candidates(
-            [150.01, 150.01], [2.01, 2.01], catalog="Quaia"
+        "GaiaQSO": lambda sources, obs_time, logging_tag="": _candidates(
+            [150.01, 150.01], [2.01, 2.01], catalog="GaiaQSO"
         ),
     }
 
@@ -173,12 +173,12 @@ def test_requery_obsid_stacks_catalogs_with_unique_ids():
         sources=_xray_sources(ids=(3, 7)),
         quat=QUAT,
         obs_time="2020:001",
-        catalogs=("RFC", "Quaia"),
+        catalogs=("RFC", "GaiaQSO"),
         id_offset=10,
         getters=getters,
     )
 
-    assert list(candidates["catalog"]) == ["RFC", "Quaia", "Quaia"]
+    assert list(candidates["catalog"]) == ["RFC", "GaiaQSO", "GaiaQSO"]
     assert list(candidates["id"]) == [10, 11, 12]
     assert list(candidates["celldetect_x_id"]) == [3, 7, 7]
     assert set(candidates.colnames) >= set(db.ASTROMON_CAT_SRC_DTYPE.names)
@@ -187,8 +187,8 @@ def test_requery_obsid_stacks_catalogs_with_unique_ids():
 def test_requery_obsid_skips_catalogs_with_no_candidates():
     getters = {
         "RFC": lambda sources, obs_time, logging_tag="": _candidates([], []),
-        "Quaia": lambda sources, obs_time, logging_tag="": _candidates(
-            [150.0], [2.0], catalog="Quaia"
+        "GaiaQSO": lambda sources, obs_time, logging_tag="": _candidates(
+            [150.0], [2.0], catalog="GaiaQSO"
         ),
     }
 
@@ -197,12 +197,12 @@ def test_requery_obsid_skips_catalogs_with_no_candidates():
         sources=_xray_sources(),
         quat=QUAT,
         obs_time="2020:001",
-        catalogs=("RFC", "Quaia"),
+        catalogs=("RFC", "GaiaQSO"),
         id_offset=0,
         getters=getters,
     )
 
-    assert list(candidates["catalog"]) == ["Quaia"]
+    assert list(candidates["catalog"]) == ["GaiaQSO"]
     assert list(candidates["id"]) == [0]
 
 
@@ -231,8 +231,8 @@ def test_requery_obsid_reports_a_failing_catalog_without_losing_the_others():
 
     getters = {
         "RFC": boom,
-        "Quaia": lambda sources, obs_time, logging_tag="": _candidates(
-            [150.0], [2.0], catalog="Quaia"
+        "GaiaQSO": lambda sources, obs_time, logging_tag="": _candidates(
+            [150.0], [2.0], catalog="GaiaQSO"
         ),
     }
 
@@ -242,7 +242,7 @@ def test_requery_obsid_reports_a_failing_catalog_without_losing_the_others():
             sources=_xray_sources(),
             quat=QUAT,
             obs_time="2020:001",
-            catalogs=("RFC", "Quaia"),
+            catalogs=("RFC", "GaiaQSO"),
             id_offset=0,
             getters=getters,
         )
@@ -292,7 +292,7 @@ def test_write_candidates_leaves_untouched_catalogs_alone(tmp_path):
     dbfile = _seeded_db(tmp_path)
 
     requery_cat_src.write_candidates(
-        dbfile, _cat_src_rows([(7001, 10, "Quaia", "new-quaia")])
+        dbfile, _cat_src_rows([(7001, 10, "GaiaQSO", "new-gaiaqso")])
     )
 
     stored = db.get_table("astromon_cat_src", dbfile)
@@ -330,7 +330,9 @@ def test_write_candidates_reports_obsids_needing_an_xcorr_rebuild(tmp_path):
     new = vstack(
         [
             _cat_src_rows([(7001, 10, "RFC", "fresh-rfc")]),  # replaces existing RFC
-            _cat_src_rows([(7002, 10, "Quaia", "added")]),  # obsid 7002 had no Quaia
+            _cat_src_rows(
+                [(7002, 10, "GaiaQSO", "added")]
+            ),  # obsid 7002 had no GaiaQSO
         ]
     )
 
@@ -427,14 +429,10 @@ def test_milliquas_gaia_is_served_locally_now():
 
 
 def test_batched_catalogs_are_declared_apart_from_the_per_obsid_ones():
-    """DESI is queried once for a whole chunk of obsids rather than once each.
-
-    GaiaVarStar is queried the same way but is not in the default set at all -- see
-    test_gaia_var_star_is_not_matched_by_default.
-    """
+    """DESI is queried once for a whole chunk of obsids rather than once each."""
     assert set(requery_cat_src.BATCHED_CATALOGS) == {"DESIV161"}
     assert set(requery_cat_src.BATCHED_CATALOGS) <= set(requery_cat_src.ALL_CATALOGS)
-    assert set(requery_cat_src.BATCHED_GETTERS) == {"DESIV161", "GaiaVarStar"}
+    assert set(requery_cat_src.BATCHED_GETTERS) == {"DESIV161"}
     # The four rough_match catalogs stay per obsid: their VizieR query asks for
     # positions at the observation epoch, so it cannot be pooled.
     assert set(requery_cat_src.REMOTE_CATALOGS) == {
@@ -469,8 +467,8 @@ def test_requery_obsid_uses_precomputed_candidates_instead_of_querying():
 def test_requery_obsid_numbers_precomputed_and_queried_in_one_sequence():
     """Ids run consecutively per obsid however the candidates were obtained."""
     getters = {
-        "Quaia": lambda sources, obs_time, logging_tag="": _candidates(
-            [150.01], [2.01], catalog="Quaia"
+        "GaiaQSO": lambda sources, obs_time, logging_tag="": _candidates(
+            [150.01], [2.01], catalog="GaiaQSO"
         )
     }
 
@@ -479,13 +477,13 @@ def test_requery_obsid_numbers_precomputed_and_queried_in_one_sequence():
         sources=_xray_sources(ids=(3, 7)),
         quat=QUAT,
         obs_time="2020:001",
-        catalogs=("GaiaVarStar", "Quaia"),
+        catalogs=("DESIV161", "GaiaQSO"),
         id_offset=5,
         getters=getters,
-        precomputed={"GaiaVarStar": _candidates([150.0], [2.0], catalog="GaiaVarStar")},
+        precomputed={"DESIV161": _candidates([150.0], [2.0], catalog="DESIV161")},
     )
 
-    assert list(candidates["catalog"]) == ["GaiaVarStar", "Quaia"]
+    assert list(candidates["catalog"]) == ["DESIV161", "GaiaQSO"]
     assert list(candidates["id"]) == [5, 6]
 
 
@@ -495,10 +493,10 @@ def test_requery_obsid_does_not_demand_a_getter_for_a_precomputed_catalog():
         sources=_xray_sources(),
         quat=QUAT,
         obs_time="2020:001",
-        catalogs=("GaiaVarStar",),
+        catalogs=("DESIV161",),
         id_offset=0,
         getters={},
-        precomputed={"GaiaVarStar": _candidates([150.0], [2.0], catalog="GaiaVarStar")},
+        precomputed={"DESIV161": _candidates([150.0], [2.0], catalog="DESIV161")},
     )
 
     assert len(candidates) == 1
@@ -510,11 +508,11 @@ def test_requery_obsid_does_not_demand_a_getter_for_a_precomputed_catalog():
 def test_progress_records_which_catalogs_each_obsid_finished(tmp_path):
     progress = tmp_path / "done.txt"
 
-    requery_cat_src.record_completed(progress, {7001: ["RFC", "Quaia"]})
+    requery_cat_src.record_completed(progress, {7001: ["RFC", "GaiaQSO"]})
     requery_cat_src.record_completed(progress, {7002: ["RFC"]})
 
     assert requery_cat_src.load_completed(progress) == {
-        7001: {"RFC", "Quaia"},
+        7001: {"RFC", "GaiaQSO"},
         7002: {"RFC"},
     }
 
@@ -542,12 +540,12 @@ def test_load_completed_ignores_a_torn_final_line(tmp_path):
 
 
 def test_an_obsid_is_skipped_only_when_every_requested_catalog_is_done():
-    completed = {7001: {"RFC", "Quaia"}, 7002: {"RFC"}}
+    completed = {7001: {"RFC", "GaiaQSO"}, 7002: {"RFC"}}
 
     assert requery_cat_src.is_complete(completed, 7001, ("RFC",))
-    assert requery_cat_src.is_complete(completed, 7001, ("RFC", "Quaia"))
-    # 7002 never got Quaia, so a run that wants Quaia must not skip it.
-    assert not requery_cat_src.is_complete(completed, 7002, ("RFC", "Quaia"))
+    assert requery_cat_src.is_complete(completed, 7001, ("RFC", "GaiaQSO"))
+    # 7002 never got GaiaQSO, so a run that wants GaiaQSO must not skip it.
+    assert not requery_cat_src.is_complete(completed, 7002, ("RFC", "GaiaQSO"))
     assert not requery_cat_src.is_complete(completed, 7003, ("RFC",))
 
 
@@ -581,56 +579,6 @@ def test_requery_skips_only_obsids_whose_requested_catalogs_are_all_done(tmp_pat
 
     # 7001 already has RFC; 7002 has only DESIV161, so it still needs RFC.
     assert summary["resumed"] == 1
-
-
-# ─── GaiaVarStar is out of the default set ───────────────────────────────────
-
-
-def test_gaia_var_star_is_not_matched_by_default():
-    """It costs more than everything it finds.
-
-    99 rows across the whole database, from 96 obsids, and its Gaia TAP query owns
-    every stall in a full run: a 120 s hard timeout inside tries=3/delay=10/backoff=2
-    is up to ~6.5 minutes per bad batch, and a measured chunk of 100 obsids hit four
-    of them.
-    """
-    assert "GaiaVarStar" not in requery_cat_src.ALL_CATALOGS
-    assert "GaiaVarStar" not in requery_cat_src.BATCHED_CATALOGS
-    assert "GaiaVarStar" in requery_cat_src.OPTIONAL_CATALOGS
-
-
-def test_catalogs_all_excludes_gaia_var_star():
-    resolved = requery_cat_src._resolve_catalogs(["all"])
-
-    assert "GaiaVarStar" not in resolved
-    assert "DESIV161" in resolved
-    assert "MilliquasGaia" in resolved
-
-
-def test_gaia_var_star_can_still_be_asked_for_by_name():
-    """Excluded from the default set, not removed -- a later pass can still run it."""
-    assert requery_cat_src._resolve_catalogs(["GaiaVarStar"]) == ["GaiaVarStar"]
-    assert "GaiaVarStar" in requery_cat_src.CATALOG_GETTERS
-    assert "GaiaVarStar" in requery_cat_src.BATCHED_GETTERS
-
-
-def test_named_gaia_var_star_still_goes_through_the_batched_path():
-    """Asking for it explicitly must not fall back to a query per obsid."""
-    calls = []
-
-    def batched(positions, radius=None, logging_tag=""):
-        calls.append(sorted(positions))
-        return {obsid: _candidates([], []) for obsid in positions}
-
-    with patch.dict(
-        requery_cat_src.BATCHED_GETTERS, {"GaiaVarStar": batched}, clear=False
-    ):
-        result = requery_cat_src._batched_candidates(
-            ["GaiaVarStar"], {7001: None, 7002: None}
-        )
-
-    assert calls == [[7001, 7002]]
-    assert set(result) == {"GaiaVarStar"}
 
 
 # ─── astromon_status.catalog_matched ─────────────────────────────────────────

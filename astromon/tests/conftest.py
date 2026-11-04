@@ -1,6 +1,6 @@
 """Test-suite guards.
 
-The whole-catalog caches (RFC, ICRF3, Milliquas, Quaia, GaiaAGN, GaiaQSO,
+The whole-catalog caches (RFC, ICRF3, Milliquas, GaiaAGN, GaiaQSO,
 MilliquasGaia) and the observation archive both sit under
 :data:`astromon.utils.ASTROMON_DATA_DIR`, resolved at import time and defaulting
 to ``$SKA/data/astromon``. That is a real production directory holding hundreds

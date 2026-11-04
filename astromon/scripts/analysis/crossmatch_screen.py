@@ -1,14 +1,13 @@
 """Bulk-screen xray sources against new Gaia-based catalogs to prioritise obsids for reprocessing.
 
-Screens astromon_xray_src rows from the original database against GaiaAGN,
-GaiaVarStar, and Milliquas v8 to identify which obsids have at least one
+Screens astromon_xray_src rows from the original database against GaiaAGN
+and Milliquas v8 to identify which obsids have at least one
 candidate match with the new catalogs added since the original pipeline ran.
 
 All sources for all target obsids are queried in one batched pass per
 catalog rather than obsid-by-obsid:
 
-  - GaiaAGN / GaiaVarStar: batched Gaia TAP queries (~4 k round-trips at
-    the default batch_size=50; ~450 at batch_size=500).
+  - GaiaAGN: the locally cached Gaia DR3 agn_cross_id catalog.
   - Milliquas v8: downloaded once from CDS, cached locally as a FITS file,
     then queried via astropy search_around_sky — no network after the first
     run.
@@ -19,7 +18,7 @@ within <radius>".
 
 Output files (written to --output-dir):
   screen_results.csv   — one row per obsid: obsid, n_xray_src, n_gaia_agn,
-                         n_gaia_var_star, n_milliquas
+                         n_milliquas
   priority_obsids.txt  — obsids with ≥1 match, sorted by total match count
   no_match_obsids.txt  — obsids with 0 matches (lower priority for reprocessing)
 
@@ -30,7 +29,6 @@ Usage::
         --original-db /path/to/original/astromon.h5 \\
         --output-dir /path/to/output \\
         [--radius 3.0] \\
-        [--gaia-batch-size 500]
 """
 
 import argparse
@@ -46,7 +44,7 @@ from astropy.coordinates import search_around_sky
 from ska_helpers.logging import basic_logger
 
 from astromon import db
-from astromon.cross_match import get_gaia_agn, get_gaia_var_stars, get_milliquas
+from astromon.cross_match import get_gaia_agn, get_milliquas
 
 
 def load_xray_sources(
@@ -122,10 +120,9 @@ def map_hits_to_obsids(
 def screen(
     xray_src: table.Table,
     radius: u.Quantity = 3 * u.arcsec,
-    gaia_batch_size: int = 50,
     milliquas_cache: Path | None = None,
 ) -> table.Table:
-    """Run the three-catalog bulk screen and return a per-obsid results table.
+    """Run the two-catalog bulk screen and return a per-obsid results table.
 
     Parameters
     ----------
@@ -133,10 +130,6 @@ def screen(
         Combined astromon_xray_src rows for all target obsids.
     radius
         Match radius for all catalogs.  Default 3 arcsec.
-    gaia_batch_size
-        Positions per TAP CONTAINS-OR batch for Gaia queries.  Default 50
-        (conservative).  500 gives ~10× fewer round-trips; increase if the
-        TAP server accepts larger queries without timing out.
     milliquas_cache
         Override the default Milliquas cache path.
 
@@ -144,7 +137,7 @@ def screen(
     -------
     table.Table
         One row per unique obsid in *xray_src* with columns:
-        obsid, n_xray_src, n_gaia_agn, n_gaia_var_star, n_milliquas.
+        obsid, n_xray_src, n_gaia_agn, n_milliquas.
     """
     logger = logging.getLogger("astromon")
 
@@ -152,8 +145,7 @@ def screen(
     n_src = len(xray_src)
     n_obs = len(unique_obsids)
     logger.info(
-        f"Screening {n_src} xray sources across {n_obs} obsids "
-        f"(radius={radius}, gaia_batch_size={gaia_batch_size})"
+        f"Screening {n_src} xray sources across {n_obs} obsids (radius={radius})"
     )
 
     all_pos = coords.SkyCoord(xray_src["ra"], xray_src["dec"], unit="deg")
@@ -167,23 +159,6 @@ def screen(
     logger.info(
         f"GaiaAGN done in {time.time() - t0:.0f}s: "
         f"{len(agn_hits)} hits across {len(agn_counts)} obsids"
-    )
-
-    # --- GaiaVarStar -------------------------------------------------------
-    # Pass pos without obstime so the function skips PM correction (fine for
-    # screening; full reprocessing applies per-obsid correction).
-    t0 = time.time()
-    logger.info(
-        f"GaiaVarStar: querying {n_src} positions "
-        f"(~{n_src // gaia_batch_size + 1} TAP batches)..."
-    )
-    var_hits = get_gaia_var_stars(
-        all_pos, radius=radius, batch_size=gaia_batch_size, logging_tag="screen"
-    )
-    var_counts = map_hits_to_obsids(all_pos, all_obsids, var_hits, radius)
-    logger.info(
-        f"GaiaVarStar done in {time.time() - t0:.0f}s: "
-        f"{len(var_hits)} hits across {len(var_counts)} obsids"
     )
 
     # --- Milliquas (local cache + search_around_sky) -----------------------
@@ -214,16 +189,13 @@ def screen(
             "obsid": int(obsid),
             "n_xray_src": obs_n_src.get(int(obsid), 0),
             "n_gaia_agn": agn_counts.get(int(obsid), 0),
-            "n_gaia_var_star": var_counts.get(int(obsid), 0),
             "n_milliquas": mq_counts.get(int(obsid), 0),
         }
         for obsid in unique_obsids
     ]
-    col_names = ["obsid", "n_xray_src", "n_gaia_agn", "n_gaia_var_star", "n_milliquas"]
+    col_names = ["obsid", "n_xray_src", "n_gaia_agn", "n_milliquas"]
     result = table.Table(rows=rows, names=col_names)
-    result["n_total"] = (
-        result["n_gaia_agn"] + result["n_gaia_var_star"] + result["n_milliquas"]
-    )
+    result["n_total"] = result["n_gaia_agn"] + result["n_milliquas"]
     return result
 
 
@@ -254,16 +226,6 @@ def main() -> None:
         default=3.0,
         type=float,
         help="Match radius in arcsec (default: 3.0).",
-    )
-    parser.add_argument(
-        "--gaia-batch-size",
-        default=50,
-        type=int,
-        dest="gaia_batch_size",
-        help=(
-            "Positions per Gaia TAP CONTAINS-OR query (default: 50). "
-            "Increase to 200-500 to reduce round-trips; lower if TAP times out."
-        ),
     )
     parser.add_argument(
         "--milliquas-cache",
@@ -311,7 +273,6 @@ def main() -> None:
     result = screen(
         xray_src,
         radius=args.radius * u.arcsec,
-        gaia_batch_size=args.gaia_batch_size,
         milliquas_cache=args.milliquas_cache,
     )
 
@@ -335,11 +296,10 @@ def main() -> None:
     logger.info(f"{len(no_match)} obsids with no new-catalog match → {no_match_path}")
 
     n_agn = int(np.sum(result["n_gaia_agn"] > 0))
-    n_var = int(np.sum(result["n_gaia_var_star"] > 0))
     n_mq = int(np.sum(result["n_milliquas"] > 0))
     logger.info(
         f"Summary: GaiaAGN hits in {n_agn} obsids, "
-        f"GaiaVarStar in {n_var}, Milliquas in {n_mq}, "
+        f"Milliquas in {n_mq}, "
         f"any-match in {len(priority)}"
     )
 

@@ -84,10 +84,7 @@ from astromon.cross_match import (
     get_desi_v161_candidates,
     get_gaia_agn,
     get_gaia_qso_candidates,
-    get_gaia_var_stars,
-    get_gaia_var_stars_by_obsid,
     get_milliquas_gaia,
-    get_quaia_candidates,
     rough_match,
 )
 
@@ -96,21 +93,12 @@ logger = basic_logger("astromon", level="INFO")
 SEARCH_RADIUS = 3 * u.arcsec
 
 # Served from a local cache, so a full pass over every obsid costs no network at all.
-LOCAL_CATALOGS = ("RFC", "ICRF3", "GaiaAGN", "GaiaQSO", "Quaia", "MilliquasGaia")
+LOCAL_CATALOGS = ("RFC", "ICRF3", "GaiaAGN", "GaiaQSO", "MilliquasGaia")
 
 # Queried once for a whole chunk of obsids rather than once each: the query does
 # not depend on when the observation happened, so the positions can be pooled and
 # the answer split up afterwards.
 BATCHED_CATALOGS = ("DESIV161",)
-
-# Reachable by naming it, but not part of any default set. GaiaVarStar yields 99
-# rows across the whole database from 96 obsids, and its Gaia TAP query is where a
-# full run spends its time: a 120 s hard timeout inside tries=3/delay=10/backoff=2
-# costs up to ~6.5 minutes per bad batch, and a measured chunk of 100 obsids hit
-# four of them -- 36 minutes for that chunk against a projected 50 hours overall.
-# Excluded rather than deleted, so a dedicated pass can still run it when the Gaia
-# archive is cooperative.
-OPTIONAL_CATALOGS = ("GaiaVarStar",)
 
 # Still one VizieR cone search per obsid: rough_match asks for positions at the
 # observation epoch, so these cannot be pooled without changing the astrometry.
@@ -153,7 +141,6 @@ def _position_getter(query: Callable) -> Callable:
     """Wrap a ``get_*(pos, radius, logging_tag)`` catalog function."""
 
     def getter(sources: Table, obs_time: CxoTime, logging_tag: str = "") -> Table:
-        # obstime matters: get_gaia_var_stars corrects for proper motion with it.
         pos = coords.SkyCoord(
             sources["ra"], sources["dec"], unit="deg", obstime=obs_time
         )
@@ -171,15 +158,12 @@ CATALOG_GETTERS: dict[str, Callable] = {
     "SDSS": _rough_match_getter("SDSS"),
     "GaiaAGN": _position_getter(get_gaia_agn),
     "GaiaQSO": _position_getter(get_gaia_qso_candidates),
-    "Quaia": _position_getter(get_quaia_candidates),
     "MilliquasGaia": _position_getter(get_milliquas_gaia),
     "DESIV161": _position_getter(get_desi_v161_candidates),
-    "GaiaVarStar": _position_getter(get_gaia_var_stars),
 }
 
 
 BATCHED_GETTERS: dict[str, Callable] = {
-    "GaiaVarStar": get_gaia_var_stars_by_obsid,
     "DESIV161": get_desi_v161_by_obsid,
 }
 
@@ -768,8 +752,6 @@ def get_parser() -> argparse.ArgumentParser:
         default=list(LOCAL_CATALOGS),
         help=(
             "catalogs to re-query, or 'local' / 'batched' / 'remote' / 'all'. "
-            f"'all' is the default-matched set and excludes "
-            f"{' '.join(OPTIONAL_CATALOGS)}, which must be named explicitly. "
             f"Default: {' '.join(LOCAL_CATALOGS)}"
         ),
     )
@@ -806,11 +788,7 @@ def get_parser() -> argparse.ArgumentParser:
 
 
 def _resolve_catalogs(names: Sequence[str]) -> list[str]:
-    """Expand a group name, or validate an explicit list.
-
-    Note that "all" means every catalog matched by default, which is not every
-    catalog there is a getter for -- see :data:`OPTIONAL_CATALOGS`.
-    """
+    """Expand a group name, or validate an explicit list."""
     groups = {
         "local": LOCAL_CATALOGS,
         "batched": BATCHED_CATALOGS,
@@ -823,8 +801,7 @@ def _resolve_catalogs(names: Sequence[str]) -> list[str]:
     if unknown:
         raise SystemExit(
             f"unknown catalog(s): {', '.join(unknown)}. "
-            f"Default set: {', '.join(ALL_CATALOGS)}. "
-            f"Also available by name: {', '.join(OPTIONAL_CATALOGS)}"
+            f"Known catalogs: {', '.join(ALL_CATALOGS)}"
         )
     return list(names)
 

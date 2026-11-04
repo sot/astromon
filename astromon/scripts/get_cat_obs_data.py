@@ -32,9 +32,7 @@ from astromon.cross_match import (
     get_desi_v161_candidates,
     get_gaia_agn,
     get_gaia_qso_candidates,
-    get_gaia_var_stars,
     get_milliquas_gaia,
-    get_quaia_candidates,
     rough_match,
 )
 from astromon.observation import Observation, ReturnCode
@@ -369,7 +367,7 @@ def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
     skip_catalog_match : bool
         If True, skip the catalog rough_match/candidate-query step entirely
         (RFC/ICRF3/Tycho2/USNO-B1.0/2MASS/SDSS rough_match, plus the GaiaAGN/
-        GaiaQSO/MilliquasGaia/Quaia/DESIV161/GaiaVarStar queries) and the
+        GaiaQSO/MilliquasGaia/DESIV161 queries) and the
         cross-match computation that depends on it. Detection still runs and
         astromon_xray_src is still saved; astromon_cat_src/astromon_xcorr come
         back empty. Meant for a detection-only bulk pass whose catalog
@@ -468,7 +466,6 @@ def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
             assign_cat_src_ids(match_candidates, obsid, celldetect_sources, q)
 
             # Build a time-stamped SkyCoord for all Gaia catalog queries.
-            # obstime is required by get_gaia_var_stars for proper motion correction.
             xray_pos = coords.SkyCoord(
                 celldetect_sources["ra"],
                 celldetect_sources["dec"],
@@ -529,24 +526,6 @@ def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
             else:
                 logger.debug(f"OBSID={obsid} MilliquasGaia: no candidates")
 
-            # Quaia (Gaia DR3 + unWISE) candidates -- local cache, bounding-cone filter.
-            quaia_candidates = get_quaia_candidates(
-                xray_pos, radius=3 * u.arcsec, logging_tag=f"OBSID={obsid}"
-            )
-            if len(quaia_candidates):
-                id_offset = (
-                    len(match_candidates)
-                    + len(gaia_agn_candidates)
-                    + len(gaia_qso_candidates)
-                    + len(milliquas_candidates)
-                )
-                _add_obsid_and_anchor(quaia_candidates, id_offset=id_offset)
-                logger.info(
-                    f"OBSID={obsid} Quaia: {len(quaia_candidates)} candidate(s)"
-                )
-            else:
-                logger.debug(f"OBSID={obsid} Quaia: no candidates")
-
             # DESI EDR (V/161) candidates -- VizieR cone search, QSO+GALAXY, ZWARN==0.
             desi_candidates = get_desi_v161_candidates(
                 xray_pos, radius=3 * u.arcsec, logging_tag=f"OBSID={obsid}"
@@ -557,7 +536,6 @@ def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
                     + len(gaia_agn_candidates)
                     + len(gaia_qso_candidates)
                     + len(milliquas_candidates)
-                    + len(quaia_candidates)
                 )
                 _add_obsid_and_anchor(desi_candidates, id_offset=id_offset)
                 logger.info(
@@ -565,26 +543,6 @@ def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
                 )
             else:
                 logger.debug(f"OBSID={obsid} DESIV161: no candidates")
-
-            # GaiaVarStar catalog candidates -- proper motion corrected to obs epoch.
-            var_star_candidates = get_gaia_var_stars(
-                xray_pos, radius=3 * u.arcsec, logging_tag=f"OBSID={obsid}"
-            )
-            if len(var_star_candidates):
-                id_offset = (
-                    len(match_candidates)
-                    + len(gaia_agn_candidates)
-                    + len(gaia_qso_candidates)
-                    + len(milliquas_candidates)
-                    + len(quaia_candidates)
-                    + len(desi_candidates)
-                )
-                _add_obsid_and_anchor(var_star_candidates, id_offset=id_offset)
-                logger.info(
-                    f"OBSID={obsid} GaiaVarStar: {len(var_star_candidates)} candidate(s)"
-                )
-            else:
-                logger.debug(f"OBSID={obsid} GaiaVarStar: no candidates")
         else:
             logger.info(
                 f"OBSID={obsid} skip_catalog_match=True: no catalog candidates queried"
@@ -594,9 +552,7 @@ def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
             gaia_agn_candidates = empty_cat_src
             gaia_qso_candidates = empty_cat_src
             milliquas_candidates = empty_cat_src
-            quaia_candidates = empty_cat_src
             desi_candidates = empty_cat_src
-            var_star_candidates = empty_cat_src
 
         xcorr_cols = list(db.ASTROMON_XCORR_DTYPE.names)
         all_sources = []
@@ -661,10 +617,8 @@ def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
                 match_candidates,
                 gaia_agn_candidates,
                 gaia_qso_candidates,
-                quaia_candidates,
                 milliquas_candidates,
                 desi_candidates,
-                var_star_candidates,
             ]
             if len(t)
         ]

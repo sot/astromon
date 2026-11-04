@@ -1,15 +1,9 @@
-"""Tests for querying GaiaVarStar and DESI once for many obsids at a time.
+"""Tests for querying DESI once for many obsids at a time.
 
-Both are queried per obsid today, one network round trip each, and both round
-trips are epoch-independent: the GaiaVarStar ADQL draws its cones around the
-input positions against Gaia's J2016 catalog positions with no epoch in the
-query, and DESI asks VizieR for plain RAICRS/DEICRS. So the positions of many
-obsids can go in one query and be split up afterwards, which is what turns
-8,451 round trips into a few hundred.
-
-The proper-motion correction is what makes GaiaVarStar the harder of the two: it
-is per-obsid, applied after the query, so the split has to happen before the
-correction and the correction has to use each obsid's own epoch.
+DESI is queried per obsid today, one network round trip each, and the round trip
+is epoch-independent: DESI asks VizieR for plain RAICRS/DEICRS. So the positions of
+many obsids can go in one query and be split up afterwards, which is what turns
+thousands of round trips into a few hundred.
 """
 
 from unittest.mock import patch
@@ -32,7 +26,7 @@ FIELD_B = coords.SkyCoord([220.0], [-15.0], unit="deg")
 
 
 def _gaia_rows(entries):
-    """Raw Gaia rows shaped like the var-star TAP query's output."""
+    """Raw Gaia-like rows (source_id, ra, dec, proper motion, G) for the radius filter."""
     return Table(
         {
             "source_id": np.array([e[0] for e in entries], dtype=np.int64),
@@ -92,108 +86,6 @@ def test_rows_near_positions_handles_an_empty_catalog():
     assert len(cross_match.rows_near_positions(catalog, FIELD_A, RADIUS)) == 0
 
 
-# ─── GaiaVarStar ─────────────────────────────────────────────────────────────
-
-
-def test_gaia_var_stars_by_obsid_uses_one_query_for_every_obsid():
-    """The whole point: round trips scale with batches, not with obsids."""
-    calls = []
-
-    def stub(query):
-        calls.append(query)
-        return GAIA_ROWS
-
-    with patch.object(cross_match, "_execute_gaia_tap_query", stub):
-        result = cross_match.get_gaia_var_stars_by_obsid(
-            _positions_by_obsid(), radius=RADIUS, batch_size=500
-        )
-
-    assert len(calls) == 1, "two obsids must not cost two round trips"
-    assert set(result) == {7001, 7002}
-
-
-def test_gaia_var_stars_by_obsid_gives_each_obsid_only_its_own_field():
-    with patch.object(cross_match, "_execute_gaia_tap_query", lambda q: GAIA_ROWS):
-        result = cross_match.get_gaia_var_stars_by_obsid(
-            _positions_by_obsid(), radius=RADIUS, batch_size=500
-        )
-
-    assert list(result[7001]["name"]) == ["GaiaVarStar-1001"]
-    assert list(result[7002]["name"]) == ["GaiaVarStar-2002"]
-
-
-def test_gaia_var_stars_by_obsid_corrects_to_each_obsids_own_epoch():
-    """A shared source seen at two epochs must come back at two positions.
-
-    This is the trap in batching: the query is epoch-free, but the answer is not.
-    Correcting the pooled result once would stamp one obsid's epoch on all of them.
-    """
-    moving = _gaia_rows([(3003, 150.0, 2.0, 500.0, 500.0, 14.0)])  # 0.5 arcsec/yr
-    positions = {
-        7001: coords.SkyCoord(FIELD_A, obstime=CxoTime("2020:001")),
-        7002: coords.SkyCoord(FIELD_A, obstime=CxoTime("2010:001")),
-    }
-
-    with patch.object(cross_match, "_execute_gaia_tap_query", lambda q: moving):
-        result = cross_match.get_gaia_var_stars_by_obsid(
-            positions, radius=RADIUS, batch_size=500
-        )
-
-    assert len(result[7001]) == 1
-    assert len(result[7002]) == 1
-    # 10 years of separation at 0.5 arcsec/yr in dec is ~5 arcsec of difference.
-    separation = abs(result[7001]["dec"][0] - result[7002]["dec"][0]) * 3600
-    assert separation == pytest.approx(5.0, abs=0.2)
-
-
-def test_gaia_var_stars_by_obsid_shares_a_source_between_overlapping_fields():
-    """Chandra revisits fields; the same var star is a candidate for each visit."""
-    positions = {
-        7001: coords.SkyCoord(FIELD_A, obstime=CxoTime("2020:001")),
-        7002: coords.SkyCoord(FIELD_A, obstime=CxoTime("2020:001")),
-    }
-
-    with patch.object(cross_match, "_execute_gaia_tap_query", lambda q: GAIA_ROWS):
-        result = cross_match.get_gaia_var_stars_by_obsid(
-            positions, radius=RADIUS, batch_size=500
-        )
-
-    assert list(result[7001]["name"]) == ["GaiaVarStar-1001"]
-    assert list(result[7002]["name"]) == ["GaiaVarStar-1001"]
-
-
-def test_gaia_var_stars_by_obsid_agrees_with_the_per_obsid_function():
-    """The regression guard: batching must not change what an obsid gets.
-
-    One obsid, so the pooled positions are exactly that obsid's positions and the
-    stub -- which cannot filter by position the way the real ADQL does -- is fed
-    the same thing either way.
-    """
-    field_a_only = _gaia_rows([(1001, 150.0, 2.0, 400.0, -300.0, 15.0)])
-    pos = coords.SkyCoord(FIELD_A, obstime=CxoTime("2020:001"))
-
-    with patch.object(cross_match, "_execute_gaia_tap_query", lambda q: field_a_only):
-        batched = cross_match.get_gaia_var_stars_by_obsid(
-            {7001: pos}, radius=RADIUS, batch_size=500
-        )
-        one = cross_match.get_gaia_var_stars(pos, radius=RADIUS)
-
-    assert list(batched[7001]["name"]) == list(one["name"])
-    assert np.allclose(batched[7001]["ra"], one["ra"])
-    assert np.allclose(batched[7001]["dec"], one["dec"])
-    assert np.allclose(batched[7001]["mag"], one["mag"])
-
-
-def test_gaia_var_stars_by_obsid_returns_an_empty_table_per_obsid_when_nothing_matches():
-    with patch.object(cross_match, "_execute_gaia_tap_query", lambda q: _gaia_rows([])):
-        result = cross_match.get_gaia_var_stars_by_obsid(
-            _positions_by_obsid(), radius=RADIUS, batch_size=500
-        )
-
-    assert set(result) == {7001, 7002}
-    assert all(len(candidates) == 0 for candidates in result.values())
-
-
 # ─── DESI ────────────────────────────────────────────────────────────────────
 
 
@@ -242,7 +134,7 @@ def test_desi_by_obsid_gives_each_obsid_only_its_own_field():
 
 
 def test_desi_by_obsid_agrees_with_the_per_obsid_function():
-    """One obsid, for the same reason as the GaiaVarStar equivalence test."""
+    """One obsid, so the batched and per-obsid results are directly comparable."""
     field_a_only = [
         Table(
             {
@@ -276,26 +168,6 @@ def test_desi_by_obsid_agrees_with_the_per_obsid_function():
 
 def _boom(*args, **kwargs):
     raise requests.exceptions.ReadTimeout("Read timed out.")
-
-
-def test_gaia_var_stars_raises_when_a_tap_batch_fails():
-    pos = coords.SkyCoord(FIELD_A, obstime=CxoTime("2020:001"))
-
-    with (
-        patch.object(cross_match, "_execute_gaia_tap_query", _boom),
-        pytest.raises(cross_match.CatalogQueryFailed, match="GaiaVarStar"),
-    ):
-        cross_match.get_gaia_var_stars(pos, radius=RADIUS)
-
-
-def test_gaia_var_stars_by_obsid_raises_rather_than_returning_empty_tables():
-    with (
-        patch.object(cross_match, "_execute_gaia_tap_query", _boom),
-        pytest.raises(cross_match.CatalogQueryFailed),
-    ):
-        cross_match.get_gaia_var_stars_by_obsid(
-            _positions_by_obsid(), radius=RADIUS, batch_size=100
-        )
 
 
 def test_desi_candidates_raises_when_the_vizier_query_fails():
@@ -333,23 +205,6 @@ def _many_positions(count, obsids=4):
     }
 
 
-def test_gaia_var_stars_splits_positions_into_bounded_sub_batches():
-    """A query with ~900 OR'd CONTAINS clauses is what broke the first full run."""
-    sizes = []
-
-    def counting(query):
-        sizes.append(query.count("CONTAINS("))
-        return _gaia_rows([])
-
-    with patch.object(cross_match, "_execute_gaia_tap_query", counting):
-        cross_match.get_gaia_var_stars_by_obsid(
-            _many_positions(240), radius=RADIUS, batch_size=100
-        )
-
-    assert len(sizes) == 3, f"240 positions at 100 per query should be 3, got {sizes}"
-    assert max(sizes) <= 100
-
-
 def test_desi_splits_positions_into_bounded_sub_batches():
     counts = []
 
@@ -369,23 +224,3 @@ def test_desi_splits_positions_into_bounded_sub_batches():
 def test_batched_positions_per_query_is_well_under_what_the_services_refused():
     """900 positions per query timed out on both services; 500 was the old default."""
     assert cross_match.BATCHED_POSITIONS_PER_QUERY <= 100
-
-
-def test_gaia_var_stars_accepts_a_scalar_position():
-    """The docstring has always claimed scalar support; the batching loop broke it.
-
-    `len()` on a scalar SkyCoord raises TypeError, so the old loop over
-    `range(0, len(pos), batch_size)` could not run. Splitting the query out fixed
-    it incidentally by looping over the position array instead -- this pins that,
-    since nothing else would notice it regressing.
-    """
-    scalar = coords.SkyCoord(150.0, 2.0, unit="deg", obstime=CxoTime("2020:001"))
-    assert scalar.isscalar
-
-    with patch.object(cross_match, "_execute_gaia_tap_query", lambda query: GAIA_ROWS):
-        result = cross_match.get_gaia_var_stars(scalar, radius=RADIUS)
-
-    # Both stub rows come back: the radius cut lives in the ADQL, which the stub
-    # replaces, and get_gaia_var_stars does not re-filter what the query returned.
-    # What is under test is that a scalar reaches the query at all.
-    assert sorted(result["name"]) == ["GaiaVarStar-1001", "GaiaVarStar-2002"]

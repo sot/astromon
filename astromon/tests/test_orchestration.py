@@ -750,9 +750,9 @@ def _seed_obsid_with_matches(dbfile, obsid=7001):
 def test_empty_cat_src_leaves_the_obsid_alone_by_default():
     """An empty table is not a statement that the obsid has nothing.
 
-    A rerun against a smaller catalog set legitimately produces fewer candidates,
-    and GaiaVarStar was dropped from the default set for exactly that reason, so
-    inferring deletion from a row count would discard real rows. Doing nothing
+    A rerun against a smaller catalog set legitimately produces fewer candidates
+    (GaiaVarStar and Quaia were dropped from astromon altogether), so inferring
+    deletion from a row count would discard real rows. Doing nothing
     leaves cat_src and xcorr mutually consistent, which is the safe default.
     """
     from astromon.scripts.maintenance.process_one_obsid import save_with_lock

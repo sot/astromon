@@ -15,7 +15,7 @@ the Part 2 validation campaign notes.
 their respective index files on first use and cache them under
 ``$ASTROMON_DATA_DIR/tycho2_local_index/`` (default
 ``$SKA/data/astromon/tycho2_local_index/``), the same download-and-cache-on-first-use
-convention :any:`astromon.cross_match` uses for Milliquas, Quaia, ICRF3, etc. The
+convention :any:`astromon.cross_match` uses for Milliquas, ICRF3, etc. The
 Tycho-2 index is a few hundred MB and takes a couple of minutes to build; see
 ``astromon/scripts/build_tycho2_local_index.py`` to pre-build it ahead of time rather
 than paying that cost inside whichever process happens to need it first.
@@ -279,7 +279,7 @@ def fit_pointing_quat(
 
 # ---------------------------------------------------------------------------------
 # Download-and-cache-on-first-use index building, mirroring astromon.cross_match's
-# get_milliquas / get_quaia convention (pinned-release cache, rebuilt only when the
+# get_milliquas / get_icrf3 convention (pinned-release cache, rebuilt only when the
 # recorded release no longer matches, not on a timer -- both source catalogs are
 # static CDS releases).
 # ---------------------------------------------------------------------------------
@@ -318,7 +318,7 @@ def _cache_needs_refresh(cache_path: Path, version: str) -> bool:
     Both source catalogs are pinned, static CDS releases, so a mismatch between the
     recorded release and the declared one is what invalidates a cache, not file age
     (see astromon.cross_match._cache_needs_refresh for the same convention applied to
-    Milliquas/Quaia/ICRF3/etc.). A cache with no recorded release is adopted as-is.
+    Milliquas/ICRF3/etc.). A cache with no recorded release is adopted as-is.
     """
     if not cache_path.exists():
         return True

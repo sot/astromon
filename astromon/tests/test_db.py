@@ -873,14 +873,14 @@ def test_save_expect_existing_allows_normal_append():
 
         db.save(
             "astromon_cat_src",
-            _cat_src_row(catalog="Quaia", obsid=7003, name="quaia-c"),
+            _cat_src_row(catalog="GaiaQSO", obsid=7003, name="gaiaqso-c"),
             dbfile,
             expect_existing=True,
         )
 
         result = db.get_table("astromon_cat_src", dbfile)
         assert len(result) == 5
-        assert "quaia-c" in list(result["name"])
+        assert "gaiaqso-c" in list(result["name"])
 
 
 def test_save_expect_existing_catches_destroyed_table():

@@ -44,7 +44,7 @@ retry_on_connection_error = retry(
 def skip_on_gaia_outage():
     """Turn a Gaia archive outage inside the block into a skip.
 
-    get_gaia_var_stars and get_milliquas_gaia deliberately degrade gracefully: they log a
+    get_milliquas_gaia deliberately degrades gracefully: they log a
     warning and return an empty table when a TAP query fails. That means an unreachable
     Gaia archive reaches the test as "expected at least one source, got 0" — a science
     failure rather than an outage. Record any TAP exception and skip on it instead.
@@ -198,31 +198,6 @@ def test_gaia_tap_entry_is_removed_after_the_only_caller_times_out(monkeypatch):
         "the worker must remove its own entry once it completes, even when "
         "every caller for this query already gave up waiting on it"
     )
-
-
-def test_apply_proper_motion_near_pole_stays_bounded():
-    """A source at the celestial pole must not get a wildly corrupted corrected RA.
-
-    ra_corr divides by cos(dec), which is ~6e-17 (not exactly 0, so this never
-    raises ZeroDivisionError or produces literal inf) at dec = 90. Chandra does
-    observe near-polar declinations, so a nonzero proper motion there used to
-    produce a nonsensical ~10-arcmin-scale-times-a-billion RA offset instead of
-    a bounded, physically plausible correction.
-    """
-    ra_corr, dec_corr = cross_match._apply_proper_motion(
-        ra=10.0,
-        dec=90.0,
-        pmra=5.0,
-        pmdec=-2.0,
-        obs_epoch_yr=2026.0,
-        catalog_epoch_yr=2016.0,
-    )
-    # Unclipped, cos(radians(90)) ~ 6e-17 sends this into the hundreds of
-    # billions of degrees -- RA is genuinely degenerate exactly at the pole, so
-    # a large-but-bounded correction is expected; an astronomically huge one is
-    # the bug.
-    assert abs(ra_corr - 10.0) < 1000
-    assert np.isfinite(dec_corr)
 
 
 def _get_table(name, *args, **kawargs):
@@ -550,7 +525,7 @@ def test_get_gaia_agn_catalog_failure_raises():
     """A cached-catalog load/download failure raises rather than reporting an empty sky.
 
     This used to degrade gracefully to an empty table. It is deliberately no longer
-    graceful, for the same reason as GaiaVarStar and DESI: an unmeasured field and
+    graceful, for the same reason as DESI: an unmeasured field and
     an empty one are different facts, and writing the second when the first is true
     is how astromon_cat_src lost catalogs.
     """
@@ -589,202 +564,6 @@ def test_compute_cross_matches_gaia_agn():
     assert matches["catalog"][0] == "GaiaAGN"
     assert matches["obsid"][0] == 99999
     assert matches["x_id"][0] == 1
-
-
-# Gaia DR3 source confirmed present in gaiadr3.agn_cross_id (verified via TAP query).
-# source_id=1535808699355081728, phot_g_mean_mag=13.38
-_AGNCROSS_RA = 182.6357
-_AGNCROSS_DEC = 39.4059
-_AGNCROSS_SOURCE_ID = 1535808699355081728
-
-
-# ---- GaiaVarStar tests ----
-
-
-def _fake_var_tap_result(source_id, ra, dec, pmra=0.0, pmdec=0.0, mag=14.0):
-    """Minimal astropy Table mimicking a Gaia TAP response with proper-motion columns."""
-    return Table(
-        {
-            "source_id": np.array([source_id], dtype=np.int64),
-            "ra": np.array([ra]),
-            "dec": np.array([dec]),
-            "pmra": np.array([pmra], dtype=np.float64),
-            "pmdec": np.array([pmdec], dtype=np.float64),
-            "phot_g_mean_mag": np.array([mag], dtype=np.float32),
-        }
-    )
-
-
-def test_get_gaia_var_stars_ruwe_filter_in_query():
-    """The TAP query includes the RUWE cut at the requested threshold."""
-    pos = coords.SkyCoord(
-        [237.252], [61.710], unit="deg", obstime=CxoTime("2020-01-01")
-    )
-    captured = {}
-
-    def capture(query):
-        captured["query"] = query
-
-    with patch.object(cross_match, "_execute_gaia_tap_query", side_effect=capture):
-        cross_match.get_gaia_var_stars(pos, radius=3 * u.arcsec, max_ruwe=1.2)
-
-    assert "ruwe" in captured["query"].lower()
-    assert "1.2" in captured["query"]
-
-
-def test_get_gaia_var_stars_empty_pos():
-    """Empty position array returns an empty table with the correct schema."""
-    empty_pos = coords.SkyCoord([], [], unit="deg")
-    result = cross_match.get_gaia_var_stars(empty_pos)
-    assert len(result) == 0
-    assert set(cross_match.CROSS_MATCH_DTYPE.names).issubset(set(result.colnames))
-
-
-def test_get_gaia_var_stars_mocked_tap():
-    """get_gaia_var_stars structures output correctly from a mocked TAP response."""
-    pos = coords.SkyCoord(
-        [237.252], [61.710], unit="deg", obstime=CxoTime("2020-01-01")
-    )
-    fake = _fake_var_tap_result(
-        source_id=1627844733203662976,
-        ra=237.252158,
-        dec=61.710091,
-        pmra=40.430,
-        pmdec=-31.185,
-        mag=13.14,
-    )
-
-    with patch.object(cross_match, "_execute_gaia_tap_query", return_value=fake):
-        result = cross_match.get_gaia_var_stars(pos, radius=3 * u.arcsec)
-
-    assert len(result) == 1
-    assert result["catalog"][0] == "GaiaVarStar"
-    assert result["name"][0] == "GaiaVarStar-1627844733203662976"
-    assert np.isclose(result["mag"][0], 13.14, atol=0.01)
-
-
-def test_get_gaia_var_stars_applies_proper_motion():
-    """Returned positions are propagated from J2016.0 to the observation epoch."""
-    # Use a source with known pmra=3600000 mas/yr (1 deg/yr) for easy arithmetic.
-    # At dec=0, over 2 years from J2016 to J2018: delta_ra = +2 deg exactly.
-    obs_epoch = CxoTime("2018-01-01T00:00:00")
-    pos = coords.SkyCoord([10.0], [0.0], unit="deg", obstime=obs_epoch)
-    fake = _fake_var_tap_result(
-        source_id=99,
-        ra=10.0,
-        dec=0.0,
-        pmra=3_600_000.0,
-        pmdec=0.0,  # 1 deg/yr in RA at dec=0
-    )
-
-    delta_yr = obs_epoch.jyear - 2016.0
-    expected_ra = 10.0 + 1.0 * delta_yr  # pmra/3600000 deg/yr * delta_yr yr
-
-    with patch.object(cross_match, "_execute_gaia_tap_query", return_value=fake):
-        result = cross_match.get_gaia_var_stars(pos, radius=3 * u.arcsec)
-
-    assert len(result) == 1
-    assert np.isclose(result["ra"][0], expected_ra, atol=1e-6)
-    assert np.isclose(result["dec"][0], 0.0, atol=1e-9)
-
-
-def test_get_gaia_var_stars_tap_failure_raises():
-    """A TAP failure raises rather than reporting a field with no variable stars.
-
-    This used to degrade gracefully to an empty table. It is deliberately no longer
-    graceful: an unmeasured field and an empty one are different facts, and writing
-    the second when the first is true is how astromon_cat_src lost catalogs. Pooling
-    positions across observations raised the stakes -- one timeout would report an
-    absence for every obsid in the batch.
-    """
-    pos = coords.SkyCoord(
-        [237.252], [61.710], unit="deg", obstime=CxoTime("2020-01-01")
-    )
-
-    with (
-        patch.object(
-            cross_match,
-            "_execute_gaia_tap_query",
-            side_effect=RuntimeError("TAP unavailable"),
-        ),
-        pytest.raises(cross_match.CatalogQueryFailed, match="GaiaVarStar"),
-    ):
-        cross_match.get_gaia_var_stars(pos, radius=3 * u.arcsec)
-
-
-def test_compute_cross_matches_gaia_var_star():
-    """A GaiaVarStar-only selection finds a match from a synthetic cat_src."""
-    matches = cross_match.compute_cross_matches(
-        catalogs=["GaiaVarStar"],
-        astromon_obs=_minimal_obs(
-            99998, ra=237.252, dec=61.710, target="test active star", category_id=10
-        ),
-        astromon_xray_src=_minimal_xray_src(
-            99998, ra=237.252, dec=61.710, snr=8.0, net_counts=300.0
-        ),
-        astromon_cat_src=_minimal_cat_src(
-            99998,
-            catalog="GaiaVarStar",
-            name="GaiaVarStar-1627844733203662976",
-            ra=237.2523,
-            dec=61.7101,
-            mag=13.14,
-        ),
-    )
-
-    assert len(matches) == 1
-    assert matches["select_name"][0] == "simple"
-    assert matches["obsid"][0] == 99998
-    assert matches["x_id"][0] == 1
-
-
-# Chandra obsid=26425 targeted '2RXS J163341.8-093307' on 2022-05-25 — a ROSAT-selected
-# active star.  Gaia source_id=4338433743723131648 (G=10.52) is confirmed in
-# gaiadr3.vari_rotation_modulation.  pmra=-64.9, pmdec=-177.9 mas/yr produces a ~1.2 arcsec
-# total PM shift from J2016.0 to the observation epoch, large enough to verify the correction.
-_RXSJ163_TARGET = "2RXS J163341.8-093307"
-_RXSJ163_OBS_DATE = "2022-05-25T23:14:17"
-_RXSJ163_SOURCE_ID = 4338433743723131648
-_RXSJ163_GAIA_RA = 248.42308  # J2016.0
-_RXSJ163_GAIA_DEC = -9.55411  # J2016.0
-_RXSJ163_PMRA = -64.9  # mas/yr
-_RXSJ163_PMDEC = -177.9  # mas/yr
-
-
-@pytest.mark.skipif(not HAS_INTERNET, reason="Requires network access")
-def test_get_gaia_var_stars_active_star_target():
-    """get_gaia_var_stars finds the vari_rotation_modulation counterpart of a ROSAT/Chandra target.
-
-    '2RXS J163341.8-093307' (Chandra obsid=26425) is an X-ray-selected active star.
-    Its Gaia counterpart has pmra=-64.9, pmdec=-177.9 mas/yr, so the PM correction
-    shifts the position by ~1.2 arcsec over the 6.4 years between J2016.0 and the
-    2022 observation — large enough to clearly verify the correction is applied.
-    """
-    obs_time = CxoTime(_RXSJ163_OBS_DATE)
-    pos = coords.SkyCoord(
-        [_RXSJ163_GAIA_RA], [_RXSJ163_GAIA_DEC], unit="deg", obstime=obs_time
-    )
-
-    with skip_on_gaia_outage():
-        result = cross_match.get_gaia_var_stars(pos, radius=5 * u.arcsec)
-
-    assert len(result) >= 1, (
-        f"Expected at least one vari_rotation_modulation source near "
-        f"'{_RXSJ163_TARGET}' (ra={_RXSJ163_GAIA_RA}, dec={_RXSJ163_GAIA_DEC})"
-    )
-    source_ids = [int(n.split("-")[1]) for n in result["name"]]
-    assert _RXSJ163_SOURCE_ID in source_ids, (
-        f"source_id={_RXSJ163_SOURCE_ID} for target '{_RXSJ163_TARGET}' not found; "
-        f"got source_ids={source_ids}"
-    )
-    idx = source_ids.index(_RXSJ163_SOURCE_ID)
-
-    # Returned position should be PM-corrected away from the raw J2016.0 catalog position.
-    # pmdec=-177.9 mas/yr over ~6.4 years gives ~1.1 arcsec southward shift — clearly detectable.
-    dec_shift_arcsec = (result["dec"][idx] - _RXSJ163_GAIA_DEC) * 3600
-    assert dec_shift_arcsec < -0.5, (
-        f"Expected southward Dec shift > 0.5 arcsec from PM correction, got {dec_shift_arcsec:.3f} arcsec"
-    )
 
 
 # ---- GaiaQSO tests ----
@@ -846,7 +625,7 @@ def test_get_gaia_qso_candidates_catalog_failure_raises():
     """A cached-catalog load/download failure raises rather than reporting an empty sky.
 
     This used to degrade gracefully to an empty table. It is deliberately no longer
-    graceful, for the same reason as GaiaVarStar and DESI: an unmeasured field and
+    graceful, for the same reason as DESI: an unmeasured field and
     an empty one are different facts, and writing the second when the first is true
     is how astromon_cat_src lost catalogs.
     """
@@ -885,66 +664,6 @@ def test_compute_cross_matches_gaia_qso():
     assert matches["catalog"][0] == "GaiaQSO"
     assert matches["obsid"][0] == 99997
     assert matches["x_id"][0] == 1
-
-
-# ---- Quaia tests ----
-
-# PKS 0537-441 is a well-known FSRQ blazar at z=0.894, confirmed present in the
-# Quaia quasar catalog (Gaia DR3 source_id=4802492418750413568, sep~0.8 arcsec).
-# G~17 puts it squarely within the Quaia G<20 selection (Gaia XP spectra).
-_PKS0537_RA = 84.70984
-_PKS0537_DEC = -44.08582
-_PKS0537_QUAIA_NAME = "Gaia DR3 4802492418750413568"
-
-
-def test_get_quaia_candidates_empty_pos():
-    """Empty position array returns an empty table with the correct schema."""
-    empty_pos = coords.SkyCoord([], [], unit="deg")
-    result = cross_match.get_quaia_candidates(empty_pos)
-    assert len(result) == 0
-    assert set(cross_match.CROSS_MATCH_DTYPE.names).issubset(set(result.colnames))
-
-
-def test_get_quaia_candidates_mocked_catalog():
-    """get_quaia_candidates filters a mocked local catalog correctly."""
-    pos = coords.SkyCoord([_PKS0537_RA], [_PKS0537_DEC], unit="deg")
-    fake_catalog = Table(
-        {
-            "name": [_PKS0537_QUAIA_NAME, "Gaia DR3 9999999999999999999"],
-            "ra": [_PKS0537_RA, _PKS0537_RA + 1.0],  # second source 1 deg away
-            "dec": [_PKS0537_DEC, _PKS0537_DEC],
-        }
-    )
-
-    with patch.object(cross_match, "get_quaia", return_value=fake_catalog):
-        result = cross_match.get_quaia_candidates(pos, radius=3 * u.arcsec)
-
-    assert len(result) == 1
-    assert result["catalog"][0] == "Quaia"
-    assert result["name"][0] == _PKS0537_QUAIA_NAME
-    assert np.isclose(result["ra"][0], _PKS0537_RA, atol=1e-4)
-    assert np.isclose(result["dec"][0], _PKS0537_DEC, atol=1e-4)
-
-
-@pytest.mark.skipif(not HAS_INTERNET, reason="Requires network access")
-def test_get_quaia_candidates_pks0537():
-    """get_quaia_candidates finds PKS 0537-441 in the local Quaia catalog.
-
-    PKS 0537-441 (FSRQ blazar, z=0.894, G~17) has a Quaia entry at
-    source_id=4802492418750413568 within ~0.8 arcsec of the known position.
-    Quaia uses Gaia XP spectra (G<20) and is stored as a local FITS cache.
-    """
-    pos = coords.SkyCoord([_PKS0537_RA], [_PKS0537_DEC], unit="deg")
-    result = cross_match.get_quaia_candidates(pos, radius=3 * u.arcsec)
-
-    assert len(result) >= 1, (
-        f"Expected at least one Quaia entry near PKS 0537-441 "
-        f"(ra={_PKS0537_RA}, dec={_PKS0537_DEC})"
-    )
-    assert _PKS0537_QUAIA_NAME in result["name"], (
-        f"'{_PKS0537_QUAIA_NAME}' not found in Quaia results; got names={list(result['name'])}"
-    )
-    assert result["catalog"][0] == "Quaia"
 
 
 # ---- MilliquasGaia tests ----
@@ -1450,11 +1169,11 @@ def test_parse_rfc_empty_input_has_correct_columns():
     assert set(rfc.colnames) == {"name", "ra", "dec"}
 
 
-# ---- _local_catalog_near tests (shared by RFC, ICRF3, Quaia) ----
+# ---- _local_catalog_near tests (shared by RFC, ICRF3, GaiaAGN, GaiaQSO) ----
 
 
 def _synthetic_local_catalog():
-    """A tiny (name, ra, dec) table shaped like get_rfc()/get_icrf3()/get_quaia()."""
+    """A tiny (name, ra, dec) table shaped like get_rfc()/get_icrf3()."""
     return Table(
         {
             "name": ["near-1", "near-2", "far-away"],
@@ -1495,7 +1214,7 @@ def test_local_catalog_near_no_nearby_sources_returns_empty():
     pos = coords.SkyCoord(ra=[123.4], dec=[-77.0], unit="deg")
 
     result = cross_match._local_catalog_near(
-        _synthetic_local_catalog(), "Quaia", pos, radius=3 * u.arcsec
+        _synthetic_local_catalog(), "GaiaQSO", pos, radius=3 * u.arcsec
     )
 
     assert len(result) == 0
@@ -1531,7 +1250,7 @@ def test_local_catalog_near_wraps_ra_across_zero_meridian():
     The bounding-cone prefilter works in flat (dra, ddec) offsets. Without wrapping,
     a source at RA=359.99999 looks ~354 deg away from a position at RA=0.00001 rather
     than 1e-5 deg, so every counterpart across the meridian is silently dropped --
-    losing all RFC/ICRF3/Quaia/GaiaAGN/GaiaQSO matches for fields straddling RA=0.
+    losing all RFC/ICRF3/GaiaAGN/GaiaQSO matches for fields straddling RA=0.
     """
     pos = coords.SkyCoord(ra=[0.00001], dec=[10.0], unit="deg")
     catalog = _local_catalog(name="ACROSS_MERIDIAN", ra=359.99999, dec=10.0)
@@ -1565,8 +1284,8 @@ def test_local_catalog_near_applies_exact_radius_cut():
     """Sources beyond `radius` of every input position are excluded.
 
     The bounding cone is sized to the whole field, so on its own it admits sources
-    arcminutes away from any X-ray source. get_gaia_agn/get_gaia_qso_candidates/
-    get_quaia_candidates feed straight into astromon_cat_src with no later cut of
+    arcminutes away from any X-ray source. get_gaia_agn and
+    get_gaia_qso_candidates feed straight into astromon_cat_src with no later cut of
     their own, so the radius has to be enforced here.
     """
     pos = coords.SkyCoord(ra=[150.0, 150.1], dec=[20.0, 20.05], unit="deg")
@@ -1819,25 +1538,3 @@ def test_get_bad_source_mask_excludes_obsid_src(tmp_path):
     )
     mask = cross_match.get_bad_source_mask(matches, bad_sources_file=bad_file)
     assert list(mask) == [True, False, False]
-
-
-def test_get_gaia_var_stars_accepts_a_scalar_position():
-    """The docstring says a scalar SkyCoord works; the batching loop said otherwise.
-
-    ``len()`` on a scalar SkyCoord raises TypeError, so ``range(0, len(pos), ...)``
-    could not run at all for a single-position caller -- while the surrounding code
-    had already normalised the coordinates with ``np.atleast_1d``, which is what
-    made the mismatch easy to miss.
-    """
-    scalar = coords.SkyCoord(150.0, 2.0, unit="deg", obstime=CxoTime("2020:001"))
-    assert scalar.isscalar
-
-    with patch.object(
-        cross_match,
-        "_execute_gaia_tap_query",
-        return_value=_fake_var_tap_result(4242, 150.0, 2.0),
-    ):
-        result = cross_match.get_gaia_var_stars(scalar, radius=3 * u.arcsec)
-
-    assert len(result) == 1
-    assert result["catalog"][0] == "GaiaVarStar"

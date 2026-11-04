@@ -44,7 +44,7 @@ def _resolved_cache_paths(env_overrides):
         "    'dir': str(utils.ASTROMON_DATA_DIR),\n"
         "    'archive': str(observation.ARCHIVE_DIR),\n"
         "    'rfc': str(cross_match._RFC_CACHE_PATH),\n"
-        "    'quaia': str(cross_match._QUAIA_CACHE_PATH),\n"
+        "    'milliquas': str(cross_match._MILLIQUAS_CACHE_PATH),\n"
         "    'all': {n: str(getattr(cross_match, n))\n"
         "            for n in dir(cross_match) if n.endswith('_CACHE_PATH')},\n"
         "}))\n"
@@ -123,7 +123,7 @@ def test_astromon_data_dir_overrides_the_cache_location():
 
     assert resolved["dir"] == "/tmp/isolated-catalogs"
     assert resolved["rfc"] == "/tmp/isolated-catalogs/rfc_catalog.txt"
-    assert resolved["quaia"] == "/tmp/isolated-catalogs/quaia_catalog.fits"
+    assert resolved["milliquas"] == "/tmp/isolated-catalogs/milliquas_catalog.fits"
 
 
 def test_archive_dir_defaults_under_the_shared_data_dir():
@@ -513,14 +513,13 @@ def test_declared_catalog_versions_match_the_identifiers_used_to_fetch_them():
     """The version and the thing it describes must not drift apart.
 
     Each of these catalogs is pinned by an identifier that already names its
-    release -- a VizieR designation, a CDS catalogue number, a Zenodo record, a
+    release -- a VizieR designation, a CDS catalogue number, a
     Gaia data-release schema. The recorded version is that identifier, so assert
     it is still a substring of what the code actually fetches rather than a
     string someone updated in one place only.
     """
     assert cross_match._ICRF3_VERSION in cross_match._ICRF3_VIZIER_ID
     assert cross_match._MILLIQUAS_VERSION in cross_match._MILLIQUAS_URL
-    assert cross_match._QUAIA_VERSION.split("/")[-1] in cross_match._QUAIA_URL
 
     for getter in (cross_match.get_gaia_agn_catalog, cross_match.get_gaia_qso_catalog):
         assert f"{cross_match._GAIA_DR3_VERSION}." in inspect.getsource(getter)
@@ -600,7 +599,6 @@ def test_catalog_versions_covers_every_locally_cached_catalog():
         "RFC",
         "ICRF3",
         "Milliquas",
-        "Quaia",
         "GaiaAGN",
         "GaiaQSO",
         "MilliquasGaia",

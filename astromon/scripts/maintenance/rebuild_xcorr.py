@@ -101,7 +101,7 @@ def find_selections_with_fewer_matches(before: Table, after: Table | None) -> di
     "this catalog was queried and genuinely found nothing" apart from "this
     catalog's candidates existed and were later dropped" -- both look identical
     as catalog-absent-for-this-obsid, and the former is the common case (most
-    obsids will not have a GaiaVarStar or DESIV161 candidate, and that is normal,
+    obsids will not have an ICRF3 or DESIV161 candidate, and that is normal,
     not loss). Any input-side heuristic runs into the same wall, because the
     completeness information it would need does not exist in the stored tables.
 

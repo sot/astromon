@@ -76,8 +76,8 @@ by any cross-match set.
   Catalog.
 - `Gaia2 <https://vizier.u-strasbg.fr/viz-bin/VizieR-3?-source=I/345/gaia2>`_. Gaia DR2 sources.
 
-AGN, quasar and variable-star catalogs
-""""""""""""""""""""""""""""""""""""""
+AGN and quasar catalogs
+"""""""""""""""""""""""
 
 Queried directly by the pipeline. These are the catalogs added to improve the supply of
 astrometrically reliable extragalactic counterparts, which anchor the absolute astrometry solution
@@ -88,10 +88,6 @@ far better than stars do.
 - **GaiaQSO**. Gaia DR3 quasar candidates (``gaiadr3.qso_candidates``, ~6.6 M sources), queried via
   Gaia TAP. Extends GaiaAGN with ~4.4 M sources classified from Gaia astrometry, photometry and
   colour, adding depth at G > 20 where the confirmed samples run out.
-- **Quaia**. The `Gaia-unWISE quasar catalog <https://zenodo.org/records/10403370>`_, G < 20.0
-  sample (755,850 sources), built from Gaia DR3 quasar candidates and unWISE infrared photometry.
-  Cached at ``$SKA/data/astromon/quaia_catalog.fits``; static until Gaia DR4, so never
-  auto-refreshed. `Storey-Fisher et al. 2024, ApJ 964, 69 <https://doi.org/10.3847/1538-4357/ad1328>`_.
 - **MilliquasGaia**. `Milliquas v8 <https://vizier.u-strasbg.fr/viz-bin/VizieR?-source=VII/294>`_
   restricted to spectroscopically confirmed types (Q, A, B, N) and further required to have a Gaia
   DR3 counterpart within 1.5 arcsec, which supplies the Gaia position. Photometric candidates and
@@ -100,14 +96,15 @@ far better than stars do.
   <https://vizier.u-strasbg.fr/viz-bin/VizieR?-source=V/161>`_ spectroscopic catalog, keeping
   ``OType`` of QSO or GALAXY with ``ZWARN == 0``. Positions come from Legacy Survey DR9 imaging and
   are accurate to about 0.1 arcsec. Coverage is limited to the ~4100 sq deg EDR footprint.
-- **GaiaVarStar**. Gaia DR3 rotation-modulation variable stars, queried via Gaia TAP and restricted
-  to RUWE < 1.4 so that unreliable astrometric solutions do not corrupt the proper-motion
-  correction. Positions are propagated from the Gaia DR3 epoch (J2016.0) to the observation epoch.
+
+astromon used to query Quaia and GaiaVarStar too. Both were dropped with the absolute-astrometry
+calibration's catalog list (2026-11): Quaia's quasars are Gaia DR3 quasar candidates that GaiaQSO,
+MilliquasGaia or DESIV161 mostly hold as well, and GaiaVarStar's stars are variables.
 
 .. Note::
 
-   Only GaiaVarStar and the Tycho2/SDSS rough matches apply a proper-motion or epoch correction.
-   The radio and extragalactic catalogs (RFC, ICRF3, GaiaAGN, GaiaQSO, Quaia, MilliquasGaia,
+   Only the Tycho2/SDSS rough matches apply a proper-motion or epoch correction.
+   The radio and extragalactic catalogs (RFC, ICRF3, GaiaAGN, GaiaQSO, MilliquasGaia,
    DESIV161) describe sources with no measurable proper motion, so their catalog positions are
    used as-is.
 

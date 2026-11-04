@@ -6,7 +6,7 @@ astromon.tycho2_local_index (via astromon.cross_match's "Tycho2" entry in
 LOCAL_CATALOG_GETTERS), not live VizieR -- see astromon.tycho2_local_index for why.
 get_tycho2_local_index() / get_hipparcos_snapshot() already download and build these
 files automatically on first use (the same download-and-cache-on-first-use convention
-astromon.cross_match uses for Milliquas, Quaia, ICRF3, etc.), so running this script is
+astromon.cross_match uses for Milliquas, ICRF3, etc.), so running this script is
 never required. It exists to pay the one-time cost (the Tycho-2 index is a few hundred
 MB and takes a couple of minutes to parse) up front, in one place, rather than inside
 whichever of several parallel per-obsid worker processes happens to need it first.

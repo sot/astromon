@@ -301,8 +301,8 @@ def get_vizier(
 def _cache_is_stale(cache_path: Path, max_age_days: int | None) -> bool:
     """True if `cache_path` is absent, or exists but is older than `max_age_days`.
 
-    Shared staleness policy for the locally cached catalogs (RFC, ICRF3, Milliquas,
-    Quaia): absent means "never downloaded", `max_age_days=None` means "never
+    Shared staleness policy for the locally cached catalogs (RFC, ICRF3,
+    Milliquas): absent means "never downloaded", `max_age_days=None` means "never
     force a refresh".
     """
     return not cache_path.exists() or (
@@ -406,7 +406,7 @@ def _local_catalog_near(
     """Cone-search a locally cached (name, ra, dec[, mag]) catalog around *pos*.
 
     Shared by the catalogs that are downloaded once and cached whole (RFC, ICRF3,
-    Quaia, GaiaAGN, GaiaQSO) rather than queried live per-position like VizieR or
+    GaiaAGN, GaiaQSO) rather than queried live per-position like VizieR or
     Gaia TAP. If the catalog has a ``mag`` column its values are used (masked
     where non-finite); otherwise `mag` is left fully masked.
 
@@ -469,7 +469,7 @@ def _local_catalog_near(
 
 
 # Where the locally cached whole-catalog files live (RFC, ICRF3, Milliquas,
-# Quaia, GaiaAGN, GaiaQSO). Resolved in utils so that observation.ARCHIVE_DIR,
+# GaiaAGN, GaiaQSO). Resolved in utils so that observation.ARCHIVE_DIR,
 # which sits in the same tree, cannot disagree with it. Honours
 # ASTROMON_DATA_DIR; see utils.
 _ASTROMON_DATA_DIR = utils.ASTROMON_DATA_DIR
@@ -1089,15 +1089,6 @@ def get_milliquas(
     return mq
 
 
-# Quaia G<20.0: Gaia DR3 + unWISE quasar catalog (Storey-Fisher et al. 2024, ApJ 964, 69).
-# v1.0.0 released 2023-12-18; tied to Gaia DR3, no update expected before Gaia DR4.
-_QUAIA_URL = "https://zenodo.org/records/10403370/files/quaia_G20.0.fits"
-# Zenodo records are immutable; a new Quaia release gets a new record id.
-_QUAIA_VERSION = "zenodo/10403370"
-_QUAIA_CACHE_PATH = _ASTROMON_DATA_DIR / "quaia_catalog.fits"
-# None = download only when absent; the catalog is static until Gaia DR4.
-_QUAIA_MAX_AGE_DAYS: int | None = None
-
 # Local FITS caches for the two Gaia DR3 AGN/QSO catalog tables.  Both are
 # static until Gaia DR4, so no automatic refresh is needed.
 _GAIA_AGN_CACHE_PATH = _ASTROMON_DATA_DIR / "gaia_agn_catalog.fits"
@@ -1110,7 +1101,6 @@ CATALOG_CACHE_PATHS: dict[str, Path] = {
     "RFC": _RFC_CACHE_PATH,
     "ICRF3": _ICRF3_CACHE_PATH,
     "Milliquas": _MILLIQUAS_CACHE_PATH,
-    "Quaia": _QUAIA_CACHE_PATH,
     "GaiaAGN": _GAIA_AGN_CACHE_PATH,
     "GaiaQSO": _GAIA_QSO_CACHE_PATH,
     "MilliquasGaia": _MILLIQUAS_GAIA_CACHE_PATH,
@@ -1137,118 +1127,6 @@ def catalog_versions(paths: dict[str, Path] | None = None) -> dict[str, str | No
         marker = _release_marker(Path(cache_path))
         versions[name] = marker.read_text().strip() if marker.exists() else None
     return versions
-
-
-def get_quaia(
-    cache_path: Path | None = None,
-    max_age_days: int | None = _QUAIA_MAX_AGE_DAYS,
-) -> table.Table:
-    """Return the Quaia G<20.0 Gaia-unWISE quasar catalog, downloading/caching as needed.
-
-    Quaia (Storey-Fisher et al. 2024, ApJ 964, 69) is built from Gaia DR3 quasar
-    candidates and unWISE infrared photometry.  The G<20.0 sample (755,850 sources)
-    is used: it is a clean subset of the full G<20.5 catalog with tighter magnitude
-    constraints and better-characterised redshifts.
-
-    The catalog is cached at ``cache_path`` as a FITS binary table containing only
-    the three columns needed for cross-matching (``name``, ``ra``, ``dec``).  It
-    is never automatically refreshed because the catalog is tied to Gaia DR3 and
-    will not change until Gaia DR4.
-
-    Parameters
-    ----------
-    cache_path
-        Override the default cache location
-        (default: ``$ASTROMON_DATA_DIR/quaia_catalog.fits``).
-    max_age_days
-        Refresh threshold in days.  Default ``None`` (never auto-refresh).
-
-    Returns
-    -------
-    table.Table
-        Table with columns ``name`` (str), ``ra`` (deg), ``dec`` (deg).
-
-    Examples
-    --------
-    >>> t = get_quaia()
-    >>> len(t) > 700_000
-    True
-    """
-    import tempfile  # noqa: PLC0415
-
-    if cache_path is None:
-        cache_path = _QUAIA_CACHE_PATH
-    cache_path = Path(cache_path)
-
-    if not _cache_needs_refresh(cache_path, _QUAIA_VERSION, max_age_days):
-        logger.debug(f"Loading cached Quaia from {cache_path}")
-        return _read_catalog_cached(
-            cache_path, lambda p: table.Table.read(p, format="fits")
-        )
-
-    logger.info(
-        f"Downloading Quaia G<20.0 from Zenodo → {cache_path} (~100 MB, one-time)"
-    )
-    resp = requests.get(_QUAIA_URL, timeout=600, stream=True)
-    resp.raise_for_status()
-
-    with tempfile.NamedTemporaryFile(suffix=".fits", delete=False) as tmp:
-        tmp_path = Path(tmp.name)
-        for chunk in resp.iter_content(chunk_size=65536):
-            tmp.write(chunk)
-
-    try:
-        raw = table.Table.read(tmp_path, format="fits")
-        # Strip to the three columns needed; name uses the Gaia source_id.
-        quaia = table.Table(
-            {
-                "name": np.asarray(
-                    [f"Gaia DR3 {sid}" for sid in raw["source_id"]], dtype="<U30"
-                ),
-                "ra": np.asarray(raw["ra"], dtype=float),
-                "dec": np.asarray(raw["dec"], dtype=float),
-            }
-        )
-    finally:
-        tmp_path.unlink(missing_ok=True)
-
-    cache_path.parent.mkdir(parents=True, exist_ok=True)
-    quaia.write(cache_path, format="fits", overwrite=True)
-    _record_catalog_version(cache_path, _QUAIA_VERSION)
-    logger.info(f"Saved {len(quaia):,} Quaia G<20.0 sources to {cache_path}")
-    return quaia
-
-
-def get_quaia_candidates(
-    pos: coords.SkyCoord,
-    radius: u.Quantity = 3 * u.arcsec,
-    logging_tag: str = "",
-) -> table.Table:
-    """Return Quaia sources near *pos* within *radius*.
-
-    Loads the locally cached Quaia catalog (downloading it on first call via
-    :func:`get_quaia`) and applies a bounding-cone pre-filter before the exact
-    per-source separation check.  No network call is made after the initial download.
-
-    Parameters
-    ----------
-    pos
-        Positions to search around (scalar or array SkyCoord).
-    radius
-        Search radius.  Default 3 arcsec.
-    logging_tag
-        Prefix for log messages.
-
-    Returns
-    -------
-    table.Table
-        Catalog sources with columns matching :data:`CROSS_MATCH_DTYPE`.
-    """
-    if not pos.isscalar and len(pos) == 0:
-        # Guard before get_quaia(), which triggers a ~100 MB one-time download on
-        # first call: an empty position array should never pay that cost.
-        return table.Table(dtype=CROSS_MATCH_DTYPE)
-    return _local_catalog_near(get_quaia(), "Quaia", pos, radius, logging_tag)
 
 
 VIZIER_CATALOGS = {
@@ -1391,36 +1269,6 @@ def _execute_gaia_tap_query(query):
     if "error" in outcome:
         raise outcome["error"]
     return outcome["value"]
-
-
-def _apply_proper_motion(ra, dec, pmra, pmdec, obs_epoch_yr, catalog_epoch_yr=2016.0):
-    """Propagate (ra, dec) from catalog_epoch_yr to obs_epoch_yr using proper motion.
-
-    Parameters
-    ----------
-    ra, dec : array-like, degrees
-    pmra : array-like, mas/yr (mu_alpha * cos(delta) — Gaia convention)
-    pmdec : array-like, mas/yr
-    obs_epoch_yr : float, target epoch in Julian years
-    catalog_epoch_yr : float, catalog reference epoch (Gaia DR3 = J2016.0)
-
-    Returns
-    -------
-    ra_corr, dec_corr : ndarray, degrees
-    """
-    ra = np.asarray(ra, dtype=float)
-    dec = np.asarray(dec, dtype=float)
-    pmra = np.where(np.isfinite(pmra), pmra, 0.0)
-    pmdec = np.where(np.isfinite(pmdec), pmdec, 0.0)
-    delta_yr = obs_epoch_yr - catalog_epoch_yr
-    mas_to_deg = 1.0 / 3_600_000.0
-    # cos(dec) is always >= 0 for dec in [-90, 90], but reaches 0 at the poles.
-    # Chandra does observe near-polar declinations, so floor it rather than
-    # divide by (near-)zero and produce inf/NaN for a real source.
-    cos_dec = np.clip(np.cos(np.radians(dec)), 1e-6, None)
-    ra_corr = ra + pmra * delta_yr * mas_to_deg / cos_dec
-    dec_corr = dec + pmdec * delta_yr * mas_to_deg
-    return ra_corr, dec_corr
 
 
 def _download_gaia_catalog_to_cache(
@@ -1668,8 +1516,8 @@ def get_gaia_qso_candidates(
     confirmed cross-identifications in ``gaiadr3.agn_cross_id`` (~1.6 M, used
     by :func:`get_gaia_agn`) with an additional ~5 M sources classified from
     Gaia astrometry, photometry, and colour.  The extra depth is most useful
-    at G > 20, covering faint AGN in extragalactic fields that Quaia (G < 20)
-    and agn_cross_id miss.
+    at G > 20, covering faint AGN in extragalactic fields that agn_cross_id
+    misses.
 
     Loads the locally cached catalog (downloading it on first call via
     :func:`get_gaia_qso_catalog`) and applies a bounding-cone pre-filter
@@ -1701,229 +1549,6 @@ def get_gaia_qso_candidates(
             f"{logging_tag}GaiaQSO catalog unavailable: {exc}"
         ) from exc
     return _local_catalog_near(catalog, "GaiaQSO", pos, radius, logging_tag)
-
-
-def _obs_epoch_year(pos: coords.SkyCoord, logging_tag: str = "") -> float | None:
-    """The observation epoch in Julian years, or None if `pos` carries no obstime."""
-    if pos.obstime is None:
-        logger.warning(
-            f"{logging_tag} GaiaVarStar: pos.obstime not set,"
-            " skipping proper motion correction"
-        )
-        return None
-    return (
-        pos.obstime.jyear
-        if hasattr(pos.obstime, "jyear")
-        else float(pos.obstime.decimalyear)
-    )
-
-
-def _query_gaia_var_star_rows(
-    pos_ra_deg: np.ndarray,
-    pos_dec_deg: np.ndarray,
-    radius: u.Quantity,
-    *,
-    max_ruwe: float = 1.4,
-    batch_size: int = 50,
-    logging_tag: str = "",
-) -> table.Table | None:
-    """Raw Gaia DR3 rotation-modulation rows near any of the given positions.
-
-    Returns source_id, ra, dec, pmra, pmdec and phot_g_mean_mag with **no epoch
-    correction applied**, deduplicated by source_id, or None if nothing was found.
-
-    The cones are drawn around the input positions against Gaia's catalog (J2016)
-    positions, so this query says nothing about when anything was observed. That is
-    what lets one call serve many observations -- see
-    :func:`get_gaia_var_stars_by_obsid` -- with the per-observation correction
-    applied afterwards by :func:`_format_gaia_var_stars`.
-    """
-    radius_deg = radius.to(u.deg).value
-    all_results = []
-    for batch_start in range(0, len(pos_ra_deg), batch_size):
-        batch_ra = pos_ra_deg[batch_start : batch_start + batch_size]
-        batch_dec = pos_dec_deg[batch_start : batch_start + batch_size]
-        where_clauses = [
-            f"CONTAINS(POINT('ICRS', g.ra, g.dec), CIRCLE('ICRS', {ra}, {dec}, {radius_deg}))=1"
-            for ra, dec in zip(batch_ra, batch_dec, strict=True)
-        ]
-        query = f"""
-        SELECT g.source_id, g.ra, g.dec, g.pmra, g.pmdec, g.phot_g_mean_mag
-        FROM gaiadr3.gaia_source g
-        INNER JOIN gaiadr3.vari_rotation_modulation v ON g.source_id = v.source_id
-        WHERE g.ruwe < {max_ruwe}
-        AND ({" OR ".join(where_clauses)})
-        """
-        try:
-            result = _execute_gaia_tap_query(query)
-            if result is not None and len(result) > 0:
-                all_results.append(result)
-            logger.debug(
-                f"{logging_tag} GaiaVarStar batch got"
-                f" {len(result) if result is not None else 0} sources"
-            )
-        except Exception as exc:
-            # Dropping the batch would silently narrow the search: the sources it
-            # would have found become absences that nothing distinguishes from a
-            # field with no variable stars in it.
-            raise CatalogQueryFailed(
-                f"{logging_tag} GaiaVarStar batch of {len(batch_ra)} position(s)"
-                f" failed after all retries: {exc}"
-            ) from exc
-
-    if not all_results:
-        return None
-    combined = table.vstack(all_results)
-    _, unique_idx = np.unique(combined["source_id"], return_index=True)
-    return combined[sorted(unique_idx)]
-
-
-def _format_gaia_var_stars(
-    rows: table.Table, obs_epoch_yr: float | None
-) -> table.Table:
-    """Raw var-star rows as CROSS_MATCH_DTYPE, positions moved to `obs_epoch_yr`."""
-    if len(rows) == 0:
-        return table.Table(dtype=CROSS_MATCH_DTYPE)
-
-    ra = np.array(rows["ra"], dtype=float)
-    dec = np.array(rows["dec"], dtype=float)
-    if obs_epoch_yr is not None:
-        ra, dec = _apply_proper_motion(
-            ra,
-            dec,
-            np.array(rows["pmra"], dtype=float),
-            np.array(rows["pmdec"], dtype=float),
-            obs_epoch_yr,
-        )
-
-    output = table.Table(data=np.zeros(len(rows), dtype=CROSS_MATCH_DTYPE))
-    output["ra"] = ra
-    output["dec"] = dec
-    output["catalog"] = "GaiaVarStar"
-    output["name"] = [f"GaiaVarStar-{sid}" for sid in rows["source_id"]]
-    # The query always selects phot_g_mean_mag, so the column is always present.
-    output["mag"] = np.asarray(rows["phot_g_mean_mag"], dtype=np.float32)
-    return output
-
-
-def get_gaia_var_stars(
-    pos: coords.SkyCoord,
-    radius: u.Quantity = 3 * u.arcsec,
-    max_ruwe: float = 1.4,
-    batch_size: int = 50,
-    logging_tag: str = "",
-) -> table.Table:
-    """Query Gaia DR3 rotation-modulation variable stars around given sky positions via TAP.
-
-    Positions are corrected from the Gaia DR3 reference epoch (J2016.0) to the
-    observation epoch using each source's proper motion before returning.
-
-    Sources with poor astrometric solutions (RUWE >= max_ruwe) are excluded so
-    that unreliable proper motions do not degrade the position correction.
-
-    Parameters
-    ----------
-    pos : astropy.coordinates.SkyCoord
-        Positions to search around (array or scalar). ``pos.obstime`` is used
-        as the target epoch for proper motion correction; if not set, no
-        correction is applied and a warning is logged.
-    radius : astropy.units.Quantity
-        Search radius. Default 3 arcsec.
-    max_ruwe : float
-        Maximum allowed RUWE (renormalised unit weight error). Sources with
-        RUWE >= max_ruwe are excluded. Default 1.4 (standard Gaia quality cut).
-    batch_size : int
-        Number of positions per TAP CONTAINS-OR query.  Default 50.  Increase
-        to 200–500 when querying many positions at once (bulk screening) to
-        reduce round-trip count; lower if the TAP server times out.
-    logging_tag : str
-        Prefix for log messages.
-
-    Returns
-    -------
-    astropy.table.Table
-        Catalog sources with columns matching CROSS_MATCH_DTYPE, positions
-        propagated to the observation epoch.
-    """
-    if not pos.isscalar and len(pos) == 0:
-        logger.debug(f"{logging_tag} GaiaVarStar has no results")
-        return table.Table(dtype=CROSS_MATCH_DTYPE)
-
-    rows = _query_gaia_var_star_rows(
-        np.atleast_1d(pos.ra.deg),
-        np.atleast_1d(pos.dec.deg),
-        radius,
-        max_ruwe=max_ruwe,
-        batch_size=batch_size,
-        logging_tag=logging_tag,
-    )
-    if rows is None:
-        logger.debug(f"{logging_tag} GaiaVarStar has no results")
-        return table.Table(dtype=CROSS_MATCH_DTYPE)
-
-    output = _format_gaia_var_stars(rows, _obs_epoch_year(pos, logging_tag))
-    logger.debug(f"{logging_tag} GaiaVarStar has {len(output)} results")
-    return output
-
-
-def get_gaia_var_stars_by_obsid(
-    positions: dict,
-    radius: u.Quantity = 3 * u.arcsec,
-    max_ruwe: float = 1.4,
-    batch_size: int = BATCHED_POSITIONS_PER_QUERY,
-    logging_tag: str = "",
-) -> dict:
-    """Query GaiaVarStar once for many observations, then split the answer per obsid.
-
-    `positions` maps a key (an obsid) to that observation's `SkyCoord`, whose
-    ``obstime`` sets its proper-motion epoch. Returns a table per key, with the same
-    contents :func:`get_gaia_var_stars` would return for that key alone.
-
-    The saving is round trips. Queried one observation at a time, this catalog costs
-    a Gaia TAP round trip per obsid -- measured at ~17 s, which over 8,451 obsids is
-    ~39 hours, for a catalog that yields fewer than a hundred matches in total.
-    Pooling the positions makes it a few hundred queries instead.
-
-    What makes that sound is that the query is epoch-free: its cones are drawn
-    around the input positions against Gaia's own J2016 catalog positions, and the
-    correction to the observation epoch happens afterwards, here. So the split has
-    to happen *before* the correction -- on the uncorrected positions, which is also
-    what the per-obsid query selected on -- and each key then gets corrected with
-    its own epoch. Correcting the pooled result once would stamp one observation's
-    epoch on every other one's positions.
-
-    A source near more than one observation's positions is returned for each of
-    them, which is what repeat observations of the same field require.
-    """
-    empty = {key: table.Table(dtype=CROSS_MATCH_DTYPE) for key in positions}
-    keys = [key for key, pos in positions.items() if pos.isscalar or len(pos) > 0]
-    if not keys:
-        return empty
-
-    rows = _query_gaia_var_star_rows(
-        np.concatenate([np.atleast_1d(positions[key].ra.deg) for key in keys]),
-        np.concatenate([np.atleast_1d(positions[key].dec.deg) for key in keys]),
-        radius,
-        max_ruwe=max_ruwe,
-        batch_size=batch_size,
-        logging_tag=logging_tag,
-    )
-    if rows is None:
-        logger.debug(f"{logging_tag} GaiaVarStar has no results for any obsid")
-        return empty
-
-    result = dict(empty)
-    for key in keys:
-        pos = positions[key]
-        near = rows[rows_near_positions(rows, pos, radius)]
-        if len(near) == 0:
-            continue
-        result[key] = _format_gaia_var_stars(near, _obs_epoch_year(pos, f"{key}"))
-    found = sum(len(candidates) for candidates in result.values())
-    logger.debug(
-        f"{logging_tag} GaiaVarStar: {found} candidate(s) across {len(keys)} obsid(s)"
-    )
-    return result
 
 
 # Radius used to positionally match Milliquas optical positions to Gaia DR3 sources.
@@ -2282,10 +1907,10 @@ def get_desi_v161_by_obsid(
     table per key, with the same contents :func:`get_desi_v161_candidates` would
     return for that key alone.
 
-    Simpler than the GaiaVarStar equivalent because nothing here depends on when
-    the observation happened: the VizieR query asks for plain RAICRS/DEICRS, with
-    no epoch expression and no proper-motion correction, so the pooled result can
-    be split on the positions exactly as returned.
+    Nothing here depends on when the observation happened: the VizieR query asks
+    for plain RAICRS/DEICRS, with no epoch expression and no proper-motion
+    correction, so the pooled result can be split on the positions exactly as
+    returned.
     """
     empty = {key: table.Table(dtype=CROSS_MATCH_DTYPE) for key in positions}
     keys = [key for key, pos in positions.items() if pos.isscalar or len(pos) > 0]
