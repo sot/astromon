@@ -1,0 +1,50 @@
+# %ECSV 1.0
+# ---
+# delimiter: ','
+# datatype:
+# - {name: catalog, datatype: string, description: "astromon_cat_src.catalog of the excluded source. Empty for a
+#     whole-observation exclusion."}
+# - {name: name, datatype: string, description: "astromon_cat_src.name of the excluded source. Empty for a
+#     whole-observation exclusion."}
+# - {name: obsid, datatype: int32, description: "0 excludes the catalog source in every observation; a positive
+#     obsid excludes that whole observation."}
+# - {name: reason, datatype: string, description: Why it is excluded.}
+# meta:
+#   description: "The absolute-astrometry calibration's exclusions (astrometry repo, astrometry/match.py at d488bb1,
+#     2026-11-04): EXCLUDED_CATALOG_SOURCES, the stars of EXCLUDED_TARGETS, and EXCLUDED_OBSIDS. Loaded into
+#     astromon_regions by astromon.scripts.maintenance.load_exclusion_regions; offsets are the sky offset and
+#     observation count from the calibration's roll test."
+# schema: astropy-2.0
+catalog,name,obsid,reason
+Tycho2,8327-1691-1,0,"XTE J1701-462: X-ray position fixed on the sky 2.90 arcsec off (roll test, 4 obs)"
+RFC,RFC J0047-2517,0,"NGC 253: X-ray position fixed on the sky 2.54 arcsec off (roll test, 2 obs)"
+GaiaQSO,GaiaQSO-2344030839048367232,0,"NGC 253: X-ray position fixed on the sky 2.53 arcsec off (roll test, 3 obs)"
+MilliquasGaia,NGC 7552,0,"NGC 7552: X-ray position fixed on the sky 1.61 arcsec off (roll test, 2 obs)"
+Tycho2,2389-955-1,0,"RW Aur: T Tauri binary 1.4 arcsec apart whose X-rays can follow B while Tycho2 follows A; 1.42 arcsec off (roll test, 11 obs)"
+RFC,RFC J0615+7102,0,"Markarian 3: X-ray position fixed on the sky 1.23 arcsec off (roll test, 8 obs)"
+MilliquasGaia,NGC 4388,0,"NGC 4388: X-ray position fixed on the sky 1.08 arcsec off (roll test, 4 obs)"
+GaiaAGN,GaiaAGN-3284740650964769024,0,"MG0414+0534, lensed: X-ray position fixed on the sky 0.88 arcsec off (roll test, 2 obs)"
+MilliquasGaia,UGC 8696,0,"Mrk 273: X-ray position fixed on the sky 0.82 arcsec off (roll test, 2 obs)"
+Tycho2,4774-931-1,0,"Orion Trapezium: X-ray position fixed on the sky 0.78 arcsec off (roll test, 26 obs); the field's other stars stay"
+MilliquasGaia,UGC 8327,0,"UGC 08327: X-ray position fixed on the sky 0.71 arcsec off (roll test, 2 obs)"
+Tycho2,3550-356-1,0,"2MASS J19094043+4930050: X-ray position fixed on the sky 0.66 arcsec off (roll test, 2 obs)"
+DESIV161,DESIV161-39633289706737241,0,"NGC 4102: X-ray position fixed on the sky 0.63 arcsec off (roll test, 6 obs)"
+Tycho2,8997-2337-1,0,"HD 113904: X-ray position fixed on the sky 0.62 arcsec off (roll test, 4 obs)"
+MilliquasGaia,ATLAS J025942.91-163543.3,0,"ATLAS J0259-16: X-ray position fixed on the sky 0.61 arcsec off (roll test, 5 obs)"
+GaiaAGN,GaiaAGN-2704542589921820288,0,"Q2237+0305, lensed: X-ray position fixed on the sky 0.55 arcsec off (roll test, 30 obs)"
+RFC,RFC J1833-210A,0,"PKS 1830-211, lensed: X-ray position fixed on the sky 0.54 arcsec off (roll test, 13 obs)"
+GaiaAGN,GaiaAGN-3800591481917387392,0,"SDSS J1138+0314, lensed: X-ray position fixed on the sky 0.53 arcsec off (roll test, 5 obs)"
+MilliquasGaia,NGC 3393,0,"NGC 3393: nucleus extends ~3 arcsec NE-SW; celldetect wanders 0.29 arcsec rms and sometimes splits off the NE lobe"
+GaiaQSO,GaiaQSO-4690512893287832320,0,"E0102-72.3: inside the supernova remnant; the match is a knot of diffuse emission 1.5 arcsec away"
+GaiaAGN,GaiaAGN-1620307580994907392,0,"3C305: extended; celldetect matched a soft knot 2.75 arcsec NE of the nucleus"
+GaiaAGN,GaiaAGN-779253444275109504,0,"A1068 central galaxy: the X-ray peak is the cluster core, 0.66-1.41 arcsec north of the catalog position"
+MilliquasGaia,MCG -1-22-013,0,"Mrk 1216: compact core in a diffuse halo that pulls celldetect about 0.4 arcsec NE"
+GaiaQSO,GaiaQSO-6185040879503491584,0,"EX Hya: the star at Gaia's 2016 epoch with no proper motion applied, about 1 arcsec from its 2007 position"
+DESIV161,DESIV161-39627672468325895,0,"HCG 40: faint diffuse emission, not a point source"
+GaiaQSO,GaiaQSO-849350162404966784,0,"SN2026sqf: G = 19 quasar candidate inside the crowded host galaxy, matched 1.4-1.8 arcsec off"
+MilliquasGaia,ESO 253-3,0,"ASASSN-14ko host: two AGN 1.7 arcsec apart, so the blended centroid moves with the flare cycle"
+Tycho2,1310-2697-1,0,"zeta Tau: Be star with a circumstellar disk, not a clean point source (the calibration excludes the target name)"
+Tycho2,8959-1959-1,0,"HD 97950 C: at the center of NGC 3603's core, so its Tycho2 position is a blend (the calibration excludes the target name)"
+,,9687,"Ar Lac at an off-nominal SIM position: labeled ACIS-I, but its aspect processing applied the ACIS-S alignment"
+,,11963,"Mkn 421 LETG at an off-nominal SIM position: labeled ACIS-I, but its aspect processing applied the ACIS-S alignment"
+,,11967,"Mkn 421 LETG at an off-nominal SIM position: labeled ACIS-I, but its aspect processing applied the ACIS-S alignment"

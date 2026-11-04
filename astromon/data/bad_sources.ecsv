@@ -20,7 +20,6 @@ target,Tau Boo,-1,-1,,Nearby variable star with large proper motion; centroid un
 target,70 OPH,-1,-1,,Nearby binary star; crowded field
 target,16 Cyg,-1,-1,,Nearby binary star; crowded field
 target,M87,-1,-1,,Extended radio galaxy with bright jet; X-ray centroid offset from optical nucleus
-target,Orion,-1,-1,,Extended nebular emission; centroid dominated by diffuse emission
 target,HD 97950,-1,-1,,Crowded cluster field; centroid unreliable
 target,HD4915,-1,-1,,Nearby star; crowded field
 cat_source,,-1,-1,MCG 7-41-003,Cygnus A AGN nucleus in MilliquasGaia; X-ray centroid systematically offset from Gaia optical position regardless of target name used; RFC matches are fine (Cygnus A is a VLBI calibrator)
