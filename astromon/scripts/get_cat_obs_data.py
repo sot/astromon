@@ -26,14 +26,13 @@ from ska_helpers.logging import basic_logger
 
 from astromon import db, utils
 from astromon.cross_match import (
-    STORED_SELECTIONS,
     assign_cat_src_ids,
-    compute_cross_matches,
     get_desi_v161_candidates,
     get_gaia_agn,
     get_gaia_qso_candidates,
     get_milliquas_gaia,
     rough_match,
+    stored_cross_matches,
 )
 from astromon.observation import Observation, ReturnCode
 from astromon.task import run_tasks
@@ -281,44 +280,6 @@ def obs_gti_table(observation: Observation) -> Table:
     obs_gti = db.create_table("astromon_obs_gti")
     obs_gti.add_row([int(observation.obsid), span["gti_start"], span["gti_stop"]])
     return obs_gti
-
-
-def cross_matches_to_store(
-    obspar: Table, sources: Table, candidates: Table, logging_tag: str = ""
-) -> Table:
-    """The astromon_xcorr rows for one observation: its stored selections.
-
-    Parameters
-    ----------
-    obspar : astropy.table.Table
-        The observation's astromon_obs row.
-    sources : astropy.table.Table
-        Its X-ray sources, any detection methods.
-    candidates : astropy.table.Table
-        Its catalog candidates.
-    logging_tag : str
-        Prepended to log messages.
-
-    Returns
-    -------
-    astropy.table.Table
-        Rows with astromon_xcorr's columns, possibly none.
-    """
-    xcorr_cols = list(db.ASTROMON_XCORR_DTYPE.names)
-    stored = [
-        compute_cross_matches(
-            select_name,
-            astromon_obs=obspar,
-            astromon_xray_src=sources,
-            astromon_cat_src=candidates,
-            logging_tag=logging_tag,
-        )
-        for select_name in STORED_SELECTIONS
-    ]
-    stored = [matches[xcorr_cols] for matches in stored if len(matches)]
-    if not stored:
-        return Table(dtype=db.ASTROMON_XCORR_DTYPE)
-    return vstack(stored, metadata_conflicts="silent")
 
 
 def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
@@ -591,7 +552,7 @@ def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
                 continue
 
             logger.debug(f"OBSID={obsid} About to cross-match ({version})")
-            matches = cross_matches_to_store(
+            matches = stored_cross_matches(
                 obspar, sources, match_candidates, logging_tag=f"OBSID={obsid}"
             )
             if len(matches):

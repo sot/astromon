@@ -741,3 +741,119 @@ def test_requery_marks_db_before_recording_progress_file_completion(
         "record_completed must not have run before the (simulated) crash in "
         "mark_catalog_matched"
     )
+
+
+# ─── storing astromon_21 for what the re-query wrote ─────────────────────────
+
+
+def _seed_matchable_obsid(dbfile, obsid=7001):
+    """astromon_obs and one celldetect source a candidate at its position will match."""
+    from chandra_aca.transform import radec_to_yagzag
+
+    obs = Table(np.zeros(1, dtype=db.ASTROMON_OBS_DTYPE))
+    obs["obsid"] = obsid
+    obs["grating"] = "NONE"
+    obs["detector"] = "ACIS-S"
+    obs["date_obs"] = "2020-01-01T00:00:00"
+    obs["category_id"] = 10
+    db.save("astromon_obs", obs, dbfile, ignore_obsid=True, expect_existing=True)
+
+    xray = Table(np.zeros(1, dtype=db.ASTROMON_XRAY_SRC_DTYPE))
+    xray["obsid"] = obsid
+    xray["id"] = 3
+    xray["ra"], xray["dec"] = 150.0, 2.0
+    y_angle, z_angle = radec_to_yagzag(150.0, 2.0, QUAT)
+    xray["y_angle"], xray["z_angle"] = y_angle, z_angle
+    xray["r_angle"] = 10.0
+    xray["snr"] = 20.0
+    xray["near_neighbor_dist"] = 60.0
+    xray["detect_method"] = "celldetect"
+    db.save("astromon_xray_src", xray, dbfile, ignore_obsid=True, expect_existing=True)
+
+
+def _requery_rfc_at_the_source(dbfile, monkeypatch, dry_run=False):
+    monkeypatch.setattr(
+        requery_cat_src,
+        "evt2_pointing",
+        lambda obsid, workdir, archive_dir: (QUAT, "2020:001"),
+    )
+
+    def rfc(sources, obs_time, logging_tag=""):
+        found = _candidates([150.0], [2.0], names=["RFC J1000+0200"])
+        found["x_id"] = [int(sources["id"][0])]
+        return found
+
+    with patch.dict(requery_cat_src.CATALOG_GETTERS, {"RFC": rfc}, clear=False):
+        return requery_cat_src.requery(
+            dbfile, [7001], catalogs=("RFC",), dry_run=dry_run
+        )
+
+
+def _stored(dbfile, select_name="astromon_21"):
+    xcorr = db.get_table("astromon_xcorr", dbfile)
+    return xcorr[np.asarray(xcorr["select_name"]).astype(str) == select_name]
+
+
+def test_requery_stores_astromon_21_for_the_obsids_it_filled_in(tmp_path, monkeypatch):
+    """A re-query used to leave astromon_xcorr empty for an obsid it gave candidates.
+
+    The detection-only bulk pass (skip_catalog_match) relies on this script to fill
+    the catalogs in afterwards, and nothing else ever computed the stored matches.
+    """
+    dbfile = tmp_path / "astromon.h5"
+    db.create_empty_tables(dbfile)
+    _seed_matchable_obsid(dbfile)
+
+    summary = _requery_rfc_at_the_source(dbfile, monkeypatch)
+
+    stored = _stored(dbfile)
+    assert list(stored["obsid"]) == [7001]
+    assert list(stored["x_id"]) == [3]
+    assert summary["stored_matches"] == 1
+    assert summary["xcorr_not_rebuilt"] == []
+
+
+def test_a_dry_run_stores_no_matches(tmp_path, monkeypatch):
+    dbfile = tmp_path / "astromon.h5"
+    db.create_empty_tables(dbfile)
+    _seed_matchable_obsid(dbfile)
+
+    summary = _requery_rfc_at_the_source(dbfile, monkeypatch, dry_run=True)
+
+    # nothing was written, so there is nothing new to store either
+    assert len(_stored(dbfile)) == 0
+    assert summary["stored_matches"] == 0
+
+
+def test_an_obsid_that_would_lose_stored_matches_is_left_alone(tmp_path, monkeypatch):
+    """Recomputing must not silently store fewer matches than are there now."""
+    dbfile = tmp_path / "astromon.h5"
+    db.create_empty_tables(dbfile)
+    _seed_matchable_obsid(dbfile)
+    existing = Table(np.zeros(2, dtype=db.ASTROMON_XCORR_DTYPE))
+    existing["select_name"] = "astromon_21"
+    existing["obsid"] = 7001
+    existing["c_id"] = [90, 91]
+    existing["x_id"] = [3, 4]
+    existing["detect_method"] = "celldetect"
+    db.save("astromon_xcorr", existing, dbfile, ignore_obsid=True, expect_existing=True)
+
+    summary = _requery_rfc_at_the_source(dbfile, monkeypatch)
+
+    assert sorted(_stored(dbfile)["c_id"]) == [90, 91]
+    assert summary["xcorr_not_rebuilt"] == [7001]
+
+
+def test_retired_selections_are_not_touched(tmp_path, monkeypatch):
+    dbfile = tmp_path / "astromon.h5"
+    db.create_empty_tables(dbfile)
+    _seed_matchable_obsid(dbfile)
+    retired = Table(np.zeros(1, dtype=db.ASTROMON_XCORR_DTYPE))
+    retired["select_name"] = "astromon_26"
+    retired["obsid"] = 7001
+    db.save("astromon_xcorr", retired, dbfile, ignore_obsid=True, expect_existing=True)
+
+    _requery_rfc_at_the_source(dbfile, monkeypatch)
+
+    assert len(_stored(dbfile, "astromon_26")) == 1
+    assert len(_stored(dbfile)) == 1

@@ -2815,6 +2815,48 @@ CROSS_MATCHES_ARGS = {
 #: selection included, is computed from astromon_cat_src when asked for.
 STORED_SELECTIONS = ("astromon_21",)
 
+
+def stored_cross_matches(
+    astromon_obs: table.Table,
+    astromon_xray_src: table.Table,
+    astromon_cat_src: table.Table,
+    logging_tag: str = "",
+) -> table.Table:
+    """The astromon_xcorr rows of the :data:`STORED_SELECTIONS` for some observations.
+
+    Parameters
+    ----------
+    astromon_obs : astropy.table.Table
+        The observations' astromon_obs rows.
+    astromon_xray_src : astropy.table.Table
+        Their X-ray sources, any detection methods.
+    astromon_cat_src : astropy.table.Table
+        Their catalog candidates.
+    logging_tag : str
+        Prepended to log messages.
+
+    Returns
+    -------
+    astropy.table.Table
+        Rows with astromon_xcorr's columns, possibly none.
+    """
+    xcorr_cols = list(db.ASTROMON_XCORR_DTYPE.names)
+    stored = [
+        compute_cross_matches(
+            select_name,
+            astromon_obs=astromon_obs,
+            astromon_xray_src=astromon_xray_src,
+            astromon_cat_src=astromon_cat_src,
+            logging_tag=logging_tag,
+        )
+        for select_name in STORED_SELECTIONS
+    ]
+    stored = [matches[xcorr_cols] for matches in stored if len(matches)]
+    if not stored:
+        return table.Table(np.zeros(0, dtype=db.ASTROMON_XCORR_DTYPE))
+    return table.vstack(stored, metadata_conflicts="silent")
+
+
 """
 *Standard* cross-matches (the keys of :any:`CROSS_MATCHES_ARGS`).
 """

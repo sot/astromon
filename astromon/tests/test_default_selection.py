@@ -14,7 +14,6 @@ import pytest
 from astropy.table import Table, vstack
 
 from astromon import cross_match, db
-from astromon.scripts import get_cat_obs_data
 from astromon.tests.utils import (
     minimal_cat_src,
     minimal_obs,
@@ -198,7 +197,7 @@ def test_exclude_regions_reads_the_regions_of_the_given_database():
 def test_the_pipeline_stores_only_astromon_21():
     obs, xray = minimal_obs(), two_method_xray_src()
     candidates = _candidates("RFC", "Tycho2", "GaiaQSO")
-    stored = get_cat_obs_data.cross_matches_to_store(obs, xray, candidates)
+    stored = cross_match.stored_cross_matches(obs, xray, candidates)
     assert set(stored.colnames) == set(db.ASTROMON_XCORR_DTYPE.names)
     assert set(np.asarray(stored["select_name"]).astype(str)) == {"astromon_21"}
     assert len(stored) == 2  # one per detect_method, RFC beats Tycho2

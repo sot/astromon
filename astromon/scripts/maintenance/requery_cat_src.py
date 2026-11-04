@@ -41,9 +41,13 @@ Two properties keep the write safe:
   the obsid never had leaves every ``astromon_xcorr.c_id`` still pointing at the
   same row.
 
-Replacing a catalog the obsid *did* have does renumber those rows, so the obsids
-where that happened are reported: their ``astromon_xcorr`` rows have to be
-recomputed with ``rebuild_xcorr`` afterwards.
+Replacing a catalog the obsid *did* have does renumber those rows. After each chunk
+is written, the stored selections (astromon_21) are recomputed for every obsid the
+chunk finished (:func:`store_cross_matches`), which repairs those references and
+stores the matches of obsids that had none. An obsid whose recomputed matches would
+be fewer than the stored ones is left alone and reported instead; it needs
+``rebuild_xcorr`` once its catalogs are complete again. The default selection needs
+none of this: it is computed from astromon_cat_src whenever it is asked for.
 
 Usage::
 
@@ -78,6 +82,7 @@ from ska_helpers.logging import basic_logger
 
 from astromon import db
 from astromon.cross_match import (
+    STORED_SELECTIONS,
     assign_cat_src_ids,
     catalog_versions,
     get_desi_v161_by_obsid,
@@ -86,6 +91,7 @@ from astromon.cross_match import (
     get_gaia_qso_candidates,
     get_milliquas_gaia,
     rough_match,
+    stored_cross_matches,
 )
 
 logger = basic_logger("astromon", level="INFO")
@@ -413,9 +419,9 @@ def write_candidates(dbfile: Path, candidates: Table, dry_run: bool = False) -> 
     Returns ``{"added_rows": n, "replaced_obsids": [...], "replaced_pairs": n}``.
     ``replaced_obsids`` are the obsids where a catalog that already had rows was
     rewritten: those rows got new ids, so the obsid's ``astromon_xcorr`` entries
-    are stale and need ``rebuild_xcorr``. Obsids that only gained a catalog they
-    never had are not listed -- their new ids sit above anything an existing
-    ``c_id`` refers to.
+    are stale until :func:`store_cross_matches` recomputes them. Obsids that only
+    gained a catalog they never had are not listed -- their new ids sit above
+    anything an existing ``c_id`` refers to.
 
     Note the one thing keying on ``(obsid, catalog)`` cannot do: a catalog that
     returns nothing writes no rows, so it also removes none. This adds and
@@ -482,6 +488,61 @@ def write_candidates(dbfile: Path, candidates: Table, dry_run: bool = False) -> 
         expect_existing=True,
     )
     return result
+
+
+def store_cross_matches(
+    dbfile: Path, obsids: Sequence[int], dry_run: bool = False
+) -> dict:
+    """Recompute the stored selections for `obsids` from what `dbfile` now holds.
+
+    The re-query is what fills astromon_cat_src in after a detection-only pass
+    (``skip_catalog_match``), so it is also what has to store those obsids'
+    astromon_xcorr rows; nothing else computes them. Replacing a catalog renumbers
+    its rows, which this repairs too. Only :data:`astromon.cross_match.STORED_SELECTIONS`
+    rows are replaced; rows of retired selections are left as they are.
+
+    An obsid whose recomputed rows would be fewer than the ones stored now is left
+    alone and reported, like ``rebuild_xcorr`` does: fewer means candidates a stored
+    match used have gone, and recomputing would drop that match rather than repair it.
+
+    Returns ``{"stored_matches": n, "xcorr_not_rebuilt": [obsid, ...]}``.
+    """
+    from astromon.scripts.maintenance.rebuild_xcorr import (  # noqa: PLC0415
+        find_selections_with_fewer_matches,
+    )
+
+    def rows_of(name: str) -> Table:
+        rows = db.get_table(name, dbfile)
+        return rows[np.isin(np.asarray(rows["obsid"]), list(obsids))]
+
+    xcorr = db.get_table("astromon_xcorr", dbfile)
+    new = stored_cross_matches(
+        rows_of("astromon_obs"),
+        rows_of("astromon_xray_src"),
+        rows_of("astromon_cat_src"),
+    )
+    current = np.isin(np.asarray(xcorr["obsid"]), list(obsids)) & np.isin(
+        np.asarray(xcorr["select_name"]).astype(str), STORED_SELECTIONS
+    )
+    losing = sorted(
+        {obsid for obsid, _ in find_selections_with_fewer_matches(xcorr[current], new)}
+    )
+    for obsid in losing:
+        logger.warning(
+            f"OBSID={obsid} recomputing astromon_xcorr would store fewer matches than"
+            " it has now; left alone (re-query its catalogs, then rebuild_xcorr)"
+        )
+    replace = current & ~np.isin(np.asarray(xcorr["obsid"]), losing)
+    new = new[~np.isin(np.asarray(new["obsid"]), losing)]
+    if not dry_run and (replace.any() or len(new)):
+        db.save(
+            "astromon_xcorr",
+            vstack([xcorr[~replace], new], metadata_conflicts="silent"),
+            dbfile,
+            ignore_obsid=True,
+            expect_existing=True,
+        )
+    return {"stored_matches": len(new), "xcorr_not_rebuilt": losing}
 
 
 def _query_one(args: tuple) -> tuple[int, Table | None, str | None]:
@@ -614,6 +675,8 @@ def requery(  # noqa: PLR0917, PLR0912, PLR0915
         "catalog_versions": catalog_versions(),
         "added_rows": 0,
         "replaced_obsids": [],
+        "stored_matches": 0,
+        "xcorr_not_rebuilt": [],
         "queried": 0,
         "skipped": {},
     }
@@ -687,6 +750,14 @@ def requery(  # noqa: PLR0917, PLR0912, PLR0915
             )
             summary["added_rows"] += written["added_rows"]
             summary["replaced_obsids"].extend(written["replaced_obsids"])
+
+        # Before marking anything complete, like the candidates themselves: the
+        # stored matches are part of what this run is responsible for writing. A
+        # dry run wrote no candidates, so it has nothing new to store.
+        if completed and not dry_run:
+            stored = store_cross_matches(dbfile, completed)
+            summary["stored_matches"] += stored["stored_matches"]
+            summary["xcorr_not_rebuilt"].extend(stored["xcorr_not_rebuilt"])
 
         # mark_catalog_matched (a real DB state change) runs before
         # record_completed (a resume-progress optimization written to a plain
@@ -846,10 +917,12 @@ def main() -> None:
         f"{summary['added_rows']:,} row(s) written, "
         f"{len(summary['skipped'])} skipped"
     )
-    if summary["replaced_obsids"]:
+    logger.info(f"{summary['stored_matches']:,} astromon_xcorr row(s) stored")
+    if summary["xcorr_not_rebuilt"]:
         logger.info(
-            f"{len(summary['replaced_obsids'])} obsid(s) had a catalog replaced and so "
-            "need `rebuild_xcorr --obsids ...` to repair their c_id references"
+            f"{len(summary['xcorr_not_rebuilt'])} obsid(s) would have lost stored"
+            " matches and were left alone; re-query their catalogs, then run"
+            " `rebuild_xcorr --obsids ...`"
         )
     if args.summary_file:
         args.summary_file.write_text(json.dumps(summary, indent=2))
