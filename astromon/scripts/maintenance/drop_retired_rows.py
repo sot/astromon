@@ -25,7 +25,7 @@ import numpy as np
 from astromon import db
 from astromon.cross_match import STORED_SELECTIONS
 
-logger = logging.getLogger("astromon")
+logger = logging.getLogger("drop_retired_rows")
 
 RETIRED_CATALOGS = ("Quaia", "GaiaVarStar")
 

@@ -33,7 +33,7 @@ from astropy.table import Table
 
 from astromon import db
 
-logger = logging.getLogger("astromon")
+logger = logging.getLogger("load_exclusion_regions")
 
 EXCLUSIONS_FILE = Path(__file__).parents[2] / "data" / "excluded_sources.ecsv"
 
