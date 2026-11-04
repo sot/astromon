@@ -2794,15 +2794,17 @@ def compute_cross_matches(
     """
     Cross-match x-ray sources with catalog counterparts.
 
-    The arguments to this function are relayed to the actual implementation. The default
-    algorithm is the `name="simple"` cross-match
-    (see the documentation of :any:`simple_cross_match` for details).
+    The arguments to this function are relayed to the actual implementation, the
+    `name="simple"` cross-match (see the documentation of :any:`simple_cross_match` for
+    details). With neither `name` nor `kwargs` it computes the default selection,
+    ``CROSS_MATCHES_ARGS["default"]``.
 
     Parameters
     ----------
     name: str
         Can be the name one of the :any:`standard cross-matches <CROSS_MATCHES>`
-        or the name of the algorithm to use (only 'simple' is implemented). Default: 'simple'.
+        or the name of the algorithm to use (only 'simple' is implemented). Default:
+        'default' without `kwargs`, 'simple' with them.
     astromon_obs: :any:`astropy.table.Table`
         Table of astromon observations as returned by
         :any:`db.get_table("astromon_obs") <db.get_table>`.  The default is to get it from `dbfile`.
@@ -3112,28 +3114,17 @@ def simple_cross_match(
     return result
 
 
-# Catalog hierarchy for the astromon_24-27 selections. Order matters: for each
-# X-ray source the match from the earliest listed catalog wins.
-_MATCH_HIERARCHY = [
+# Catalogs of the default selection, in priority order: for each X-ray source the
+# match from the earliest listed catalog wins, whatever its separation. They are the
+# absolute-astrometry calibration's own (Jean Connelly, 2026-11-04), which left out
+# Quaia and GaiaVarStar; astromon no longer queries either.
+DEFAULT_CATALOGS = [
     "ICRF3",
     "RFC",
     "GaiaAGN",
-    "Quaia",
     "DESIV161",
     "MilliquasGaia",
     "GaiaQSO",
-    "GaiaVarStar",
-    "Tycho2",
-]
-# astromon_23 predates the hierarchy reorder and keeps its original ordering.
-_MATCH_HIERARCHY_23 = [
-    "RFC",
-    "GaiaAGN",
-    "GaiaQSO",
-    "Quaia",
-    "MilliquasGaia",
-    "DESIV161",
-    "GaiaVarStar",
     "Tycho2",
 ]
 
@@ -3154,70 +3145,38 @@ def _simple_match_args(name, catalogs, **overrides):
     return args
 
 
-# Notes on the non-default values:
+# astromon_21 is the one selection stored in astromon_xcorr: flight's, and the one
+# the quarterly status number (calc_astrometry_rms.py) reads.
 #
-# detect_method_filter (astromon_24-27): compute_cross_matches discards xray
-# sources from other methods before the join, so each select_name carries a
-# single clean detect_method.
+# "default" is never stored. compute_cross_matches() and db.get_cross_matches()
+# without a name compute it from astromon_obs, astromon_xray_src and
+# astromon_cat_src on demand (under a second for the whole database), so it cannot
+# go stale or be missing for an obsid whose candidates are stored. Its cuts are the
+# calibration's:
 #
-# snr=9.5 (astromon_25/27): SNR floors are method-specific because the SNR
-# *scales* are not comparable: for the same source, gaussian_detect SNR is ~13x
-# celldetect SNR (median; the ratio is not even constant) - the two tools use
-# different noise definitions.  snr=9.5 on gaussian SNR is the same quantile as
-# snr=3 on celldetect SNR, so the gaussian selections use 9.5 to match the
-# strictness celldetect has always had.  With a shared snr=3 the gaussian
-# samples admit faint junk: matches below gaussian SNR 9.5 are ~10x enriched in
-# dr > 1.5" (replicates on peak_gaussian_detect, survives alignment-drift
-# correction).  See the off-axis-angle-limit notebook in absolute_astrometry
-# (2026-08).
+# detect_method_filter="celldetect": compute_cross_matches discards the other
+# methods' sources before the join. SNR scales differ by method (gaussian_detect
+# SNR runs ~13x celldetect's for the same source), so snr=3 is a celldetect floor;
+# for gaussian_detect pass detect_method_filter="gaussian_detect", snr=9.5 (the
+# same quantile).
 #
-# r_angle=160 (astromon_26/27): extended off-axis matches using existing
-# astromon_cat_src coverage.  The 160-180" bin shows noticeably elevated
-# centroid scatter (2.4% dr > 2" vs ~0.6-1.1% at smaller radii), so the limit
-# is 160" rather than 180".  Note: astromon_cat_src was populated with a 3"
-# rough_match radius, so sources where the PSF spread pushes the true
-# counterpart beyond 3" are not represented.
+# r_angle=160 for gratings too: the 160-180" bin shows noticeably elevated
+# centroid scatter (2.4% dr > 2" vs ~0.6-1.1% at smaller radii), so the limit is
+# 160" rather than 180". astromon_cat_src was populated with a 3" rough_match
+# radius, so sources whose PSF spread pushes the true counterpart beyond 3" are
+# not represented.
+#
+# The retired names (astromon_22-27 and the single-catalog selections) may still
+# have rows in older databases; db.get_cross_matches(name) still reads them, but
+# nothing computes or stores them any more.
 CROSS_MATCHES_ARGS = {
     args["name"]: args
     for args in [
         _simple_match_args("astromon_21", ["RFC", "Tycho2"]),
-        _simple_match_args("astromon_22", ["RFC", "Tycho2"], r_angle_grating=24.0),
-        # Single-catalog selections, mostly for per-catalog diagnostics.
-        _simple_match_args("gaia_agn", ["GaiaAGN"], r_angle_grating=24.0),
-        _simple_match_args("gaia_qso", ["GaiaQSO"], r_angle_grating=24.0),
-        _simple_match_args("gaia_var_star", ["GaiaVarStar"], r_angle_grating=24.0),
-        _simple_match_args("milliquas_gaia", ["MilliquasGaia"], r_angle_grating=24.0),
-        _simple_match_args("desi_v161", ["DESIV161"], r_angle_grating=24.0),
-        _simple_match_args("quaia", ["Quaia"]),
-        _simple_match_args("rfc", ["RFC"]),
-        _simple_match_args("tycho2", ["Tycho2"]),
-        _simple_match_args("icrf3", ["ICRF3"]),
-        # Not part of any combined hierarchy (astromon_23-27): ICRF2 is superseded by
-        # ICRF3/RFC and kept only as a reference baseline for the pre-ICRF3/RFC
-        # catalog set, so no reprocessing of the hierarchical selections is needed.
-        _simple_match_args("icrf2", ["ICRF2"]),
-        _simple_match_args("astromon_23", _MATCH_HIERARCHY_23),
         _simple_match_args(
-            "astromon_24", _MATCH_HIERARCHY, detect_method_filter="celldetect"
-        ),
-        _simple_match_args(
-            "astromon_25",
-            _MATCH_HIERARCHY,
-            detect_method_filter="gaussian_detect",
-            snr=9.5,
-        ),
-        _simple_match_args(
-            "astromon_26",
-            _MATCH_HIERARCHY,
+            "default",
+            DEFAULT_CATALOGS,
             detect_method_filter="celldetect",
-            r_angle=160.0,
-            r_angle_grating=160.0,
-        ),
-        _simple_match_args(
-            "astromon_27",
-            _MATCH_HIERARCHY,
-            detect_method_filter="gaussian_detect",
-            snr=9.5,
             r_angle=160.0,
             r_angle_grating=160.0,
         ),
@@ -3226,7 +3185,10 @@ CROSS_MATCHES_ARGS = {
 """
 *Standard* cross-match arguments.
 """
-CROSS_MATCHES_ARGS["default"] = CROSS_MATCHES_ARGS["astromon_21"]
+
+#: The selections the pipeline stores in astromon_xcorr. Everything else, the default
+#: selection included, is computed from astromon_cat_src when asked for.
+STORED_SELECTIONS = ("astromon_21",)
 
 """
 *Standard* cross-matches (the keys of :any:`CROSS_MATCHES_ARGS`).

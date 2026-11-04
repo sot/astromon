@@ -229,6 +229,19 @@ def _drop_stale_xcorr_for_obsids(dbfile, obsids, select_names) -> None:
         )
 
 
+def stored_selections_including(catalog: str) -> list[str]:
+    """The stored select_names whose catalog list includes `catalog`.
+
+    >>> stored_selections_including("RFC")
+    ['astromon_21']
+    """
+    return [
+        name
+        for name in cross_match.STORED_SELECTIONS
+        if catalog in cross_match.CROSS_MATCHES_ARGS[name]["catalogs"]
+    ]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", required=True, type=Path)
@@ -270,19 +283,10 @@ def main() -> None:
 
     rfc_obsids = np.unique(new_rfc_cat["obsid"]) if len(new_rfc_cat) else np.array([])
 
-    # Run xcorr for every select_name that includes RFC in its catalog list.
-    # astromon_21 is the traditional RFC+Tycho2 set; astromon_23 is the full
-    # new catalog set where RFC is the highest-priority source.  Both need to be
-    # updated so that get_cross_matches() for either select_name sees RFC.
-    # Filter by the "name" key to avoid running aliases (e.g. "default" → "astromon_21")
-    # twice.  Use the args-dict "name" as the canonical select_name.
-    seen_names: set[str] = set()
-    select_names_with_rfc = []
-    for sn, args_dict in cross_match.CROSS_MATCHES_ARGS.items():
-        canonical = args_dict.get("name", sn)
-        if "RFC" in args_dict.get("catalogs", []) and canonical not in seen_names:
-            seen_names.add(canonical)
-            select_names_with_rfc.append(canonical)
+    # Re-run xcorr for every stored select_name that includes RFC. The default
+    # selection includes RFC as well, but it is computed from astromon_cat_src on
+    # demand, so the new candidates reach it without any xcorr rows.
+    select_names_with_rfc = stored_selections_including("RFC")
     logger.info(
         f"Pass 2: re-running xcorr for {len(rfc_obsids):,} obsids × "
         f"{select_names_with_rfc} (all select_names that include RFC)"

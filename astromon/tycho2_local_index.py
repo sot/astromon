@@ -204,7 +204,7 @@ def admit_tycho2_match(
     near_neighbor_dist: float = 6.0,
     dr: float = 3.0,
 ) -> tuple[pd.DataFrame, pd.Series | None]:
-    """Apply the "tycho2" select_name admission gates to rough-match candidates.
+    """Apply single-catalog Tycho2 admission gates (the retired "tycho2" selection).
 
     Mirrors ``simple_cross_match`` with ``catalogs=["Tycho2"]``, ``snr=3``,
     ``r_angle=120``, ``r_angle_grating=120``, ``near_neighbor_dist=6.0``, ``dr=3.0``

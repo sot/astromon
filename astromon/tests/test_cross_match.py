@@ -235,7 +235,7 @@ def test_db_agreement(monkeypatch):
     monkeypatch.setattr(db, "get_table", _get_table)
 
     matches = cross_match.compute_cross_matches("astromon_21")
-    matches2 = db.get_cross_matches()
+    matches2 = db.get_cross_matches("astromon_21")
     # the cross_match method can potentially return more columns, that's ok.
     assert not [m for m in matches2.colnames if m not in matches.colnames]
     assert len(matches) > 0
@@ -246,9 +246,9 @@ def test_db_agreement(monkeypatch):
 def test_default_cross_match(monkeypatch):
     monkeypatch.setattr(db, "get_table", _get_table)
 
-    # cross_match without arguments uses the default standard cross_match
+    # cross_match without arguments computes the default selection
     matches2 = cross_match.compute_cross_matches()
-    matches = cross_match.compute_cross_matches("astromon_21")
+    matches = cross_match.compute_cross_matches("default")
 
     assert matches2.colnames == matches.colnames
     assert len(matches) > 0
@@ -568,9 +568,8 @@ def test_get_gaia_agn_catalog_failure_raises():
 
 
 def test_compute_cross_matches_gaia_agn():
-    """compute_cross_matches('gaia_agn') finds a GaiaAGN match from a synthetic cat_src."""
+    """The default selection finds a GaiaAGN match from a synthetic cat_src."""
     matches = cross_match.compute_cross_matches(
-        "gaia_agn",
         astromon_obs=_minimal_obs(99999, ra=187.2779, dec=2.0524),
         astromon_xray_src=_minimal_xray_src(99999, ra=187.2779, dec=2.0524),
         # GaiaAGN catalog source ~1 arcsec away; x_id=1 links it to xray_src
@@ -586,7 +585,8 @@ def test_compute_cross_matches_gaia_agn():
     )
 
     assert len(matches) == 1
-    assert matches["select_name"][0] == "gaia_agn"
+    assert matches["select_name"][0] == "default"
+    assert matches["catalog"][0] == "GaiaAGN"
     assert matches["obsid"][0] == 99999
     assert matches["x_id"][0] == 1
 
@@ -713,9 +713,9 @@ def test_get_gaia_var_stars_tap_failure_raises():
 
 
 def test_compute_cross_matches_gaia_var_star():
-    """compute_cross_matches('gaia_var_star') finds a GaiaVarStar match from a synthetic cat_src."""
+    """A GaiaVarStar-only selection finds a match from a synthetic cat_src."""
     matches = cross_match.compute_cross_matches(
-        "gaia_var_star",
+        catalogs=["GaiaVarStar"],
         astromon_obs=_minimal_obs(
             99998, ra=237.252, dec=61.710, target="test active star", category_id=10
         ),
@@ -733,7 +733,7 @@ def test_compute_cross_matches_gaia_var_star():
     )
 
     assert len(matches) == 1
-    assert matches["select_name"][0] == "gaia_var_star"
+    assert matches["select_name"][0] == "simple"
     assert matches["obsid"][0] == 99998
     assert matches["x_id"][0] == 1
 
@@ -864,9 +864,8 @@ def test_get_gaia_qso_candidates_catalog_failure_raises():
 
 
 def test_compute_cross_matches_gaia_qso():
-    """compute_cross_matches('gaia_qso') finds a GaiaQSO match from a synthetic cat_src."""
+    """The default selection finds a GaiaQSO match from a synthetic cat_src."""
     matches = cross_match.compute_cross_matches(
-        "gaia_qso",
         astromon_obs=_minimal_obs(99997, ra=_3C273_RA, dec=_3C273_DEC, target="3C 273"),
         astromon_xray_src=_minimal_xray_src(
             99997, ra=_3C273_RA, dec=_3C273_DEC, snr=20.0, net_counts=1000.0
@@ -882,7 +881,8 @@ def test_compute_cross_matches_gaia_qso():
     )
 
     assert len(matches) == 1
-    assert matches["select_name"][0] == "gaia_qso"
+    assert matches["select_name"][0] == "default"
+    assert matches["catalog"][0] == "GaiaQSO"
     assert matches["obsid"][0] == 99997
     assert matches["x_id"][0] == 1
 

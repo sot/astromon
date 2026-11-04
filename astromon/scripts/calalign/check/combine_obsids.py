@@ -233,7 +233,7 @@ def do_events():  # noqa: PLR0915
 
 def do_sources():
     print("doing sources")
-    matches = db.get_cross_matches(dbfile=DBFILE)
+    matches = db.get_cross_matches(name="astromon_21", dbfile=DBFILE)
     reprodir = Path("reprodata")
     obsdirs = sorted(reprodir.glob("*/*"))
     result = []

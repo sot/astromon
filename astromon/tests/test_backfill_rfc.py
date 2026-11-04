@@ -101,6 +101,11 @@ def test_main_drops_stale_xcorr_for_an_obsid_that_lost_its_rfc_candidate(
     assert OBSID_DROP not in np.asarray(cat_src["obsid"])
 
 
+def test_rfc_matches_are_rerun_only_for_stored_selections():
+    """The default selection includes RFC too, but it is computed, never stored."""
+    assert bf.stored_selections_including("RFC") == ["astromon_21"]
+
+
 def test_build_rfc_cat_src_matches_across_ra_meridian():
     """A real RFC match just across RA=0/360 must not be dropped by the cone filter."""
     obsid = 2003

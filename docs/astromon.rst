@@ -25,8 +25,9 @@ The process of finding counterparts for detected x-ray sources proceeds in two m
   done by the :any:`compute_cross_matches  <astromon.cross_match.compute_cross_matches>` function,
   which in turn delegates to specific implementation functions.
 
-The default cross-match set is identified as ``"astromon_21"`` (see
-:ref:`pre-computed-queries`). This set is produced using the `"simple"` matching
+The default cross-match selection is computed on demand from the stored tables, and
+``"astromon_21"`` is the one selection stored in ``astromon_xcorr`` (see
+:ref:`pre-computed-queries`). Both are produced using the `"simple"` matching
 algorithm implemented in :any:`simple_cross_match
 <astromon.cross_match.simple_cross_match>`.
 

@@ -69,10 +69,13 @@ def test_matches_are_unchanged_when_the_anchor_is_scrambled():
     scrambled["celldetect_x_id"] = 4242
 
     from_good = cross_match.compute_cross_matches(
-        "tycho2", astromon_obs=obs, astromon_xray_src=xray, astromon_cat_src=good
+        "astromon_21", astromon_obs=obs, astromon_xray_src=xray, astromon_cat_src=good
     )
     from_scrambled = cross_match.compute_cross_matches(
-        "tycho2", astromon_obs=obs, astromon_xray_src=xray, astromon_cat_src=scrambled
+        "astromon_21",
+        astromon_obs=obs,
+        astromon_xray_src=xray,
+        astromon_cat_src=scrambled,
     )
 
     assert len(from_good) == 1
@@ -87,7 +90,7 @@ def test_a_method_missing_the_source_yields_no_match_for_that_method():
     xray["y_angle"] = [0.0, 36.0]
 
     matches = cross_match.compute_cross_matches(
-        "tycho2",
+        "astromon_21",
         astromon_obs=_minimal_obs(99900),
         astromon_xray_src=xray,
         astromon_cat_src=_minimal_cat_src(99900),
@@ -102,7 +105,7 @@ def test_empty_inputs_still_return_the_joined_dtype():
     empty_cat = _minimal_cat_src(99900)[:0]
 
     matches = cross_match.compute_cross_matches(
-        "tycho2",
+        "astromon_21",
         astromon_obs=_minimal_obs(99900),
         astromon_xray_src=_minimal_xray_src(99900),
         astromon_cat_src=empty_cat,
@@ -116,7 +119,7 @@ def test_empty_inputs_still_return_the_joined_dtype():
 def test_selection_keeps_one_row_per_method():
     """A selection without detect_method_filter must not collapse the two methods."""
     matches = cross_match.compute_cross_matches(
-        "tycho2",
+        "astromon_21",
         astromon_obs=_minimal_obs(99900),
         astromon_xray_src=_two_method_xray_src(99900),
         astromon_cat_src=_minimal_cat_src(99900),
@@ -137,7 +140,7 @@ def test_selection_still_picks_one_match_per_source_within_a_method():
     cat["id"] = [0, 1]
 
     matches = cross_match.compute_cross_matches(
-        "tycho2",
+        "astromon_21",
         astromon_obs=_minimal_obs(99900),
         astromon_xray_src=_minimal_xray_src(99900),
         astromon_cat_src=cat,

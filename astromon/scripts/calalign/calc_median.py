@@ -133,7 +133,7 @@ def get_parser():
 def main():
     args = get_parser().parse_args()
 
-    matches = db.get_cross_matches()
+    matches = db.get_cross_matches(name="astromon_21")
     matches = filter_xcorr(matches, snr=args.snr)
 
     args.stop = min(args.stop, np.max(matches["time"]))

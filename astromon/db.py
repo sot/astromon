@@ -1192,13 +1192,16 @@ def set_formats(dat):
             dat[col.name].info.format = fmts.get(col.name, ".2f")
 
 
-def get_cross_matches(name="astromon_21", dbfile=None, **kwargs):
+def get_cross_matches(name=None, dbfile=None, **kwargs):
     """
-    Get a standard cross-match of observations, x-ray sources and catalog counterparts in `dbfile`.
+    Get cross-matches of observations, x-ray sources and catalog counterparts in `dbfile`.
 
-    A *standard* cross-match is a pre-computed cross-match between x-ray sources and catalog
-    counterparts. The name of the standard cross-match specifies the algorithm and the set of
-    parameters that have been used to cross-match.
+    Without a `name`, this computes the default selection
+    (:any:`CROSS_MATCHES_ARGS["default"] <cross_match.CROSS_MATCHES_ARGS>`) from the
+    stored observations, x-ray sources and catalog candidates, so it reflects whatever
+    `dbfile` holds now. With a `name`, it reads that selection's stored rows from
+    astromon_xcorr: astromon_21, the one the pipeline stores, or a retired selection an
+    older database still holds.
 
     If you want a *non-standard* cross-match, with your own set of parameters, refer to the
     :any:`compute_cross_matches <cross_match.compute_cross_matches>` function.
@@ -1213,13 +1216,14 @@ def get_cross_matches(name="astromon_21", dbfile=None, **kwargs):
     Parameters
     ----------
     name: str
-        name of the standard cross-match.
+        Name of a stored selection. Default (None) computes the default selection.
     dbfile: :any:`pathlib.Path`
         File where tables are stored.
         The default is `$ASTROMON_FILE` or `$SKA/data/astromon/astromon.h5`
     kwargs: dict
-        All extra arguments are passed directly to :any:`cross_match.filter_matches`. These are
-        some of the allowed arguments:
+        All extra arguments are passed directly to :any:`cross_match.filter_matches`, except
+        exclude_regions, which uses `dbfile`'s astromon_regions. These are some of the
+        allowed arguments:
 
         - snr
         - dr
@@ -1244,8 +1248,30 @@ def get_cross_matches(name="astromon_21", dbfile=None, **kwargs):
     -------
     :any:`astropy.table.Table`
     """
-    from astromon.cross_match import filter_matches
+    from astromon.cross_match import (
+        compute_cross_matches,
+        filter_matches,
+        get_excluded_regions_mask,
+    )
 
+    exclude_regions = kwargs.pop("exclude_regions", False)
+    if name is None:
+        matches = compute_cross_matches(dbfile=dbfile)
+    else:
+        matches = _stored_cross_matches(name, dbfile)
+
+    if kwargs:
+        matches = matches[filter_matches(matches, **kwargs)]
+    if exclude_regions:
+        regions = get_table("astromon_regions", dbfile)
+        matches = matches[~get_excluded_regions_mask(matches, regions=regions)]
+    if not matches.indices:
+        matches.add_index("obsid")
+    return matches
+
+
+def _stored_cross_matches(name, dbfile):
+    """The stored rows of selection `name`, joined to their observation and sources."""
     matches = get_table("astromon_xcorr", dbfile)
     matches = matches[matches["select_name"] == name]
     astromon_cat_src = get_table("astromon_cat_src", dbfile)
@@ -1290,8 +1316,4 @@ def get_cross_matches(name="astromon_21", dbfile=None, **kwargs):
     matches["x_loc"] = SkyCoord(matches["x_ra"] * u.deg, matches["x_dec"] * u.deg)
 
     set_formats(matches)
-    if kwargs:
-        ok = filter_matches(matches, **kwargs)
-        matches = matches[ok]
-    matches.add_index("obsid")
     return matches

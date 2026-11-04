@@ -27,10 +27,12 @@ def get_parser():
 def main():
     args = get_parser().parse_args()
 
-    # NOTE: the list of cross-matches from the following function is given by
-    #     CROSS_MATCHES_ARGS["default"]
-    # the arguments here are applied on top of that
+    # The quarterly status number reads the stored astromon_21 selection
+    # (CROSS_MATCHES_ARGS["astromon_21"]); the arguments here are applied on top of
+    # it. Named explicitly: without a name, get_cross_matches computes the default
+    # selection instead, which would change this number.
     dat = db.get_cross_matches(
+        name="astromon_21",
         snr=5,
         exclude_bad_targets=True,
         sim_z=4,  # max sim-z

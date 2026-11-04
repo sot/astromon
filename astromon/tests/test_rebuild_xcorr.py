@@ -304,9 +304,11 @@ def test_recompute_makes_one_pass_over_every_detect_method():
         return astromon_cat_src[:0]
 
     with patch.object(rebuild_xcorr, "compute_cross_matches", record):
-        rebuild_xcorr.recompute(["rfc"], db.create_table("astromon_obs"), xray, cat)
+        rebuild_xcorr.recompute(
+            ["astromon_21"], db.create_table("astromon_obs"), xray, cat
+        )
 
-    assert seen == [("rfc", ["celldetect", "gaussian_detect"])]
+    assert seen == [("astromon_21", ["celldetect", "gaussian_detect"])]
 
 
 def test_rebuild_verifies_before_it_writes(tmp_path):

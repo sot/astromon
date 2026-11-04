@@ -26,6 +26,7 @@ from ska_helpers.logging import basic_logger
 
 from astromon import db, utils
 from astromon.cross_match import (
+    STORED_SELECTIONS,
     assign_cat_src_ids,
     compute_cross_matches,
     get_desi_v161_candidates,
@@ -282,6 +283,44 @@ def obs_gti_table(observation: Observation) -> Table:
     obs_gti = db.create_table("astromon_obs_gti")
     obs_gti.add_row([int(observation.obsid), span["gti_start"], span["gti_stop"]])
     return obs_gti
+
+
+def cross_matches_to_store(
+    obspar: Table, sources: Table, candidates: Table, logging_tag: str = ""
+) -> Table:
+    """The astromon_xcorr rows for one observation: its stored selections.
+
+    Parameters
+    ----------
+    obspar : astropy.table.Table
+        The observation's astromon_obs row.
+    sources : astropy.table.Table
+        Its X-ray sources, any detection methods.
+    candidates : astropy.table.Table
+        Its catalog candidates.
+    logging_tag : str
+        Prepended to log messages.
+
+    Returns
+    -------
+    astropy.table.Table
+        Rows with astromon_xcorr's columns, possibly none.
+    """
+    xcorr_cols = list(db.ASTROMON_XCORR_DTYPE.names)
+    stored = [
+        compute_cross_matches(
+            select_name,
+            astromon_obs=obspar,
+            astromon_xray_src=sources,
+            astromon_cat_src=candidates,
+            logging_tag=logging_tag,
+        )
+        for select_name in STORED_SELECTIONS
+    ]
+    stored = [matches[xcorr_cols] for matches in stored if len(matches)]
+    if not stored:
+        return Table(dtype=db.ASTROMON_XCORR_DTYPE)
+    return vstack(stored, metadata_conflicts="silent")
 
 
 def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
@@ -591,155 +630,17 @@ def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
             all_sources.append(sources)
 
             if skip_catalog_match:
-                # No candidates to cross-match against -- requery_cat_src.py fills
-                # astromon_cat_src/astromon_xcorr in for this obsid later.
+                # No candidates to cross-match against. requery_cat_src.py fills
+                # astromon_cat_src in for this obsid later, and the default selection
+                # sees them at once; astromon_21 needs rebuild_xcorr afterwards.
                 continue
 
             logger.debug(f"OBSID={obsid} About to cross-match ({version})")
-            matches = compute_cross_matches(
-                "astromon_21",
-                astromon_obs=obspar,
-                astromon_xray_src=sources,
-                astromon_cat_src=match_candidates,
-                logging_tag=f"OBSID={obsid}",
+            matches = cross_matches_to_store(
+                obspar, sources, match_candidates, logging_tag=f"OBSID={obsid}"
             )
             if len(matches):
-                all_xcorr.append(matches[xcorr_cols])
-
-            icrf3_matches = compute_cross_matches(
-                "icrf3",
-                astromon_obs=obspar,
-                astromon_xray_src=sources,
-                astromon_cat_src=match_candidates,
-                logging_tag=f"OBSID={obsid}",
-            )
-            if len(icrf3_matches):
-                all_xcorr.append(icrf3_matches[xcorr_cols])
-
-            rfc_matches = compute_cross_matches(
-                "rfc",
-                astromon_obs=obspar,
-                astromon_xray_src=sources,
-                astromon_cat_src=match_candidates,
-                logging_tag=f"OBSID={obsid}",
-            )
-            if len(rfc_matches):
-                all_xcorr.append(rfc_matches[xcorr_cols])
-
-            tycho2_matches = compute_cross_matches(
-                "tycho2",
-                astromon_obs=obspar,
-                astromon_xray_src=sources,
-                astromon_cat_src=match_candidates,
-                logging_tag=f"OBSID={obsid}",
-            )
-            if len(tycho2_matches):
-                all_xcorr.append(tycho2_matches[xcorr_cols])
-
-            if len(gaia_agn_candidates):
-                gaia_matches = compute_cross_matches(
-                    "gaia_agn",
-                    astromon_obs=obspar,
-                    astromon_xray_src=sources,
-                    astromon_cat_src=gaia_agn_candidates,
-                    logging_tag=f"OBSID={obsid}",
-                )
-                if len(gaia_matches):
-                    all_xcorr.append(gaia_matches[xcorr_cols])
-
-            if len(gaia_qso_candidates):
-                gaia_qso_matches = compute_cross_matches(
-                    "gaia_qso",
-                    astromon_obs=obspar,
-                    astromon_xray_src=sources,
-                    astromon_cat_src=gaia_qso_candidates,
-                    logging_tag=f"OBSID={obsid}",
-                )
-                if len(gaia_qso_matches):
-                    all_xcorr.append(gaia_qso_matches[xcorr_cols])
-
-            if len(milliquas_candidates):
-                mq_matches = compute_cross_matches(
-                    "milliquas_gaia",
-                    astromon_obs=obspar,
-                    astromon_xray_src=sources,
-                    astromon_cat_src=milliquas_candidates,
-                    logging_tag=f"OBSID={obsid}",
-                )
-                if len(mq_matches):
-                    all_xcorr.append(mq_matches[xcorr_cols])
-
-            if len(quaia_candidates):
-                quaia_matches = compute_cross_matches(
-                    "quaia",
-                    astromon_obs=obspar,
-                    astromon_xray_src=sources,
-                    astromon_cat_src=quaia_candidates,
-                    logging_tag=f"OBSID={obsid}",
-                )
-                if len(quaia_matches):
-                    all_xcorr.append(quaia_matches[xcorr_cols])
-
-            if len(desi_candidates):
-                desi_matches = compute_cross_matches(
-                    "desi_v161",
-                    astromon_obs=obspar,
-                    astromon_xray_src=sources,
-                    astromon_cat_src=desi_candidates,
-                    logging_tag=f"OBSID={obsid}",
-                )
-                if len(desi_matches):
-                    all_xcorr.append(desi_matches[xcorr_cols])
-
-            if len(var_star_candidates):
-                vs_matches = compute_cross_matches(
-                    "gaia_var_star",
-                    astromon_obs=obspar,
-                    astromon_xray_src=sources,
-                    astromon_cat_src=var_star_candidates,
-                    logging_tag=f"OBSID={obsid}",
-                )
-                if len(vs_matches):
-                    all_xcorr.append(vs_matches[xcorr_cols])
-
-            # Combined hierarchical matches using all available catalogs.
-            # astromon_23: RFC > GaiaAGN > GaiaQSO > Quaia > MilliquasGaia > DESIV161
-            #              > GaiaVarStar > Tycho2.
-            # astromon_24: same + ICRF3 prepended, celldetect only.
-            # astromon_25: same + ICRF3 prepended, gaussian_detect only.
-            all_candidates = [
-                t
-                for t in [
-                    match_candidates,
-                    gaia_agn_candidates,
-                    gaia_qso_candidates,
-                    quaia_candidates,
-                    milliquas_candidates,
-                    desi_candidates,
-                    var_star_candidates,
-                ]
-                if len(t)
-            ]
-            if all_candidates:
-                combined_for_version = vstack(
-                    all_candidates, metadata_conflicts="silent"
-                )
-                for select_name in (
-                    "astromon_23",
-                    "astromon_24",
-                    "astromon_25",
-                    "astromon_26",
-                    "astromon_27",
-                ):
-                    combined_matches = compute_cross_matches(
-                        select_name,
-                        astromon_obs=obspar,
-                        astromon_xray_src=sources,
-                        astromon_cat_src=combined_for_version,
-                        logging_tag=f"OBSID={obsid}",
-                    )
-                    if len(combined_matches):
-                        all_xcorr.append(combined_matches[xcorr_cols])
+                all_xcorr.append(matches)
 
         if not all_sources:
             raise SkippedWithWarning(
