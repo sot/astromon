@@ -992,3 +992,105 @@ def test_grating_arm_obsid13712(tmp_path):
     assert not sources["grating_arm"][brightest], (
         f"brightest source (SNR={sources['snr'][brightest]:.0f}) should not be arm-flagged"
     )
+
+
+def _image_then_fit_pipeline(declare_mask):
+    """images -> detect -> fit, where fit reads images' mask, declared or not.
+
+    The shape of gaussian_detect: its inputs are the celldetect source list (made from
+    make_images' flux image), and its pre-fit seed filters read make_images' grating
+    arm mask from disk.
+    """
+    TASKS = task.TaskManager()
+    seen = {}
+
+    @TASKS.task(name="images", outputs={"flux": "img/flux.txt", "mask": "img/mask.txt"})
+    def images(obs, inputs=None, outputs=None):
+        for name in ("flux", "mask"):
+            outputs[name].parent.mkdir(parents=True, exist_ok=True)
+            outputs[name].write_text(name)
+
+    @TASKS.task(
+        name="detect",
+        inputs={"flux": "img/flux.txt"},
+        outputs={"src": "src/detect.txt"},
+    )
+    def detect(obs, inputs=None, outputs=None):
+        outputs["src"].parent.mkdir(parents=True, exist_ok=True)
+        outputs["src"].write_text("detect")
+
+    @TASKS.task(
+        name="fit",
+        inputs={"src": "src/detect.txt"},
+        optional_inputs={"mask": "img/mask.txt"} if declare_mask else {},
+        outputs={"src": "src/fit.txt"},
+    )
+    def fit(obs, inputs=None, outputs=None):
+        seen["mask_at_fit_time"] = obs.file_path("img/mask.txt").exists()
+        outputs["src"].write_text("fit")
+
+    return TASKS, seen
+
+
+def _refit_after_images_were_removed(TASKS, obs):
+    """Every task ran once; the image files are gone (records still valid); fit reruns."""
+    for name in ("images", "detect", "fit"):
+        TASKS.run_task(obs, name)
+    for name in ("flux.txt", "mask.txt"):
+        obs.file_path(f"img/{name}").unlink()
+    TASKS.tasks["fit"].invalidate_result(obs)
+    TASKS.run_task(obs, "fit")
+
+
+def test_a_declared_optional_input_is_remade_before_the_task_that_reads_it(request):
+    """2026-10-05: gaussian_detect refit before make_images had remade the arm mask.
+
+    Its grating-arm seed filter then saw no mask and dropped nothing. Declaring the
+    mask as an optional input makes the scheduler remake it first.
+    """
+    TASKS, seen = _image_then_fit_pipeline(declare_mask=True)
+    obs = get_obs("8007", request)
+
+    _refit_after_images_were_removed(TASKS, obs)
+
+    assert seen["mask_at_fit_time"]
+
+
+def test_an_undeclared_file_is_not_remade_before_the_task_that_reads_it(request):
+    """The failure the declaration fixes: nothing asks for the mask before the fit."""
+    TASKS, seen = _image_then_fit_pipeline(declare_mask=False)
+    obs = get_obs("8007", request)
+
+    _refit_after_images_were_removed(TASKS, obs)
+
+    assert not seen["mask_at_fit_time"]
+
+
+def test_a_declared_optional_input_the_producer_never_made_does_not_rerun_it(request):
+    """A non-grating observation has no mask; asking for it must not rerun make_images."""
+    TASKS = task.TaskManager()
+    runs = []
+
+    @TASKS.task(name="images", outputs={"flux": "img/flux.txt", "mask": "img/mask.txt"})
+    def images(obs, inputs=None, outputs=None):
+        runs.append("images")
+        outputs["flux"].parent.mkdir(parents=True, exist_ok=True)
+        outputs["flux"].write_text("flux")  # no mask: not a grating observation
+
+    @TASKS.task(
+        name="fit",
+        inputs={"flux": "img/flux.txt"},
+        optional_inputs={"mask": "img/mask.txt"},
+        outputs={"src": "src/fit.txt"},
+    )
+    def fit(obs, inputs=None, outputs=None):
+        outputs["src"].parent.mkdir(parents=True, exist_ok=True)
+        outputs["src"].write_text("fit")
+
+    obs = get_obs("8007", request)
+    TASKS.run_task(obs, "images")
+    TASKS.run_task(obs, "fit")
+    TASKS.tasks["fit"].invalidate_result(obs)
+    TASKS.run_task(obs, "fit")
+
+    assert runs == ["images"]

@@ -2290,6 +2290,11 @@ def wavdetect(obs, inputs, outputs):
     },
     optional_inputs={
         "psf_size": "sources/{obsid}_psf_size_celldetect.fits",
+        # Read from disk by the pre-fit seed filters (_drop_grating_arm_seeds,
+        # _drop_acis_streak_seeds), which do nothing when the file is missing.
+        # Declared so a refit in a work dir whose images are gone remakes them first.
+        "grating_arm_mask": "images/{obsid}_grating_arm_mask.fits",
+        "acis_streaks": "images/{obsid}_acis_streaks.fits",
     },
     outputs={
         "src": "sources/{obsid}_gaussian_detect.src",
@@ -2700,6 +2705,11 @@ def _fit_gaussian_sources(  # noqa: PLR0915
     },
     optional_inputs={
         "psf_size": "sources/{obsid}_psf_size_celldetect.fits",
+        # Read from disk by the pre-fit seed filters (_drop_grating_arm_seeds,
+        # _drop_acis_streak_seeds), which do nothing when the file is missing.
+        # Declared so a refit in a work dir whose images are gone remakes them first.
+        "grating_arm_mask": "images/{obsid}_grating_arm_mask.fits",
+        "acis_streaks": "images/{obsid}_acis_streaks.fits",
     },
     outputs={
         "src": "sources/{obsid}_peak_gaussian_detect.src",

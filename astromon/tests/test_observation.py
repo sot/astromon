@@ -428,6 +428,28 @@ def test_gaussian_tasks_do_not_declare_a_raw_evt2_download():
         )
 
 
+def test_gaussian_tasks_declare_the_images_their_seed_filters_read():
+    """The pre-fit seed filters read make_images' arm mask and streak file from disk.
+
+    Undeclared, nothing made the scheduler remake them before a refit in a work dir
+    whose images were gone: on 2026-10-05, 87 obsids were refit with no grating arm
+    mask, the grating-arm filter dropped nothing, and 896 arm seeds were fit and saved.
+    Declared as optional inputs, they are remade first when missing, and an
+    observation that never had one (not a grating or streaked observation) is not
+    rerun for it.
+    """
+    from astromon.task import TASKS
+
+    images = TASKS.tasks["make_images"]._outputs
+    for name in ("gaussian_detect", "peak_gaussian_detect"):
+        optional = TASKS.tasks[name]._optional_inputs
+        for key in ("grating_arm_mask", "acis_streaks"):
+            assert optional.get(key) == images[key], (
+                f"{name} reads make_images' {key} but does not declare it"
+            )
+        assert "make_images" in TASKS.get_dependencies(name)
+
+
 def test_filter_events_still_declares_the_raw_evt2_download():
     """The task that does read the raw file must keep asking for it."""
     from astromon.task import TASKS
