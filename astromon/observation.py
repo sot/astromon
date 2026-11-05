@@ -2191,6 +2191,10 @@ def _find_zeroth_order(evt_file: Path) -> tuple[float, float]:
 
     x = data["X"].astype(float)
     y = data["Y"].astype(float)
+    # Level-2 files can carry a few events with no sky position (NaN X/Y); they
+    # would make every bound below NaN.
+    has_position = np.isfinite(x) & np.isfinite(y)
+    x, y = x[has_position], y[has_position]
 
     # Coarse bin to locate the peak region.
     bin_size = 32

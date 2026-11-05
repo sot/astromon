@@ -1827,3 +1827,43 @@ def test_no_report_with_a_mask_or_without_a_grating(tmp_path):
         observation._warn_if_no_grating_arm_mask(obs, {"grating": "HETG"})
 
     warning.assert_not_called()
+
+
+# ─── the zero order of a grating observation ─────────────────────────────────
+
+
+def test_find_zeroth_order_centroids_the_brightest_cluster(tmp_path):
+    rng = np.random.default_rng(1)
+    zero_order_x = 4096.0 + rng.normal(0.0, 1.0, 400)
+    zero_order_y = 4100.0 + rng.normal(0.0, 1.0, 400)
+    background_x = rng.uniform(3000.0, 5000.0, 200)
+    background_y = rng.uniform(3000.0, 5000.0, 200)
+    path = tmp_path / "evt2.fits"
+    _write_events(
+        path,
+        x=np.concatenate([zero_order_x, background_x]),
+        y=np.concatenate([zero_order_y, background_y]),
+    )
+
+    zo_x, zo_y = observation._find_zeroth_order(path)
+
+    assert zo_x == pytest.approx(4096.0, abs=3.0)
+    assert zo_y == pytest.approx(4100.0, abs=3.0)
+
+
+def test_find_zeroth_order_ignores_events_without_a_sky_position(tmp_path):
+    """Real level-2 files carry a few events with NaN X/Y (12 grating obsids, 1-10 each).
+
+    int(x.min()) on them raised, make_images swallowed it, and those observations got
+    no grating arm mask -- so none of their arm sources were flagged.
+    """
+    rng = np.random.default_rng(2)
+    x_values = np.concatenate([4096.0 + rng.normal(0.0, 1.0, 400), [np.nan, 4000.0]])
+    y_values = np.concatenate([4100.0 + rng.normal(0.0, 1.0, 400), [4000.0, np.nan]])
+    path = tmp_path / "evt2.fits"
+    _write_events(path, x=x_values, y=y_values)
+
+    zo_x, zo_y = observation._find_zeroth_order(path)
+
+    assert zo_x == pytest.approx(4096.0, abs=1.0)
+    assert zo_y == pytest.approx(4100.0, abs=1.0)
