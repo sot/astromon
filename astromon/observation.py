@@ -266,6 +266,7 @@ class Observation:
                 "*_wide_flux.img",
                 "*_broad_flux.img",
                 "*_acis_streaks.fits",
+                "*_grating_arm_mask.fits",
                 "*.src",
                 "*_psf_size_*.fits",
             ]
@@ -1391,6 +1392,7 @@ class Observation:
             sources["RA"], sources["DEC"], q
         )
         sources["r_angle"] = np.sqrt(sources["y_angle"] ** 2 + sources["z_angle"] ** 2)
+        _warn_if_no_grating_arm_mask(self, evt2_info)
 
         # filter_events cuts input events to a 180" radius (see that task), but
         # celldetect (and gaussian_detect, which seeds from it) fits cells/Gaussians
@@ -1512,9 +1514,45 @@ class Observation:
         database (634 obsids' celldetect sources, 2026-09/10). RA/Dec come from the
         detection's own WCS and are unaffected. A source that an older pointing put
         past 180 arcsec is not in the cache and is not recovered here.
+
+        For gaussian_detect, sources fit from a celldetect seed the fit no longer
+        takes (crowded, grating arm, ACIS streak) are dropped as well, with a
+        warning: see :meth:`_without_excluded_seeds`.
         """
         sources = self._cached_sources(version=version, astromon_format=astromon_format)
-        return self._with_current_angles(sources)
+        sources = self._with_current_angles(sources)
+        if version == "gaussian_detect":
+            sources = self._without_excluded_seeds(sources, version)
+        return sources
+
+    def _without_excluded_seeds(
+        self, sources: table.Table, version: str
+    ) -> table.Table:
+        """`sources` without those fit from a celldetect seed the fit no longer takes.
+
+        gaussian_detect drops crowded, grating-arm and ACIS-streak seeds before it
+        fits (_drop_crowded_seeds and friends). A .src fit before that rule, or fit
+        while the arm mask was missing, still holds them, and re-reading it -- a
+        reused task result, backfill_gaussian_yz -- would put them back in the
+        database. Seeds are judged by celldetect's own stored flags, the same rule
+        as backfill_drop_excluded_gaussian_seeds. A drop is logged: on a fresh fit
+        it means the fit-time filters did not work.
+        """
+        if len(sources) == 0:
+            return sources
+        celldetect = self.get_sources(version="celldetect")
+        reasons = excluded_seed_mask(celldetect)
+        excluded = reasons["crowded"] | reasons["grating_arm"] | reasons["acis_streak"]
+        drop = np.isin(
+            np.asarray(sources["id"]), np.asarray(celldetect["id"])[excluded]
+        )
+        if drop.any():
+            dropped_ids = sorted(np.asarray(sources["id"])[drop].tolist())
+            logger.warning(
+                f"{self} {version}: dropped {len(dropped_ids)} source(s) fit from"
+                f" excluded celldetect seeds (ids {dropped_ids})"
+            )
+        return sources[~drop]
 
     def _with_current_angles(self, sources: table.Table) -> table.Table:
         """`sources` with y/z/r_angle from RA/Dec and the evt2 pointing, cut at 180"."""
@@ -1534,7 +1572,20 @@ class Observation:
             quat,
         )
         sources["r_angle"] = np.sqrt(sources["y_angle"] ** 2 + sources["z_angle"] ** 2)
-        return sources[sources["r_angle"] < 180]
+        inside = np.asarray(sources["r_angle"]) < 180
+        if inside.all():
+            return sources
+        # brightest and near_neighbor_dist were computed over the cached (uncut) set,
+        # as _get_sources computes them after its own cut: recompute them over the
+        # sources that are left.
+        sources = sources[inside]
+        if "brightest" in sources.colnames and "snr" in sources.colnames:
+            sources["brightest"] = _flag_brightest_source(sources["snr"])
+        if "near_neighbor_dist" in sources.colnames and len(sources) > 0:
+            sources["near_neighbor_dist"] = utils.get_near_neighbor_dist(
+                sources, sources, id_col="id"
+            )
+        return sources
 
     # The cache file name is `sources__<hash of version, astromon_format>`, as it was
     # when get_sources itself was cached, so the caches already on disk keep being found.
@@ -2109,8 +2160,8 @@ def make_images(obs, inputs, outputs):
     if obsid_info["grating"] != "NONE":
         try:
             _make_grating_arm_mask(obs, inputs, outputs, logging_tag)
-        except Exception:
-            logger.warning(f"{obsid}   grating arm mask failed")
+        except Exception as exc:
+            logger.warning(f"{obsid}   grating arm mask failed: {exc}")
 
 
 def _find_zeroth_order(evt_file: Path) -> tuple[float, float]:
@@ -2308,6 +2359,46 @@ def wavdetect(obs, inputs, outputs):
 )
 def gaussian_detect(obs, inputs, outputs):
     return _fit_gaussian_sources(obs, inputs, outputs, seed_from_peak=False)
+
+
+def excluded_seed_mask(celldetect: table.Table) -> dict[str, np.ndarray]:
+    """Per-reason masks of the celldetect sources gaussian_detect does not fit.
+
+    The same decisions as the pre-fit filters (_drop_crowded_seeds,
+    _drop_grating_arm_seeds, _drop_acis_streak_seeds), made from the flags
+    celldetect sources carry after ``get_sources``: ``near_neighbor_dist`` within
+    utils.NEAR_NEIGHBOR_DIST_ARCSEC, ``grating_arm``, and ``acis_streak`` unless the
+    source is the ``brightest``.
+
+    Example::
+
+        reasons = excluded_seed_mask(obs.get_sources(version="celldetect"))
+        excluded = reasons["crowded"] | reasons["grating_arm"] | reasons["acis_streak"]
+    """
+    near_neighbor_dist = np.asarray(celldetect["near_neighbor_dist"], dtype=float)
+    acis_streak = np.asarray(celldetect["acis_streak"]).astype(bool)
+    brightest = np.asarray(celldetect["brightest"]).astype(bool)
+    return {
+        "crowded": near_neighbor_dist <= utils.NEAR_NEIGHBOR_DIST_ARCSEC,
+        "grating_arm": np.asarray(celldetect["grating_arm"]).astype(bool),
+        "acis_streak": acis_streak & ~brightest,
+    }
+
+
+def _warn_if_no_grating_arm_mask(obs, evt2_info: dict) -> None:
+    """Say so when a grating observation has no arm mask.
+
+    Without it _on_grating_arm flags nothing, so neither the grating_arm column nor
+    gaussian_detect's grating-arm seed filter can see the dispersed arms.
+    """
+    grating = str(evt2_info.get("grating", "NONE")).strip().upper()
+    if grating in ("", "NONE"):
+        return
+    if not obs.file_path(f"images/{obs.obsid}_grating_arm_mask.fits").exists():
+        logger.warning(
+            f"{obs} is a {grating} observation with no grating arm mask:"
+            " sources on the dispersed arms are not flagged"
+        )
 
 
 def _drop_crowded_seeds(input_sources):
@@ -2548,6 +2639,7 @@ def _fit_gaussian_sources(  # noqa: PLR0915
             if brightest_mask.any():
                 brightest_component = input_sources["COMPONENT"][brightest_mask][0]
         input_sources = _drop_crowded_seeds(input_sources)
+        _warn_if_no_grating_arm_mask(obs, obs_info)
         input_sources = _drop_grating_arm_seeds(input_sources, obs)
         input_sources = _drop_acis_streak_seeds(input_sources, obs, brightest_component)
         if len(input_sources) == 0:
@@ -2705,11 +2797,6 @@ def _fit_gaussian_sources(  # noqa: PLR0915
     },
     optional_inputs={
         "psf_size": "sources/{obsid}_psf_size_celldetect.fits",
-        # Read from disk by the pre-fit seed filters (_drop_grating_arm_seeds,
-        # _drop_acis_streak_seeds), which do nothing when the file is missing.
-        # Declared so a refit in a work dir whose images are gone remakes them first.
-        "grating_arm_mask": "images/{obsid}_grating_arm_mask.fits",
-        "acis_streaks": "images/{obsid}_acis_streaks.fits",
     },
     outputs={
         "src": "sources/{obsid}_peak_gaussian_detect.src",

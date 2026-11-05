@@ -428,7 +428,7 @@ def test_gaussian_tasks_do_not_declare_a_raw_evt2_download():
         )
 
 
-def test_gaussian_tasks_declare_the_images_their_seed_filters_read():
+def test_gaussian_detect_declares_the_images_its_seed_filters_read():
     """The pre-fit seed filters read make_images' arm mask and streak file from disk.
 
     Undeclared, nothing made the scheduler remake them before a refit in a work dir
@@ -436,18 +436,17 @@ def test_gaussian_tasks_declare_the_images_their_seed_filters_read():
     mask, the grating-arm filter dropped nothing, and 896 arm seeds were fit and saved.
     Declared as optional inputs, they are remade first when missing, and an
     observation that never had one (not a grating or streaked observation) is not
-    rerun for it.
+    rerun for it. peak_gaussian_detect does not filter its seeds, so it reads neither.
     """
     from astromon.task import TASKS
 
     images = TASKS.tasks["make_images"]._outputs
-    for name in ("gaussian_detect", "peak_gaussian_detect"):
-        optional = TASKS.tasks[name]._optional_inputs
-        for key in ("grating_arm_mask", "acis_streaks"):
-            assert optional.get(key) == images[key], (
-                f"{name} reads make_images' {key} but does not declare it"
-            )
-        assert "make_images" in TASKS.get_dependencies(name)
+    optional = TASKS.tasks["gaussian_detect"]._optional_inputs
+    for key in ("grating_arm_mask", "acis_streaks"):
+        assert optional.get(key) == images[key], (
+            f"gaussian_detect reads make_images' {key} but does not declare it"
+        )
+    assert "make_images" in TASKS.get_dependencies("gaussian_detect")
 
 
 def test_filter_events_still_declares_the_raw_evt2_download():
@@ -1607,3 +1606,224 @@ def test_the_sources_cache_keeps_its_file_names(version, cache_hash):
     cached = observation.Observation.__dict__["_cached_sources"]
     assert cached.name == "sources"
     assert argument_hash(cached.func, None, version=version) == cache_hash
+
+
+# ─── the seed rule on read ────────────────────────────────────────────────────
+#
+# gaussian_detect does not fit a celldetect seed that is crowded, on a grating arm,
+# or on an ACIS streak (unless it is the brightest source). A .src fit before that
+# rule existed, or fit while the mask files were missing, still holds such sources,
+# and reading it must not bring them back into the database.
+
+
+def _celldetect_with_flags() -> table.Table:
+    """1 crowded, 2 on an arm, 3 on a streak, 4 on a streak but brightest, 5 clean."""
+    return table.Table(
+        {
+            "id": np.array([1, 2, 3, 4, 5], dtype=np.int32),
+            "near_neighbor_dist": np.array([4.0, 50.0, 50.0, 50.0, 50.0]),
+            "grating_arm": np.array([False, True, False, False, False]),
+            "acis_streak": np.array([False, False, True, True, False]),
+            "brightest": np.array([False, False, False, True, False]),
+        }
+    )
+
+
+def _gaussian_rows(source_ids: list[int]) -> table.Table:
+    return table.Table(
+        {
+            "id": np.array(source_ids, dtype=np.int32),
+            "snr": np.full(len(source_ids), 7.0, dtype=np.float32),
+        }
+    )
+
+
+def _obs_with_celldetect(celldetect: table.Table) -> Mock:
+    obs = Mock()
+    obs.get_sources.return_value = celldetect
+    return obs
+
+
+def test_excluded_seed_mask_names_each_reason():
+    reasons = observation.excluded_seed_mask(_celldetect_with_flags())
+
+    assert list(reasons["crowded"]) == [True, False, False, False, False]
+    assert list(reasons["grating_arm"]) == [False, True, False, False, False]
+    assert list(reasons["acis_streak"]) == [False, False, True, False, False]
+
+
+def test_reading_gaussian_rows_drops_those_fit_from_excluded_seeds():
+    obs = _obs_with_celldetect(_celldetect_with_flags())
+
+    with patch.object(observation.logger, "warning") as warning:
+        kept = observation.Observation._without_excluded_seeds(
+            obs, _gaussian_rows([1, 2, 3, 4, 5, 9]), "gaussian_detect"
+        )
+
+    # 9 has no celldetect seed among the sources within 180": nothing to judge it by
+    assert list(kept["id"]) == [4, 5, 9]
+    obs.get_sources.assert_called_once_with(version="celldetect")
+    assert warning.call_count == 1
+    assert "3 source(s)" in warning.call_args.args[0]
+
+
+def test_reading_gaussian_rows_from_allowed_seeds_warns_nothing():
+    obs = _obs_with_celldetect(_celldetect_with_flags())
+
+    with patch.object(observation.logger, "warning") as warning:
+        kept = observation.Observation._without_excluded_seeds(
+            obs, _gaussian_rows([4, 5]), "gaussian_detect"
+        )
+
+    assert list(kept["id"]) == [4, 5]
+    warning.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("version", "filtered"),
+    [("gaussian_detect", True), ("celldetect", False), ("peak_gaussian_detect", False)],
+)
+def test_get_sources_applies_the_seed_rule_to_gaussian_detect_only(version, filtered):
+    obs = _obs_with_cache(_stale_sources())
+    obs._without_excluded_seeds.side_effect = lambda sources, version: sources[:0]
+
+    sources = observation.Observation.get_sources(obs, version=version)
+
+    assert obs._without_excluded_seeds.called == filtered
+    assert (len(sources) == 0) == filtered
+
+
+def test_the_read_time_seed_rule_agrees_with_the_fit_time_filters(tmp_path):
+    """Both must exclude the same seeds: the fit drops them, a read of an old .src too.
+
+    1 and 2 are a crowded pair, 3 is on the grating arm, 4 is on a streak, 5 is on
+    the streak but the brightest source, 6 is clean, 7 is the zero order.
+    """
+    obs = _make_observation(tmp_path)
+    _write_grating_arm_mask(
+        obs, zero_order=(100.0, 100.0, 5.0), arms=[(100.0, 300.0, 3.0, 150.0, 0.0)]
+    )
+    _write_acis_streaks(
+        obs, [[(400.0, 0.0), (404.0, 0.0), (404.0, 800.0), (400.0, 800.0)]]
+    )
+    seeds = _xy_sources(
+        [600.0, 601.0, 100.0, 402.0, 402.0, 700.0, 100.0],
+        [600.0, 600.0, 300.0, 100.0, 500.0, 700.0, 100.0],
+        snr_values=[5.0, 5.0, 5.0, 5.0, 50.0, 5.0, 20.0],
+    )
+    seeds["y_angle"] = seeds["X"] * 0.492
+    seeds["z_angle"] = seeds["Y"] * 0.492
+
+    brightest = seeds["COMPONENT"][observation._flag_brightest_source(seeds["SNR"])][0]
+    fit_kept = observation._drop_acis_streak_seeds(
+        observation._drop_grating_arm_seeds(
+            observation._drop_crowded_seeds(seeds), obs
+        ),
+        obs,
+        brightest,
+    )
+    from astromon import utils  # noqa: PLC0415
+
+    stored_flags = table.Table(
+        {
+            "id": seeds["COMPONENT"],
+            "near_neighbor_dist": utils.get_near_neighbor_dist(seeds, seeds),
+            "grating_arm": obs._on_grating_arm(seeds),
+            "acis_streak": obs._on_acis_streak(seeds),
+            "brightest": observation._flag_brightest_source(seeds["SNR"]),
+        }
+    )
+    reasons = observation.excluded_seed_mask(stored_flags)
+    excluded = reasons["crowded"] | reasons["grating_arm"] | reasons["acis_streak"]
+
+    assert set(fit_kept["COMPONENT"]) == {5, 6, 7}
+    assert set(stored_flags["id"][~excluded]) == set(fit_kept["COMPONENT"])
+
+
+# ─── what the 180" re-cut leaves behind ──────────────────────────────────────
+
+
+def _three_sources_brightest_outside() -> table.Table:
+    """At 0" and 100" from the pointing, and the brightest at ~200" (cut on read)."""
+    ra0, dec0 = _POINTING["ra_pnt"], _POINTING["dec_pnt"]
+    cos_dec = np.cos(np.radians(dec0))
+    return table.Table(
+        {
+            "id": np.array([0, 1, 2], dtype=np.int32),
+            "ra": np.array(
+                [ra0, ra0 + 100 / 3600 / cos_dec, ra0 + 200 / 3600 / cos_dec]
+            ),
+            "dec": np.array([dec0, dec0, dec0]),
+            "snr": np.array([5.0, 6.0, 50.0], dtype=np.float32),
+            "y_angle": np.zeros(3),
+            "z_angle": np.zeros(3),
+            "r_angle": np.zeros(3),
+            "near_neighbor_dist": np.array([1.0, 1.0, 1.0]),
+            "brightest": np.array([False, False, True]),
+        }
+    )
+
+
+def test_get_sources_recomputes_brightest_and_neighbours_when_the_cut_drops_rows():
+    obs = _obs_with_cache(_three_sources_brightest_outside())
+
+    sources = observation.Observation.get_sources(obs, version="celldetect")
+
+    assert list(sources["id"]) == [0, 1]
+    assert list(sources["brightest"]) == [False, True]
+    separation = np.hypot(
+        sources["y_angle"][1] - sources["y_angle"][0],
+        sources["z_angle"][1] - sources["z_angle"][0],
+    )
+    np.testing.assert_allclose(sources["near_neighbor_dist"], [separation, separation])
+    assert separation == pytest.approx(100.0, abs=0.5)
+
+
+def test_get_sources_keeps_the_cached_flags_when_the_cut_drops_nothing():
+    cached = _three_sources_brightest_outside()[:2]
+    obs = _obs_with_cache(cached)
+
+    sources = observation.Observation.get_sources(obs, version="celldetect")
+
+    assert list(sources["near_neighbor_dist"]) == [1.0, 1.0]
+    assert list(sources["brightest"]) == [False, False]
+
+
+# ─── the grating arm mask must not go missing quietly ────────────────────────
+
+
+def test_the_grating_arm_mask_is_archived(tmp_path):
+    obs = observation.Observation(
+        1234,
+        workdir=tmp_path / "work",
+        archive_dir=tmp_path / "archive",
+        use_ciao=False,
+    )
+    mask = obs.workdir / "images" / "1234_grating_arm_mask.fits"
+    mask.parent.mkdir(parents=True)
+    mask.write_bytes(b"mask")
+
+    obs.archive()
+
+    assert (obs.archive_dir / "images" / "1234_grating_arm_mask.fits").exists()
+
+
+def test_a_grating_observation_without_a_mask_is_reported(tmp_path):
+    obs = _make_observation(tmp_path)
+
+    with patch.object(observation.logger, "warning") as warning:
+        observation._warn_if_no_grating_arm_mask(obs, {"grating": "LETG"})
+
+    assert warning.call_count == 1
+    assert "LETG" in warning.call_args.args[0]
+
+
+def test_no_report_with_a_mask_or_without_a_grating(tmp_path):
+    obs = _make_observation(tmp_path)
+
+    with patch.object(observation.logger, "warning") as warning:
+        observation._warn_if_no_grating_arm_mask(obs, {"grating": "NONE"})
+        _write_grating_arm_mask(obs, zero_order=(1.0, 1.0, 1.0), arms=[])
+        observation._warn_if_no_grating_arm_mask(obs, {"grating": "HETG"})
+
+    warning.assert_not_called()

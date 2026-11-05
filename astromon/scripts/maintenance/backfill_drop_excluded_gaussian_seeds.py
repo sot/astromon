@@ -42,7 +42,8 @@ from pathlib import Path
 
 import numpy as np
 
-from astromon import db, utils
+from astromon import db
+from astromon.observation import excluded_seed_mask
 
 logger = logging.getLogger("backfill_drop_excluded_gaussian_seeds")
 
@@ -64,40 +65,24 @@ def excluded_seed_gaussian_mask(xray) -> dict[str, np.ndarray]:
     method = np.asarray(xray["detect_method"]).astype(str)
     obsid = np.asarray(xray["obsid"])
     source_id = np.asarray(xray["id"])
-    nnd = np.asarray(xray["near_neighbor_dist"]).astype(float)
-    grating_arm = np.asarray(xray["grating_arm"]).astype(bool)
-    acis_streak = np.asarray(xray["acis_streak"]).astype(bool)
-    brightest = np.asarray(xray["brightest"]).astype(bool)
 
+    # The rule itself is shared with Observation.get_sources, which applies it
+    # when reading gaussian_detect sources (observation.excluded_seed_mask).
     cd = method == "celldetect"
+    cd_reasons = excluded_seed_mask(xray[cd])
+    reason_names = ("crowded", "grating_arm", "acis_streak")
     cd_seed = {
-        (int(o), int(i)): (float(n), bool(g), bool(s), bool(b))
-        for o, i, n, g, s, b in zip(
-            obsid[cd],
-            source_id[cd],
-            nnd[cd],
-            grating_arm[cd],
-            acis_streak[cd],
-            brightest[cd],
-            strict=True,
-        )
+        (int(o), int(i)): tuple(bool(cd_reasons[name][k]) for name in reason_names)
+        for k, (o, i) in enumerate(zip(obsid[cd], source_id[cd], strict=True))
     }
 
-    masks = {
-        reason: np.zeros(len(xray), dtype=bool)
-        for reason in ("crowded", "grating_arm", "acis_streak")
-    }
+    masks = {reason: np.zeros(len(xray), dtype=bool) for reason in reason_names}
     for k in np.where(method == "gaussian_detect")[0]:
         seed = cd_seed.get((int(obsid[k]), int(source_id[k])))
         if seed is None:
             continue
-        seed_nnd, seed_grating_arm, seed_acis_streak, seed_brightest = seed
-        if seed_nnd <= utils.NEAR_NEIGHBOR_DIST_ARCSEC:
-            masks["crowded"][k] = True
-        if seed_grating_arm:
-            masks["grating_arm"][k] = True
-        if seed_acis_streak and not seed_brightest:
-            masks["acis_streak"][k] = True
+        for name, applies in zip(reason_names, seed, strict=True):
+            masks[name][k] = applies
     return masks
 
 
