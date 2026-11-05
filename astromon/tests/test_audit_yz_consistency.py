@@ -26,7 +26,11 @@ XRAY_YZ = [(10.0, -20.0), (-60.0, 35.0), (90.0, 80.0)]
 COUNTERPART_OFFSET = (0.4, -0.3)
 
 
-def xray_rows(obsid, pointing_for_angles, method="celldetect"):
+def xray_rows(
+    obsid: int,
+    pointing_for_angles: tuple[float, float, float],
+    method: str = "celldetect",
+) -> Table:
     """Celldetect sources at XRAY_YZ (under EVT2_POINTING), angles stored with `pointing_for_angles`."""
     quat = Quat(equatorial=EVT2_POINTING)
     yag, zag = np.array(XRAY_YZ).T
@@ -43,7 +47,7 @@ def xray_rows(obsid, pointing_for_angles, method="celldetect"):
     return rows
 
 
-def cat_rows(obsid, anchors=(1, 2, 3)):
+def cat_rows(obsid: int, anchors: tuple[int, int, int] = (1, 2, 3)) -> Table:
     """One catalog counterpart per X-ray source, angles from EVT2_POINTING."""
     quat = Quat(equatorial=EVT2_POINTING)
     yag, zag = np.array(XRAY_YZ).T
@@ -139,3 +143,14 @@ def test_audit_reads_a_database_and_writes_nothing_to_it(tmp_path):
 
     assert audit.inconsistent_obsids(excess) == [7002]
     assert dbfile.read_bytes() == before
+
+
+def test_no_anchored_rows_gives_an_empty_audit():
+    """A database with nothing anchored (e.g. a new one) has nothing to flag."""
+    no_xray = Table(np.zeros(0, dtype=db.ASTROMON_XRAY_SRC_DTYPE))
+    no_cat = Table(np.zeros(0, dtype=db.ASTROMON_CAT_SRC_DTYPE))
+
+    excess = audit.yz_excess_by_obsid(no_xray, no_cat)
+
+    assert len(excess) == 0
+    assert audit.inconsistent_obsids(excess) == []

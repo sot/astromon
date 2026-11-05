@@ -1516,7 +1516,7 @@ class Observation:
         sources = self._cached_sources(version=version, astromon_format=astromon_format)
         return self._with_current_angles(sources)
 
-    def _with_current_angles(self, sources):
+    def _with_current_angles(self, sources: table.Table) -> table.Table:
         """`sources` with y/z/r_angle from RA/Dec and the evt2 pointing, cut at 180"."""
         if len(sources) == 0:
             return sources

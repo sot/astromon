@@ -45,11 +45,20 @@ def primary_dir(workdir: Path, obsid: int) -> Path:
     return workdir / f"obs{obsid // 1000:02d}" / str(obsid) / "primary"
 
 
-def angles(ra, dec, pointing):
+def angles(
+    ra: list[float], dec: list[float], pointing: tuple[float, float, float]
+) -> tuple[np.ndarray, np.ndarray]:
     return radec_to_yagzag(np.asarray(ra), np.asarray(dec), Quat(equatorial=pointing))
 
 
-def xray_rows(obsid, method, ra, dec, pointing, first_id=1):
+def xray_rows(  # noqa: PLR0917
+    obsid: int,
+    method: str,
+    ra: list[float],
+    dec: list[float],
+    pointing: tuple[float, float, float],
+    first_id: int = 1,
+) -> Table:
     rows = Table(np.zeros(len(ra), dtype=db.ASTROMON_XRAY_SRC_DTYPE))
     rows["obsid"] = obsid
     rows["id"] = np.arange(first_id, first_id + len(ra))
@@ -61,7 +70,9 @@ def xray_rows(obsid, method, ra, dec, pointing, first_id=1):
     return rows
 
 
-def cat_rows(obsid, ra, dec, pointing):
+def cat_rows(
+    obsid: int, ra: list[float], dec: list[float], pointing: tuple[float, float, float]
+) -> Table:
     rows = Table(np.zeros(len(ra), dtype=db.ASTROMON_CAT_SRC_DTYPE))
     rows["obsid"] = obsid
     rows["id"] = np.arange(len(ra))
@@ -355,3 +366,13 @@ def test_repair_is_idempotent(tmp_path):
     summary = fix.repair(dbfile, [workdir])
 
     assert summary["touched_obsids"] == []
+
+
+def test_local_evt2_pointing_is_none_for_a_truncated_gzip(tmp_path):
+    """A cut-off download is a missing pointing for that obsid, not a failed repair."""
+    evt2 = write_evt2(
+        primary_dir(tmp_path, 7001) / "acisf07001N002_evt2.fits.gz", EVT2_POINTING
+    )
+    evt2.write_bytes(evt2.read_bytes()[:60])
+
+    assert fix.local_evt2_pointing(7001, [tmp_path]) is None

@@ -84,7 +84,15 @@ def anchor_pairs(xray_src: Table, cat_src: Table) -> Table:
             "c_z_angle": np.asarray(cat_src["z_angle"], dtype=float),
         }
     )
-    pairs = join(candidates, anchors, keys=["obsid", "celldetect_x_id"])
+    if len(candidates) and len(anchors):
+        pairs = join(candidates, anchors, keys=["obsid", "celldetect_x_id"])
+    else:  # astropy's join refuses an empty side; nothing is anchored anyway
+        pairs = Table(
+            {
+                **{name: candidates[name][:0] for name in candidates.colnames},
+                **{name: anchors[name][:0] for name in anchors.colnames},
+            }
+        )
     pairs["dr_yz"] = np.hypot(
         pairs["c_y_angle"] - pairs["x_y_angle"],
         pairs["c_z_angle"] - pairs["x_z_angle"],
@@ -116,7 +124,10 @@ def yz_excess_by_obsid(xray_src: Table, cat_src: Table) -> Table:
     obsids = np.asarray(pairs["obsid"])
     order = np.argsort(obsids, kind="stable")
     unique, starts = np.unique(obsids[order], return_index=True)
-    groups = np.split(np.asarray(pairs["excess"])[order], starts[1:])
+    # np.split of an empty array still returns one (empty) group
+    groups = (
+        np.split(np.asarray(pairs["excess"])[order], starts[1:]) if len(unique) else []
+    )
     return Table(
         {
             "obsid": unique,

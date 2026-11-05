@@ -55,6 +55,7 @@ Usage
 import argparse
 import gzip
 import logging
+import zlib
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 
@@ -121,7 +122,8 @@ def local_evt2_pointing(obsid: int, roots: Sequence[Path]) -> Pointing | None:
                     float(header["DEC_PNT"]),
                     float(header["ROLL_PNT"]),
                 )
-            except (OSError, ValueError, KeyError) as exc:
+            # EOFError and zlib.error: a gzip cut off or corrupted mid-download
+            except (OSError, EOFError, zlib.error, ValueError, KeyError) as exc:
                 logger.warning(
                     f"OBSID={obsid} cannot read pointing from {files[0]}: {exc}"
                 )
@@ -243,7 +245,8 @@ def repair(
         if not groups:
             logger.info(f"{name}: nothing to repair")
             continue
-        in_group = np.array([key in set(groups) for key in _key_values(table, keys)])
+        stale_keys = set(groups)
+        in_group = np.array([key in stale_keys for key in _key_values(table, keys)])
         fixed = recompute_angles(table[in_group], pointings)
         if "r_angle" in fixed.colnames:
             crossed = (np.asarray(table[in_group]["r_angle"]) < 180) & (

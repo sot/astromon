@@ -1557,15 +1557,17 @@ def test_get_sources_recomputes_cached_angles_from_ra_dec_and_the_evt2_pointing(
 
     obs = _obs_with_cache(_stale_sources())
 
-    result = observation.Observation.get_sources(obs, version="celldetect")
+    sources = observation.Observation.get_sources(obs, version="celldetect")
 
     quat = Quat(equatorial=tuple(_POINTING.values()))
     y_angle, z_angle = radec_to_yagzag(
-        np.asarray(result["ra"]), np.asarray(result["dec"]), quat
+        np.asarray(sources["ra"]), np.asarray(sources["dec"]), quat
     )
-    np.testing.assert_allclose(result["y_angle"], y_angle, atol=1e-6)
-    np.testing.assert_allclose(result["z_angle"], z_angle, atol=1e-6)
-    np.testing.assert_allclose(result["r_angle"], np.hypot(y_angle, z_angle), atol=1e-6)
+    np.testing.assert_allclose(sources["y_angle"], y_angle, atol=1e-6)
+    np.testing.assert_allclose(sources["z_angle"], z_angle, atol=1e-6)
+    np.testing.assert_allclose(
+        sources["r_angle"], np.hypot(y_angle, z_angle), atol=1e-6
+    )
     obs._cached_sources.assert_called_once_with(
         version="celldetect", astromon_format=True
     )
@@ -1576,18 +1578,18 @@ def test_get_sources_reapplies_the_180_arcsec_cut_with_the_current_angles():
     cached["ra"][1] = 83.82 + 200 / 3600 / np.cos(np.radians(5.39))  # ~200" out
     obs = _obs_with_cache(cached)
 
-    result = observation.Observation.get_sources(obs, version="celldetect")
+    sources = observation.Observation.get_sources(obs, version="celldetect")
 
-    assert list(result["id"]) == [0]
+    assert list(sources["id"]) == [0]
 
 
 def test_get_sources_passes_an_empty_table_through():
     empty = _sources_table()[:0]
     obs = _obs_with_cache(empty)
 
-    result = observation.Observation.get_sources(obs, version="celldetect")
+    sources = observation.Observation.get_sources(obs, version="celldetect")
 
-    assert len(result) == 0
+    assert len(sources) == 0
     obs.get_evt2_info.assert_not_called()
 
 

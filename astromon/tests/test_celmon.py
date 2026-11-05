@@ -147,6 +147,6 @@ def test_the_cal_page_reports_the_selections_own_snr(
         ),
     )
 
-    result = celmon.create_figures_cal(tmp_path)
+    page = celmon.create_figures_cal(tmp_path)
 
-    assert result["snr"] == 3
+    assert page["snr"] == 3

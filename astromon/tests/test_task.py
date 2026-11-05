@@ -994,7 +994,7 @@ def test_grating_arm_obsid13712(tmp_path):
     )
 
 
-def _image_then_fit_pipeline(declare_mask):
+def _image_then_fit_pipeline(declare_mask: bool) -> tuple[task.TaskManager, dict]:
     """images -> detect -> fit, where fit reads images' mask, declared or not.
 
     The shape of gaussian_detect: its inputs are the celldetect source list (made from
@@ -1032,7 +1032,9 @@ def _image_then_fit_pipeline(declare_mask):
     return TASKS, seen
 
 
-def _refit_after_images_were_removed(TASKS, obs):
+def _refit_after_images_were_removed(
+    TASKS: task.TaskManager, obs: observation.Observation
+) -> None:
     """Every task ran once; the image files are gone (records still valid); fit reruns."""
     for name in ("images", "detect", "fit"):
         TASKS.run_task(obs, name)
