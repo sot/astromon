@@ -1096,3 +1096,24 @@ def test_a_declared_optional_input_the_producer_never_made_does_not_rerun_it(req
     TASKS.run_task(obs, "fit")
 
     assert runs == ["images"]
+
+
+def test_get_tasks_to_run_by_requested_filename_alone(request):
+    """requested_tasks defaults to None; asking only for files must not fail on it.
+
+    Observation.sources_would_recompute calls it this way, and the backfills that
+    re-persist sources from existing .src files (backfill_celldetect_positions,
+    backfill_gaussian_yz) check it before every obsid: with the None unchecked they
+    failed every obsid with "'NoneType' object is not iterable".
+    """
+    TASKS = task.TaskManager()
+
+    @TASKS.task(name="one", outputs={"one": "one.txt"})
+    def one(obs, inputs=None, outputs=None):
+        outputs["one"].write_text("one")
+
+    obs = get_obs("8007", request)
+
+    assert "one" in TASKS.get_tasks_to_run(obs, requested_files=["one.txt"])
+    TASKS.run_task(obs, "one")
+    assert TASKS.get_tasks_to_run(obs, requested_files=["one.txt"]) == {}

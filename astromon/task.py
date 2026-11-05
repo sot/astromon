@@ -833,15 +833,15 @@ class TaskManager:
             A dictionary of tasks that need to run, where the keys are task names and the values
             are Task objects.
         """
-        unknown_tasks = set(requested_tasks) - set(self.tasks.keys())
+        requested_files = set() if requested_files is None else set(requested_files)
+        requested_tasks = set() if requested_tasks is None else set(requested_tasks)
+        unknown_tasks = requested_tasks - set(self.tasks.keys())
         if unknown_tasks:
             raise ValueError(
                 f"Unknown tasks requested: {', '.join(unknown_tasks)}. "
                 f"Available tasks: {', '.join(self.tasks.keys())}."
             )
 
-        requested_files = set() if requested_files is None else set(requested_files)
-        requested_tasks = set() if requested_tasks is None else set(requested_tasks)
         # Captured before requested_tasks' own outputs are folded into requested_files
         # below -- see the task_file_map scan further down, which must trigger on this,
         # not on the union, or it would run unconditionally for any requested_tasks
