@@ -8,6 +8,7 @@ with the rows already stored, and writing one catalog at a time so a re-query of
 RFC cannot disturb the obsid's 2MASS rows.
 """
 
+from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
@@ -152,6 +153,69 @@ def test_evt2_pointing_returns_none_when_no_evt2_file_is_available(tmp_path):
     )
 
     assert result is None
+
+
+def _write_filtered_evt2(work: Path, obsid: int) -> Path:
+    """A filtered evt2 whose EVENTS header carries the pointing, as filter_events keeps it."""
+    import gzip  # noqa: PLC0415
+
+    from astropy.io import fits  # noqa: PLC0415
+
+    events = fits.BinTableHDU.from_columns(
+        [fits.Column(name="TIME", format="D", array=np.arange(10.0))], name="EVENTS"
+    )
+    events.header["RA_PNT"] = 213.289058
+    events.header["DEC_PNT"] = -65.343746
+    events.header["ROLL_PNT"] = 296.5635
+    events.header["DATE-OBS"] = "2000-06-16T00:39:32"
+    path = (
+        work
+        / f"obs{obsid // 1000:02d}"
+        / str(obsid)
+        / "primary"
+        / f"{obsid}_evt2_filtered.fits.gz"
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with gzip.open(path, "wb") as fh:
+        fits.HDUList([fits.PrimaryHDU(), events]).writeto(fh)
+    return path
+
+
+def _no_archive_evt2(monkeypatch):
+    from astromon.observation import Observation  # noqa: PLC0415
+
+    def fail(self):
+        raise Exception(f"{self} No evt2 file for OBSID {self.obsid}.")
+
+    monkeypatch.setattr(Observation, "get_evt2_info", fail, raising=False)
+
+
+def test_evt2_pointing_falls_back_to_the_filtered_copy(tmp_path, monkeypatch):
+    """cleanup_downloads keeps only <obsid>_evt2_filtered.fits.gz, whose header is the
+    evt2's. Skipping such obsids is how 62877 kept two obspar-pointed cat_src rows."""
+    _no_archive_evt2(monkeypatch)
+    _write_filtered_evt2(tmp_path / "work", 62877)
+
+    result = requery_cat_src.evt2_pointing(
+        62877, tmp_path / "work", tmp_path / "archive"
+    )
+
+    assert result is not None
+    quat, obs_time = result
+    ra, dec, roll = quat.equatorial
+    assert ra == pytest.approx(213.289058)
+    assert dec == pytest.approx(-65.343746)
+    assert roll == pytest.approx(296.5635)
+    assert obs_time.date.startswith("2000:168")
+
+
+def test_evt2_pointing_is_none_with_neither_evt2(tmp_path, monkeypatch):
+    _no_archive_evt2(monkeypatch)
+
+    assert (
+        requery_cat_src.evt2_pointing(62877, tmp_path / "work", tmp_path / "archive")
+        is None
+    )
 
 
 # ─── assembling one obsid's re-query ─────────────────────────────────────────

@@ -726,3 +726,20 @@ def test_is_fits_file(tmp_path, payload, compress, expected):
         path.write_bytes(payload)
 
     assert utils.is_fits_file(path) is expected
+
+
+def test_events_header_reads_the_second_header_of_a_gzipped_file(tmp_path):
+    import gzip  # noqa: PLC0415
+
+    events = fits.BinTableHDU.from_columns(
+        [fits.Column(name="TIME", format="D", array=np.arange(100000.0))], name="EVENTS"
+    )
+    events.header["RA_PNT"] = 150.0
+    path = tmp_path / "evt2.fits.gz"
+    with gzip.open(path, "wb") as fh:
+        fits.HDUList([fits.PrimaryHDU(), events]).writeto(fh)
+
+    header = utils.events_header(path)
+
+    assert header["EXTNAME"] == "EVENTS"
+    assert header["RA_PNT"] == 150.0

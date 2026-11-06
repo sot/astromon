@@ -93,6 +93,7 @@ from astromon.cross_match import (
     rough_match,
     stored_cross_matches,
 )
+from astromon.utils import events_header
 
 logger = basic_logger("astromon", level="INFO")
 
@@ -276,8 +277,10 @@ def next_cat_src_id(cat: Table, obsid: int) -> int:
 def evt2_pointing(obsid: int, workdir, archive_dir) -> tuple[Quat, CxoTime] | None:
     """The pointing quaternion and observation start, from the evt2 file's own header.
 
-    Returns None when no evt2 file is present locally (never downloaded, or
-    already cleaned up), which is the caller's cue to skip the obsid rather
+    When the archive evt2 cannot be read (cleaned up, or not a FITS file), the
+    filtered copy filter_events writes next to it is read instead: it keeps the
+    evt2 header. Returns None when neither is present locally, which is the
+    caller's cue to skip the obsid rather
     than fall back on a less reliable pointing source -- not the local mica
     obspar archive (a separately-versioned product that can disagree with the
     evt2 header by tens of arcsec for the same obsid), and not
@@ -294,11 +297,33 @@ def evt2_pointing(obsid: int, workdir, archive_dir) -> tuple[Quat, CxoTime] | No
         evt2_info = obs.get_evt2_info()
     except Exception as exc:
         logger.debug(f"OBSID={obsid} evt2 header lookup failed: {exc}")
-        return None
+        return _filtered_evt2_pointing(obs)
     quat = Quat(
         equatorial=(evt2_info["ra_pnt"], evt2_info["dec_pnt"], evt2_info["roll_pnt"])
     )
     return quat, CxoTime(evt2_info["date_obs"])
+
+
+def _filtered_evt2_pointing(obs) -> tuple[Quat, CxoTime] | None:
+    """The pointing and start from ``primary/<obsid>_evt2_filtered.fits.gz``, if there."""
+    path = obs.file_path(f"primary/{obs.obsid}_evt2_filtered.fits.gz")
+    if not path.exists():
+        return None
+    try:
+        header = events_header(path)
+        quat = Quat(
+            equatorial=(
+                float(header["RA_PNT"]),
+                float(header["DEC_PNT"]),
+                float(header["ROLL_PNT"]),
+            )
+        )
+        obs_time = CxoTime(header["DATE-OBS"])
+    except (OSError, EOFError, ValueError, KeyError) as exc:
+        logger.debug(f"OBSID={obs.obsid} filtered evt2 header unreadable: {exc}")
+        return None
+    logger.info(f"OBSID={obs.obsid} pointing read from the filtered evt2 copy")
+    return quat, obs_time
 
 
 def requery_obsid(  # noqa: PLR0917

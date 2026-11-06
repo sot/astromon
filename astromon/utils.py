@@ -1028,6 +1028,26 @@ def get_wcs_from_fits_header(filename=None, hdu=0, header=None):
     return wcs
 
 
+def events_header(path: Path | str) -> fits.Header:
+    """The header of an event file's EVENTS extension, without reading the events.
+
+    ``fits.getheader(path, 1)`` on a gzipped file decompresses the whole file; this
+    reads the empty primary header and the next one, and stops.
+
+    Example::
+
+        header = events_header("primary/25741_evt2_filtered.fits.gz")
+        pointing = header["RA_PNT"], header["DEC_PNT"], header["ROLL_PNT"]
+    """
+    path = Path(path)
+    opener = gzip.open if path.name.endswith(".gz") else open
+    with opener(path, "rb") as fh:
+        primary = fits.Header.fromfile(fh)
+        if primary.get("NAXIS", 0) != 0:
+            raise ValueError(f"{path}: primary HDU has data")
+        return fits.Header.fromfile(fh)
+
+
 def is_fits_file(path: Path | str) -> bool:
     """Whether `path` holds FITS data, gzip-compressed or not, judged by its first bytes.
 

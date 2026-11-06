@@ -53,20 +53,19 @@ Usage
 """
 
 import argparse
-import gzip
 import logging
 import zlib
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 
 import numpy as np
-from astropy.io import fits
 from astropy.table import Table
 from chandra_aca.transform import radec_to_yagzag
 from Quaternion import Quat
 
 from astromon import db
 from astromon.scripts.maintenance.backfill_obs_gti import obsid_work_dir
+from astromon.utils import events_header
 
 logger = logging.getLogger("fix_pointing_angles")
 
@@ -85,20 +84,6 @@ TABLE_KEYS = {
 
 #: Stored angles are float32, so recomputing a correct row reproduces it to ~1e-4".
 DEFAULT_TOLERANCE = 0.1  # arcsec
-
-
-def events_header(path: Path) -> fits.Header:
-    """The header of an evt2's EVENTS extension, without decompressing the events.
-
-    ``fits.getheader(path, 1)`` on a gzipped file decompresses the whole file;
-    this reads the empty primary header and the next one, and stops.
-    """
-    opener = gzip.open if path.name.endswith(".gz") else open
-    with opener(path, "rb") as fh:
-        primary = fits.Header.fromfile(fh)
-        if primary.get("NAXIS", 0) != 0:
-            raise ValueError(f"{path}: primary HDU has data")
-        return fits.Header.fromfile(fh)
 
 
 def local_evt2_pointing(obsid: int, roots: Sequence[Path]) -> Pointing | None:
