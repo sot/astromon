@@ -6,6 +6,14 @@ Fixes #
 ## Interface impacts
 <!-- API changes, file format updates, coordination of changes with the community. -->
 
+## Result versions
+<!-- Tasks (@task) and cached functions (@stored_result) carry a version; results made by
+another version are recomputed. DELETE the line that does not apply. -->
+- [ ] Changes what a task or cached function produces, and its `version` is bumped
+  (`python -m astromon.scripts.maintenance.report_stale_results --root <work> --root <archive> --bump <name>`
+  shows what that will rerun)
+- [ ] Does not change what any task or cached function produces
+
 ## Testing
 <!-- If relevant describe any special setup for testing. -->
 
