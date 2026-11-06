@@ -1049,6 +1049,7 @@ def events_header(path: Path | str) -> fits.Header:
 
 
 _GZIP_READ_CHUNK = 1 << 20
+_FITS_BLOCK = 2880
 
 
 def is_fits_file(path: Path | str) -> bool:
@@ -1057,7 +1058,8 @@ def is_fits_file(path: Path | str) -> bool:
     False for an empty file, a file of NUL bytes (a torn write), an error page saved
     under a FITS name, and a gzip file that ends or is corrupted mid-stream -- all were
     found among downloaded archive files. A gzip file is decompressed to the end, which
-    checks its length and CRC; a plain file is judged by its first bytes.
+    checks its length and CRC (about 1 s per 200 MB compressed). Either way, the FITS
+    data must be whole 2880-byte blocks, as every FITS file is.
 
     Example::
 
@@ -1067,15 +1069,17 @@ def is_fits_file(path: Path | str) -> bool:
     try:
         with open(path, "rb") as fh:
             head = fh.read(6)
+        size = path.stat().st_size
         if head[:2] == b"\x1f\x8b":
             with gzip.open(path, "rb") as fh:
                 head = fh.read(6)
+                size = len(head)
                 # only the end of the stream says whether it is all there
-                while fh.read(_GZIP_READ_CHUNK):
-                    pass
+                while chunk := fh.read(_GZIP_READ_CHUNK):
+                    size += len(chunk)
     except (OSError, EOFError, zlib.error):
         return False
-    return head == b"SIMPLE"
+    return head == b"SIMPLE" and size % _FITS_BLOCK == 0
 
 
 def is_archive_evt2(path: Path | str) -> bool:

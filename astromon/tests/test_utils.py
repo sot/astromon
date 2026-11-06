@@ -746,6 +746,29 @@ def test_is_fits_file_rejects_a_gzip_cut_off_mid_stream(tmp_path):
     assert utils.is_fits_file(path) is False
 
 
+def test_is_fits_file_rejects_a_plain_fits_file_cut_short(tmp_path):
+    """FITS files are whole 2880-byte blocks; all 456,034 plain ones on Black are."""
+    path = tmp_path / "hrcf00364_000N007_bpix1.fits"
+    fits.BinTableHDU(Table({"chip": np.arange(2000)})).writeto(path)
+    complete = path.read_bytes()
+    path.write_bytes(complete[:-1000])
+
+    assert len(complete) % 2880 == 0
+    assert utils.is_fits_file(path) is False
+
+
+def test_is_fits_file_rejects_a_complete_gzip_of_a_fits_file_cut_short(tmp_path):
+    import gzip  # noqa: PLC0415
+
+    plain = tmp_path / "cut.fits"
+    fits.BinTableHDU(Table({"chip": np.arange(2000)})).writeto(plain)
+    path = tmp_path / "cut.fits.gz"
+    with gzip.open(path, "wb") as fh:
+        fh.write(plain.read_bytes()[:-1000])
+
+    assert utils.is_fits_file(path) is False
+
+
 def test_is_fits_file_rejects_a_gzip_with_corrupt_data(tmp_path):
     corrupt = bytearray(_fits_gz_bytes(tmp_path))
     middle = len(corrupt) // 2
