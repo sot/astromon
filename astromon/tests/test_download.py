@@ -722,7 +722,11 @@ def _write_fits(path):
 
 
 def _download_leaving(tmp_path, monkeypatch, files):
-    """Run _download_archive with a fake download that writes `files` {relpath: bytes|None}."""
+    """Run _download_archive with a fake download that writes `files`.
+
+    `files` maps relpath to None (a valid FITS file), bytes (gzip-compressed when the
+    name ends in .gz) or a function that writes the file itself, given its path.
+    """
     past = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d %H:%M:%S")
     _stub_ocat(monkeypatch, past)
     _stub_ciao(monkeypatch)
@@ -734,6 +738,8 @@ def _download_leaving(tmp_path, monkeypatch, files):
             path.parent.mkdir(parents=True, exist_ok=True)
             if payload is None:
                 _write_fits(path)
+            elif callable(payload):
+                payload(path)
             elif relpath.endswith(".gz"):
                 with gzip.open(path, "wb") as fh:
                     fh.write(payload)
@@ -783,6 +789,42 @@ def test_a_zero_filled_file_is_rejected(tmp_path, monkeypatch):
         / "secondary"
         / "acisf08007_000N002_msk1.fits"
     ).exists()
+
+
+def _write_truncated_fits_gz(path):
+    """A .fits.gz cut off halfway, as a download that stops mid-file leaves it."""
+    from astropy.io import fits  # noqa: PLC0415
+    from astropy.table import Table  # noqa: PLC0415
+
+    fits.BinTableHDU(Table({"time": np.random.default_rng(0).random(50_000)})).writeto(
+        path
+    )
+    complete = path.read_bytes()
+    path.write_bytes(complete[: len(complete) // 2])
+
+
+def test_a_download_cut_off_mid_file_is_moved_aside_and_fails(tmp_path, monkeypatch):
+    """2026-11-06: asol1 files on Black ended mid-stream and passed the old check."""
+    obs = _download_leaving(
+        tmp_path,
+        monkeypatch,
+        {
+            "primary/pcadf08007_000N001_asol1.fits.gz": _write_truncated_fits_gz,
+            "primary/acisf08007N002_evt2.fits.gz": None,
+        },
+    )
+
+    with pytest.raises(RuntimeError, match="pcadf08007_000N001_asol1.fits.gz"):
+        obs._download_archive(["evt2"])
+
+    assert (
+        obs.workdir
+        / "rejected_downloads"
+        / "primary"
+        / "pcadf08007_000N001_asol1.fits.gz"
+    ).exists()
+    assert (obs.workdir / "primary" / "acisf08007N002_evt2.fits.gz").exists()
+    assert not obs._archive_download_marker().exists()
 
 
 def test_a_download_of_fits_files_completes(tmp_path, monkeypatch):

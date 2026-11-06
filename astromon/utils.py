@@ -1048,12 +1048,16 @@ def events_header(path: Path | str) -> fits.Header:
         return fits.Header.fromfile(fh)
 
 
-def is_fits_file(path: Path | str) -> bool:
-    """Whether `path` holds FITS data, gzip-compressed or not, judged by its first bytes.
+_GZIP_READ_CHUNK = 1 << 20
 
-    False for an empty file, a file of NUL bytes (a torn write) and an error page saved
-    under a FITS name -- all three were found among downloaded archive files. A gzip
-    file cut short after its first block still passes; that needs a full read to see.
+
+def is_fits_file(path: Path | str) -> bool:
+    """Whether `path` holds FITS data, gzip-compressed or not, and is not cut short.
+
+    False for an empty file, a file of NUL bytes (a torn write), an error page saved
+    under a FITS name, and a gzip file that ends or is corrupted mid-stream -- all were
+    found among downloaded archive files. A gzip file is decompressed to the end, which
+    checks its length and CRC; a plain file is judged by its first bytes.
 
     Example::
 
@@ -1066,6 +1070,9 @@ def is_fits_file(path: Path | str) -> bool:
         if head[:2] == b"\x1f\x8b":
             with gzip.open(path, "rb") as fh:
                 head = fh.read(6)
+                # only the end of the stream says whether it is all there
+                while fh.read(_GZIP_READ_CHUNK):
+                    pass
     except (OSError, EOFError, zlib.error):
         return False
     return head == b"SIMPLE"

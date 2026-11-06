@@ -728,6 +728,34 @@ def test_is_fits_file(tmp_path, payload, compress, expected):
     assert utils.is_fits_file(path) is expected
 
 
+def _fits_gz_bytes(tmp_path) -> bytes:
+    """A compressed FITS table large enough to span many deflate blocks."""
+    path = tmp_path / "complete.fits.gz"
+    values = np.random.default_rng(0).random(50_000)
+    fits.BinTableHDU(Table({"time": values})).writeto(path)
+    return path.read_bytes()
+
+
+def test_is_fits_file_rejects_a_gzip_cut_off_mid_stream(tmp_path):
+    """2026-11-06: two asol1 files on Black ended mid-stream; asphist segfaulted on them."""
+    complete = _fits_gz_bytes(tmp_path)
+    path = tmp_path / "pcadf03748_000N001_asol1.fits.gz"
+    path.write_bytes(complete[: len(complete) // 2])
+
+    assert utils.is_fits_file(tmp_path / "complete.fits.gz") is True
+    assert utils.is_fits_file(path) is False
+
+
+def test_is_fits_file_rejects_a_gzip_with_corrupt_data(tmp_path):
+    corrupt = bytearray(_fits_gz_bytes(tmp_path))
+    middle = len(corrupt) // 2
+    corrupt[middle : middle + 64] = bytes(64)
+    path = tmp_path / "corrupt.fits.gz"
+    path.write_bytes(bytes(corrupt))
+
+    assert utils.is_fits_file(path) is False
+
+
 def test_events_header_reads_the_second_header_of_a_gzipped_file(tmp_path):
     import gzip  # noqa: PLC0415
 
