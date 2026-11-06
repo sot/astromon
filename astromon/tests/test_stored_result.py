@@ -526,3 +526,106 @@ def test_storage():
 
         assert data.storage.workdir == Path("test_dir_1/whatever").absolute()
         assert data.storage.archive_dir == Path("test_dir_2/whatever").absolute()
+
+
+# ---- a cached value is only reused by the version of the code that made it ----
+
+
+def _compute_json(a):
+    return {"value": a * 2}
+
+
+def _compute_pickle(a):
+    return [a, a * 2]
+
+
+def _compute_table(a):
+    from astropy.table import Table  # noqa: PLC0415
+
+    return Table({"value": [a * 2]})
+
+
+def _same(first, second) -> bool:
+    if hasattr(first, "colnames"):
+        return list(first["value"]) == list(second["value"])
+    return first == second
+
+
+@pytest.mark.parametrize(
+    ("fmt", "compute"),
+    [("json", _compute_json), ("pickle", _compute_pickle), ("table", _compute_table)],
+)
+def test_a_cached_value_from_another_version_is_recomputed(fmt, compute):
+    """2026-09-04: the pointing source changed what get_sources should return, and the
+    tables it had cached before stayed valid -- and were reused."""
+    calls = []
+
+    def counted(a):
+        calls.append(a)
+        return compute(a)
+
+    version_1 = StoredResult(func=counted, name="computed", fmt=fmt, version=1)
+    assert _same(version_1(3), compute(3))
+    assert _same(version_1(3), compute(3))
+    assert calls == [3]
+
+    version_2 = StoredResult(func=counted, name="computed", fmt=fmt, version=2)
+    assert version_2.get_filename(3) == version_1.get_filename(3)
+    assert _same(version_2(3), compute(3))
+    assert calls == [3, 3]
+    assert version_1.load(3) is None
+
+
+@pytest.mark.parametrize(
+    ("fmt", "compute"),
+    [("json", _compute_json), ("pickle", _compute_pickle), ("table", _compute_table)],
+)
+def test_a_version_0_cache_is_written_as_before(fmt, compute):
+    """Existing caches (no version recorded) are version 0, and version 0 writes the
+    same files as before, so nothing already on disk is recomputed."""
+    import json  # noqa: PLC0415
+    import pickle  # noqa: PLC0415
+
+    from astropy.table import Table  # noqa: PLC0415
+
+    cached = StoredResult(func=compute, name="computed", fmt=fmt)
+    cached(3)
+    path = cached.storage.path(cached.get_filename(3))
+
+    if fmt == "json":
+        assert json.loads(path.read_text()) == compute(3)
+    elif fmt == "pickle":
+        assert pickle.loads(path.read_bytes()) == compute(3)
+    else:
+        assert "RESVER" not in Table.read(path).meta
+    assert (
+        StoredResult(func=compute, name="computed", fmt=fmt, version=1).load(3) is None
+    )
+
+
+def test_the_returned_table_does_not_carry_the_version():
+    cached = StoredResult(func=_compute_table, name="computed", fmt="table", version=2)
+
+    fresh = cached(3)
+    reloaded = cached(3)
+
+    assert "RESVER" not in fresh.meta
+    assert "RESVER" not in reloaded.meta
+
+
+def test_the_decorator_passes_the_version_to_methods():
+    class Data:
+        def __init__(self):
+            self.workdir = "versioned"
+            self.storage = Storage("test_dir_versions", instance=self)
+
+        @stored_result("doubled", fmt="json", version=4)
+        def doubled(self, a):
+            return {"value": a * 2}
+
+    data = Data()
+
+    assert data.doubled.version == 4
+    data.doubled(2)
+    stored = data.storage.path(data.doubled.get_filename(2)).read_text()
+    assert '"__stored_result_version__": 4' in stored

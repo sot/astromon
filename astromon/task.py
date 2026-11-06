@@ -37,10 +37,14 @@ class ReturnValue:
         The return code of the function call. One of OK, SKIP, WARNING or ERROR.
     msg: str
         Optional message to be logged or displayed.
+    version: int
+        The version of the task that produced this result (see :class:`Task`). Results
+        stored before versions existed read back as 0.
     """
 
     return_code: ReturnCode = ReturnCode.OK
     msg: str = ""
+    version: int = 0
     actual_outputs: list = dataclasses.field(default_factory=list)
     inputs: dict = dataclasses.field(default_factory=dict)
     outputs: dict = dataclasses.field(default_factory=dict)
@@ -62,6 +66,7 @@ class ReturnValue:
             "outputs": self.outputs,
             "start": self.start.iso,
             "stop": self.stop.iso,
+            "version": self.version,
         }
 
     @staticmethod
@@ -77,6 +82,7 @@ class ReturnValue:
         rv.outputs = data.get("outputs", {})
         rv.start = CxoTime(data["start"])
         rv.stop = CxoTime(data["stop"])
+        rv.version = int(data.get("version", 0))
         return rv
 
 
@@ -272,6 +278,7 @@ class Task:
         outputs=None,
         download=None,
         variables=None,
+        version=0,
     ):
         """
         Decorator to run tasks.
@@ -291,8 +298,14 @@ class Task:
         variables: dict
             Dictionary of variables to be used in the task. If a value is a function, it will be
             called without arguments.
+        version: int
+            The version of what the task produces. Stored with every result; a result made
+            by another version is not valid, so the task (and everything downstream of it)
+            runs again the next time it is needed. Bump it whenever a change alters the
+            outputs -- otherwise results made by the old code keep being reused.
         """
         self._manager = weakref.ref(manager)
+        self.version = int(version)
         self.subdir = Path("cache")
         self.func = func
         self.name = _fullname(func) if name is None else name
@@ -411,6 +424,7 @@ class Task:
         return_value: ReturnValue
             The return value to be stored.
         """
+        return_value.version = self.version
         # never writing to the archive directory
         cache_file = obs.workdir / self.subdir / f"task_{self.name}.json"
         cache_file.parent.mkdir(parents=True, exist_ok=True)
@@ -438,7 +452,13 @@ class Task:
         valid = (
             previous_result is not None
             and previous_result.return_code != ReturnCode.INVALID
+            and previous_result.version == self.version
         )
+        if previous_result is not None and previous_result.version != self.version:
+            logger.debug(
+                f"{obs} task {self.name}: stored result is from version"
+                f" {previous_result.version}, the task is version {self.version}"
+            )
         return valid
 
     def should_run(self, obs, requested=None, unknown_ok=True):
@@ -986,6 +1006,7 @@ class TaskManager:
         outputs=None,
         download=None,
         variables=None,
+        version=0,
     ):
         """
         Decorator to run tasks.
@@ -1004,6 +1025,8 @@ class TaskManager:
             List of file categories to download before running the task.
         variables: dict
             Dictionary of variables to be used in the task. Can be a function, with no arguments.
+        version: int
+            The version of what the task produces (see :class:`Task`). Default 0.
         """
 
         def wrapper(func):
@@ -1016,6 +1039,7 @@ class TaskManager:
                 outputs=outputs,
                 download=download,
                 variables=variables,
+                version=version,
             )
             self.register_task(task)
             return task

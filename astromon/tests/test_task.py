@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 from pprint import pprint
@@ -1117,3 +1118,78 @@ def test_get_tasks_to_run_by_requested_filename_alone(request):
     assert "one" in TASKS.get_tasks_to_run(obs, requested_files=["one.txt"])
     TASKS.run_task(obs, "one")
     assert TASKS.get_tasks_to_run(obs, requested_files=["one.txt"]) == {}
+
+
+# ---- results are only valid for the task version that made them ----
+
+
+def _versioned_pipeline(version: int) -> tuple[task.TaskManager, list[str]]:
+    """make (at `version`) -> use, which reads make's output."""
+    TASKS = task.TaskManager()
+    runs = []
+
+    @TASKS.task(name="make", outputs={"out": "out.txt"}, version=version)
+    def make(obs, inputs=None, outputs=None):
+        runs.append("make")
+        outputs["out"].write_text("made")
+
+    @TASKS.task(name="use", inputs={"src": "out.txt"}, outputs={"res": "res.txt"})
+    def use(obs, inputs=None, outputs=None):
+        runs.append("use")
+        outputs["res"].write_text("used")
+
+    return TASKS, runs
+
+
+def test_a_task_result_records_the_task_version(request):
+    TASKS, _ = _versioned_pipeline(version=3)
+    obs = get_obs("8007", request)
+
+    TASKS.run_task(obs, "make")
+
+    assert TASKS.tasks["make"].get_result(obs).version == 3
+    stored = json.loads(obs.file_path("cache/task_make.json").read_text())
+    assert stored["version"] == 3
+
+
+def test_a_result_from_another_task_version_is_not_valid(request):
+    """2026-10-02: the gaussian seed rule changed what gaussian_detect should produce,
+    and the results it had made before stayed valid -- and were reused."""
+    obs = get_obs("8007", request)
+    old, _ = _versioned_pipeline(version=1)
+    old.run_task(obs, "make")
+    new, runs = _versioned_pipeline(version=2)
+
+    assert not new.tasks["make"].result_is_valid(obs)
+    new.run_task(obs, "make")
+
+    assert runs == ["make"]
+    assert new.tasks["make"].result_is_valid(obs)
+
+
+def test_a_result_without_a_version_is_version_0(request):
+    """Every task result written before versions existed stays valid at version 0."""
+    obs = get_obs("8007", request)
+    version_0, _ = _versioned_pipeline(version=0)
+    version_0.run_task(obs, "make")
+    result_file = obs.file_path("cache/task_make.json")
+    stored = json.loads(result_file.read_text())
+    del stored["version"]
+    result_file.write_text(json.dumps(stored))
+
+    assert version_0.tasks["make"].result_is_valid(obs)
+    version_1, _ = _versioned_pipeline(version=1)
+    assert not version_1.tasks["make"].result_is_valid(obs)
+
+
+def test_a_version_bump_reruns_the_tasks_downstream(request):
+    obs = get_obs("8007", request)
+    old, _ = _versioned_pipeline(version=1)
+    old.run_task(obs, "make")
+    old.run_task(obs, "use")
+    new, runs = _versioned_pipeline(version=2)
+
+    assert set(new.get_tasks_to_run(obs, requested_tasks=["use"])) == {"make", "use"}
+    new.run_task(obs, "use")
+
+    assert runs == ["make", "use"]

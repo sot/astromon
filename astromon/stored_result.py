@@ -256,8 +256,21 @@ class StoredResult:
         storage: StorageProtocol = None,
         instance: StorableProtocol = None,
         subdir: Path | str = "",
+        version: int = 0,
     ):
+        """Cache `func`'s results under file names derived from its arguments.
+
+        Parameters
+        ----------
+        version: int
+            The version of what `func` returns. It is stored with every saved result,
+            and a stored result from another version is a cache miss: it is recomputed
+            and overwritten under the same file name. Bump it whenever a change alters
+            the result -- otherwise results made by the old code keep being reused.
+            Results stored before versions existed read back as version 0.
+        """
         self.func = func  # the function being decorated
+        self.version = int(version)
         self.name = (
             fullname(func) if name is None else name
         )  # the name is used to set the filename
@@ -286,7 +299,10 @@ class StoredResult:
     def load(self, *args, **kwargs):
         filename = self.storage.path(self.get_filename(*args, **kwargs))
         if self.is_valid_result(*args, **kwargs) and filename.exists():
-            return FORMATS[self.fmt].load(filename)
+            result, version = FORMATS[self.fmt].load_versioned(filename)
+            if version == self.version:
+                return result
+        return None
 
     def run(self, *args, **kwargs) -> Any:
         if self.instance is not None:
@@ -297,7 +313,7 @@ class StoredResult:
 
     def save(self, result: Any, *args, **kwargs):
         filename = self.storage.work_path(self.get_filename(*args, **kwargs))
-        FORMATS[self.fmt].save(result, filename, force=True)
+        FORMATS[self.fmt].save(result, filename, force=True, version=self.version)
         invalid = self._invalidate_filename(filename)
         if invalid.exists():
             invalid.unlink()
@@ -350,6 +366,7 @@ class StoredResult:
             storage=obj.storage,
             subdir=self.subdir,
             instance=obj,
+            version=self.version,
         )
 
 
@@ -372,6 +389,10 @@ def stored_result(*args, **kwargs) -> Callable:
         @store_result(name="my_function", fmt="json")
         def my_function(...):
             ...
+
+    Pass ``version=N`` and bump it whenever a change alters what the function returns,
+    so results cached by the old code are recomputed instead of reused (see
+    :class:`StoredResult`).
     """
 
     if len(args) == 1 and callable(args[0]) and len(kwargs) == 0:
@@ -383,10 +404,16 @@ def stored_result(*args, **kwargs) -> Callable:
     name = args[0] if args and isinstance(args[0], str) else kwargs.pop("name", None)
     fmt = kwargs.pop("fmt", None)
     subdir = kwargs.pop("subdir", "")
+    version = kwargs.pop("version", 0)
 
     def decorator(func: Callable) -> StoredResult:
         return StoredResultWrapper(
-            func=func, name=name, fmt=fmt, storage=storage, subdir=subdir
+            func=func,
+            name=name,
+            fmt=fmt,
+            storage=storage,
+            subdir=subdir,
+            version=version,
         )
 
     return decorator
@@ -435,9 +462,26 @@ def fullname(o):
     return f"{module}.{o.__qualname__}"
 
 
+#: Where a non-zero result version is stored: a FITS header keyword for tables, a
+#: wrapper key for JSON and pickle. Version 0 stores nothing, so a version-0 file is
+#: exactly what was written before versions existed.
+TABLE_VERSION_KEY = "RESVER"
+WRAPPED_VERSION_KEY = "__stored_result_version__"
+
+
+def _wrap(result: Any, version: int) -> Any:
+    return {WRAPPED_VERSION_KEY: version, "value": result} if version else result
+
+
+def _unwrap(stored: Any) -> tuple[Any, int]:
+    if isinstance(stored, dict) and WRAPPED_VERSION_KEY in stored:
+        return stored["value"], int(stored[WRAPPED_VERSION_KEY])
+    return stored, 0
+
+
 class TableCache:
     @staticmethod
-    def save(table, filename, force=False):
+    def save(table, filename, force=False, version=0):
         if filename.exists() and not force:
             return
         if not filename.parent.exists():
@@ -447,14 +491,23 @@ class TableCache:
         if "description" in table.meta:
             table.meta["descript"] = table.meta["description"]
             del table.meta["description"]
+        if version:
+            # a shallow copy, so the caller's table does not carry the key
+            table = table.copy(copy_data=False)
+            table.meta[TABLE_VERSION_KEY] = int(version)
         table.write(filename, overwrite=force)
+
+    @staticmethod
+    def load_versioned(filename):
+        table = Table.read(filename)
+        table.convert_bytestring_to_unicode()
+        version = int(table.meta.pop(TABLE_VERSION_KEY, 0))
+        return table, version
 
     @staticmethod
     def load(filename):
         if filename.exists():
-            table = Table.read(filename)
-            table.convert_bytestring_to_unicode()
-            return table
+            return TableCache.load_versioned(filename)[0]
 
     @staticmethod
     def sanitize_filename(filename):
@@ -466,19 +519,23 @@ class TableCache:
 
 class PickleCache:
     @staticmethod
-    def save(result, filename, force=False):
+    def save(result, filename, force=False, version=0):
         if filename.exists() and not force:
             return
         if not filename.parent.exists():
             filename.parent.mkdir(parents=True, exist_ok=True)
         with open(filename, "wb") as fh:
-            pickle.dump(result, fh)
+            pickle.dump(_wrap(result, version), fh)
+
+    @staticmethod
+    def load_versioned(filename):
+        with open(filename, "rb") as fh:
+            return _unwrap(pickle.load(fh))
 
     @staticmethod
     def load(filename):
         if filename.exists():
-            with open(filename, "rb") as fh:
-                return pickle.load(fh)
+            return PickleCache.load_versioned(filename)[0]
 
     @staticmethod
     def sanitize_filename(filename):
@@ -490,19 +547,23 @@ class PickleCache:
 
 class JsonCache:
     @staticmethod
-    def save(result, filename, force=False):
+    def save(result, filename, force=False, version=0):
         if filename.exists() and not force:
             return
         if not filename.parent.exists():
             filename.parent.mkdir(parents=True, exist_ok=True)
         with open(filename, "w") as fh:
-            json.dump(result, fh)
+            json.dump(_wrap(result, version), fh)
+
+    @staticmethod
+    def load_versioned(filename):
+        with open(filename, "r") as fh:
+            return _unwrap(json.load(fh))
 
     @staticmethod
     def load(filename):
         if filename.exists():
-            with open(filename, "r") as fh:
-                return json.load(fh)
+            return JsonCache.load_versioned(filename)[0]
 
     @staticmethod
     def sanitize_filename(filename):
