@@ -17,7 +17,10 @@ Reads the stored versions -- ``task_<name>.json``, and the ``<name>__*`` files i
 each obsid's ``cache/`` (the work copy if there is one, else the archive copy, as
 the pipeline would) -- and lists every result whose version differs from the code's,
 plus the tasks downstream of a stale task. ``--bump NAME`` adds one to that task's or
-cached function's version first, to see what a planned bump would cost. Read only.
+cached function's version first, to see what a planned bump would cost. A result file
+that cannot be read is listed as "unreadable" (the pipeline redoes those too).
+Results already marked invalid, and cached tables whose task has rerun since, are
+recomputed anyway and are not counted here. Read only.
 
 Usage
 -----
@@ -126,8 +129,10 @@ def obsid_stale_rows(
     }
     own = {}
     for name, path in task_files.items():
-        stored = stored_task_version(path)
-        if stored != task_versions[name]:
+        stored = _read_version(stored_task_version, path)
+        if isinstance(stored, str):
+            own[name] = stored
+        elif stored != task_versions[name]:
             own[name] = f"version {stored}, code {task_versions[name]}"
     for name, path in task_files.items():
         if name in own:
@@ -145,8 +150,10 @@ def obsid_stale_rows(
         name = filename.split("__")[0]
         if "__" not in filename or name not in cache_versions:
             continue
-        stored = stored_cache_version(path)
-        if stored != cache_versions[name]:
+        stored = _read_version(stored_cache_version, path)
+        if isinstance(stored, str):
+            rows.append(row("cache", name, stored, filename))
+        elif stored != cache_versions[name]:
             rows.append(
                 row(
                     "cache",
@@ -156,6 +163,14 @@ def obsid_stale_rows(
                 )
             )
     return rows
+
+
+def _read_version(reader, path: Path) -> int | str:
+    """`reader(path)`, or ``"unreadable: <error>"``: the pipeline redoes what it cannot read."""
+    try:
+        return reader(path)
+    except Exception as exc:  # noqa: BLE001 - any unreadable file counts as stale
+        return f"unreadable: {type(exc).__name__}"
 
 
 def _obsids(roots: Sequence[Path]) -> list[int]:

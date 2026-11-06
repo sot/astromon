@@ -629,3 +629,15 @@ def test_the_decorator_passes_the_version_to_methods():
     data.doubled(2)
     stored = data.storage.path(data.doubled.get_filename(2)).read_text()
     assert '"__stored_result_version__": 4' in stored
+
+
+def test_saving_a_table_leaves_the_callers_table_alone(tmp_path):
+    from astropy.table import Table  # noqa: PLC0415
+
+    from astromon.stored_result import TableCache  # noqa: PLC0415
+
+    original = Table({"x": [1.0]}, meta={"description": "sources"})
+
+    TableCache.save(original, tmp_path / "t.fits.gz", force=True, version=2)
+
+    assert dict(original.meta) == {"description": "sources"}

@@ -267,7 +267,9 @@ class StoredResult:
             and a stored result from another version is a cache miss: it is recomputed
             and overwritten under the same file name. Bump it whenever a change alters
             the result -- otherwise results made by the old code keep being reused.
-            Results stored before versions existed read back as version 0.
+            Results stored before versions existed read back as version 0. A file
+            written at a version above 0 cannot be read by astromon code from before
+            versions existed (JSON and pickle results are wrapped with their version).
         """
         self.func = func  # the function being decorated
         self.version = int(version)
@@ -392,7 +394,9 @@ def stored_result(*args, **kwargs) -> Callable:
 
     Pass ``version=N`` and bump it whenever a change alters what the function returns,
     so results cached by the old code are recomputed instead of reused (see
-    :class:`StoredResult`).
+    :class:`StoredResult`). The version covers the code only: a cached function that
+    reads a task's output must also notice when that task reruns, as
+    ``Observation.get_sources`` does with the task run it stamps into each table.
     """
 
     if len(args) == 1 and callable(args[0]) and len(kwargs) == 0:
@@ -486,14 +490,14 @@ class TableCache:
             return
         if not filename.parent.exists():
             filename.parent.mkdir(parents=True, exist_ok=True)
-        if not isinstance(table, Table):
-            table = Table(table)
+        # a shallow copy, so the caller's table keeps its meta as it was
+        table = (
+            table.copy(copy_data=False) if isinstance(table, Table) else Table(table)
+        )
         if "description" in table.meta:
             table.meta["descript"] = table.meta["description"]
             del table.meta["description"]
         if version:
-            # a shallow copy, so the caller's table does not carry the key
-            table = table.copy(copy_data=False)
             table.meta[TABLE_VERSION_KEY] = int(version)
         table.write(filename, overwrite=force)
 

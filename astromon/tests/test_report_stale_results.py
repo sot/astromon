@@ -153,3 +153,24 @@ def test_bumping_an_unknown_name_is_an_error():
 
     with pytest.raises(ValueError, match="nothing named"):
         report.bumped({"images": 0}, {"sources": 0}, bump=["typo"])
+
+
+def test_an_unreadable_result_is_reported_as_stale_not_fatal(tmp_path):
+    """The pipeline reruns a task whose result file it cannot read; so does the report."""
+    work, archive = _seed(tmp_path)
+    (obsid_dir(work, 7001) / "cache" / "task_detect.json").write_bytes(bytes(100))
+    (obsid_dir(work, 7001) / "cache" / "sources__0123abcd.fits.gz").write_bytes(
+        b"<html>"
+    )
+
+    stale = report.stale_results(
+        [work, archive],
+        task_versions={"images": 0, "detect": 0, "fit": 0},
+        cache_versions={"sources": 0, "evt2_info": 0},
+        dependents=DEPENDENTS,
+    )
+
+    rows = {(r["obsid"], r["name"]): r["reason"] for r in stale}
+    assert rows[(7001, "detect")].startswith("unreadable")
+    assert rows[(7001, "fit")] == "downstream of detect"
+    assert rows[(7001, "sources")].startswith("unreadable")

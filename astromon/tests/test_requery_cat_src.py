@@ -132,6 +132,11 @@ def test_evt2_pointing_returns_quat_and_time_from_the_evt2_header(
         # monkeypatch's own "does this already exist" check trips on that.
     )
 
+    raw = (
+        tmp_path / "work" / "obs07" / "7001" / "primary" / "acisf07001N002_evt2.fits.gz"
+    )
+    raw.parent.mkdir(parents=True)
+    raw.write_bytes(b"")
     result = requery_cat_src.evt2_pointing(
         7001, tmp_path / "work", tmp_path / "archive"
     )
@@ -207,6 +212,44 @@ def test_evt2_pointing_falls_back_to_the_filtered_copy(tmp_path, monkeypatch):
     assert dec == pytest.approx(-65.343746)
     assert roll == pytest.approx(296.5635)
     assert obs_time.date.startswith("2000:168")
+
+
+def test_evt2_pointing_never_starts_a_download(tmp_path, monkeypatch):
+    """With no archive evt2 here, get_evt2_info would fetch one (arc5gl); the fallback
+    has to be reached without that."""
+    from astromon import observation  # noqa: PLC0415
+
+    sent = []
+
+    class FakeArc5gl:
+        def sendline(self, line):
+            sent.append(line)
+
+    monkeypatch.setattr(observation.Ska.arc5gl, "Arc5gl", FakeArc5gl)
+    monkeypatch.setattr(
+        observation.Observation,
+        "_get_sequence_summary",
+        lambda self: {"instr": "ACIS-S"},
+    )
+    _write_filtered_evt2(tmp_path / "work", 62877)
+
+    result = requery_cat_src.evt2_pointing(
+        62877, tmp_path / "work", tmp_path / "archive"
+    )
+
+    assert sent == []
+    assert result is not None
+
+
+def test_evt2_pointing_is_none_for_a_corrupt_filtered_evt2(tmp_path, monkeypatch):
+    _no_archive_evt2(monkeypatch)
+    path = _write_filtered_evt2(tmp_path / "work", 62877)
+    path.write_bytes(path.read_bytes()[:40] + b"\x00" * 400)
+
+    assert (
+        requery_cat_src.evt2_pointing(62877, tmp_path / "work", tmp_path / "archive")
+        is None
+    )
 
 
 def test_evt2_pointing_is_none_with_neither_evt2(tmp_path, monkeypatch):

@@ -68,6 +68,7 @@ Usage::
 import argparse
 import json
 import logging
+import zlib
 from collections.abc import Callable, Sequence
 from multiprocessing.pool import ThreadPool
 from pathlib import Path
@@ -80,7 +81,7 @@ from cxotime import CxoTime
 from Quaternion import Quat
 from ska_helpers.logging import basic_logger
 
-from astromon import db
+from astromon import db, utils
 from astromon.cross_match import (
     STORED_SELECTIONS,
     assign_cat_src_ids,
@@ -293,6 +294,13 @@ def evt2_pointing(obsid: int, workdir, archive_dir) -> tuple[Quat, CxoTime] | No
     from astromon.observation import Observation  # noqa: PLC0415
 
     obs = Observation(obsid, workdir, archive_dir=archive_dir, use_ciao=False)
+    # get_evt2_info fetches the evt2 when neither it nor a cached reading is here,
+    # which this must not do: use the filtered copy instead
+    has_evt2 = any(
+        utils.is_archive_evt2(path) for path in obs.file_glob("primary/*_evt2.fits*")
+    )
+    if not has_evt2 and not obs.file_glob("cache/evt2_info__*.json"):
+        return _filtered_evt2_pointing(obs)
     try:
         evt2_info = obs.get_evt2_info()
     except Exception as exc:
@@ -319,7 +327,7 @@ def _filtered_evt2_pointing(obs) -> tuple[Quat, CxoTime] | None:
             )
         )
         obs_time = CxoTime(header["DATE-OBS"])
-    except (OSError, EOFError, ValueError, KeyError) as exc:
+    except (OSError, EOFError, zlib.error, ValueError, KeyError) as exc:
         logger.debug(f"OBSID={obs.obsid} filtered evt2 header unreadable: {exc}")
         return None
     logger.info(f"OBSID={obs.obsid} pointing read from the filtered evt2 copy")
