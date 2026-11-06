@@ -1,11 +1,13 @@
 import fnmatch
 import functools
+import gzip
 import logging
 import os
 import re
 import subprocess
 import tempfile
 import warnings
+import zlib
 from contextlib import AbstractContextManager
 from pathlib import Path
 
@@ -1024,6 +1026,29 @@ def get_wcs_from_fits_header(filename=None, hdu=0, header=None):
         warnings.simplefilter("ignore", category=FITSFixedWarning)
         wcs = WCS(params)
     return wcs
+
+
+def is_fits_file(path: Path | str) -> bool:
+    """Whether `path` holds FITS data, gzip-compressed or not, judged by its first bytes.
+
+    False for an empty file, a file of NUL bytes (a torn write) and an error page saved
+    under a FITS name -- all three were found among downloaded archive files. A gzip
+    file cut short after its first block still passes; that needs a full read to see.
+
+    Example::
+
+        is_fits_file("primary/acisf25741N002_evt2.fits.gz")
+    """
+    path = Path(path)
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(6)
+        if head[:2] == b"\x1f\x8b":
+            with gzip.open(path, "rb") as fh:
+                head = fh.read(6)
+    except (OSError, EOFError, zlib.error):
+        return False
+    return head == b"SIMPLE"
 
 
 def is_archive_evt2(path: Path | str) -> bool:

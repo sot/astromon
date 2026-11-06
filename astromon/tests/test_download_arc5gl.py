@@ -73,3 +73,29 @@ def test_other_file_types_still_skip_when_present(tmp_path, monkeypatch):
     obs._download_arc5gl(["fov"])
 
     assert sent == []
+
+
+def test_an_arc5gl_download_that_is_not_fits_is_moved_aside(tmp_path, monkeypatch):
+    """arc5gl saves whatever the server sends; an error page must not pass as FITS."""
+    import pytest  # noqa: PLC0415
+
+    obs = _obs(tmp_path, monkeypatch)
+    primary = obs.workdir / "primary"
+
+    class FakeArc5gl:
+        def sendline(self, line: str) -> None:
+            if line.startswith("get"):
+                primary.mkdir(parents=True, exist_ok=True)
+                (primary / "acisf08007_000N002_fov1.fits.gz").write_bytes(
+                    b"<html>503</html>"
+                )
+
+    monkeypatch.setattr(observation.Ska.arc5gl, "Arc5gl", FakeArc5gl)
+
+    with pytest.raises(RuntimeError, match="not FITS"):
+        obs._download_arc5gl(["fov"])
+
+    assert (
+        obs.workdir / "rejected_downloads" / "acisf08007_000N002_fov1.fits.gz"
+    ).exists()
+    assert not (primary / "acisf08007_000N002_fov1.fits.gz").exists()

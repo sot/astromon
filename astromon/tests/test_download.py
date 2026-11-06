@@ -342,13 +342,13 @@ def test_asol_is_linked_into_secondary_after_download(tmp_path, monkeypatch):
     def create_layout():
         (obs.workdir / "primary").mkdir(parents=True, exist_ok=True)
         (obs.workdir / "secondary").mkdir(parents=True, exist_ok=True)
-        (obs.workdir / "primary" / "acisf08007_000N001_asol1.fits").write_text("asol")
+        _write_fits(obs.workdir / "primary" / "acisf08007_000N001_asol1.fits")
 
     _stub_popen(monkeypatch, FakeProcess(stdout=b"ok\n", on_communicate=create_layout))
     obs._download_archive(["evt2"])
     link = obs.workdir / "secondary" / "acisf08007_000N001_asol1.fits"
     assert link.is_symlink(), "asol should be linked into secondary/"
-    assert link.resolve().read_text() == "asol"
+    assert link.resolve() == obs.workdir / "primary" / "acisf08007_000N001_asol1.fits"
 
 
 # --- _fix_archive_bpix -----------------------------------------------------
@@ -704,3 +704,93 @@ def test_transient_ocat_failure_is_not_cached(tmp_path, monkeypatch):
         "a transient ocat failure must not be cached -- the next call should "
         "retry the real fetch, not read back a stale 'Unknown' result"
     )
+
+
+# --- downloads that are not FITS ---------------------------------------------
+#
+# 2026-11-05: 14 work-dir files were HTML error pages ("408 Request Time-out") saved
+# under their FITS names, or all NUL bytes from torn writes. Every later run of those
+# obsids failed on them, far from the download that caused it.
+
+
+def _write_fits(path):
+    from astropy.io import fits  # noqa: PLC0415
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fits.PrimaryHDU().writeto(path)
+    return path
+
+
+def _download_leaving(tmp_path, monkeypatch, files):
+    """Run _download_archive with a fake download that writes `files` {relpath: bytes|None}."""
+    past = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d %H:%M:%S")
+    _stub_ocat(monkeypatch, past)
+    _stub_ciao(monkeypatch)
+    obs = _obs(tmp_path)
+
+    def create_layout():
+        for relpath, payload in files.items():
+            path = obs.workdir / relpath
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if payload is None:
+                _write_fits(path)
+            elif relpath.endswith(".gz"):
+                with gzip.open(path, "wb") as fh:
+                    fh.write(payload)
+            else:
+                path.write_bytes(payload)
+
+    _stub_popen(monkeypatch, FakeProcess(stdout=b"ok\n", on_communicate=create_layout))
+    return obs
+
+
+def test_a_download_that_is_not_fits_is_moved_aside_and_fails(tmp_path, monkeypatch):
+    html = b"<html><body><h1>408 Request Time-out</h1></body></html>"
+    obs = _download_leaving(
+        tmp_path,
+        monkeypatch,
+        {
+            "primary/acisf08007N002_evt2.fits.gz": html,
+            "primary/acisf08007_000N002_fov1.fits.gz": None,
+        },
+    )
+
+    with pytest.raises(RuntimeError, match="not FITS"):
+        obs._download_archive(["evt2"])
+
+    rejected = obs.workdir / "rejected_downloads" / "acisf08007N002_evt2.fits.gz"
+    assert rejected.exists()
+    assert not (obs.workdir / "primary" / "acisf08007N002_evt2.fits.gz").exists()
+    assert (obs.workdir / "primary" / "acisf08007_000N002_fov1.fits.gz").exists()
+    assert not obs._archive_download_marker().exists()
+
+
+def test_a_zero_filled_file_is_rejected(tmp_path, monkeypatch):
+    obs = _download_leaving(
+        tmp_path,
+        monkeypatch,
+        {"secondary/acisf08007_000N002_msk1.fits": bytes(4096)},
+    )
+
+    with pytest.raises(RuntimeError, match="acisf08007_000N002_msk1.fits"):
+        obs._download_archive(["evt2"])
+
+    assert (
+        obs.workdir / "rejected_downloads" / "acisf08007_000N002_msk1.fits"
+    ).exists()
+
+
+def test_a_download_of_fits_files_completes(tmp_path, monkeypatch):
+    obs = _download_leaving(
+        tmp_path,
+        monkeypatch,
+        {
+            "primary/acisf08007N002_evt2.fits.gz": None,
+            "secondary/acisf08007_000N002_msk1.fits.gz": None,
+        },
+    )
+
+    obs._download_archive(["evt2"])
+
+    assert obs._archive_download_marker().exists()
+    assert not (obs.workdir / "rejected_downloads").exists()

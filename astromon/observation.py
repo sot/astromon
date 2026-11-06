@@ -1031,6 +1031,16 @@ class Observation:
                     f"(exit code {process.returncode})"
                 )
 
+        self._reject_non_fits_downloads(
+            [
+                path
+                for subdir in ("primary", "secondary")
+                if (self.workdir / subdir).is_dir()
+                for path in (self.workdir / subdir).iterdir()
+                if ".fits" in path.name
+            ]
+        )
+
         # download_chandra_obsid follows the official CDA layout, which differs
         # from the arc5gl layout that the rest of the pipeline expects:
         #   asol: CDA puts it in primary/, pipeline expects secondary/
@@ -1046,6 +1056,32 @@ class Observation:
         # Last, so that anything raising above leaves the download retryable.
         marker.parent.mkdir(parents=True, exist_ok=True)
         marker.write_text("download_chandra_obsid completed\n")
+
+    def _reject_non_fits_downloads(self, paths: list[Path]) -> None:
+        """Move any of `paths` that is not FITS to ``rejected_downloads/``, then raise.
+
+        A download can leave an error page (HTTP 408/503) under a FITS file name, or a
+        file of NUL bytes when a write is torn; every later task that reads it then
+        fails far from the cause. Moving it aside makes the next attempt fetch it again
+        (no completion marker is written), and keeps it to look at. Symlinks are
+        skipped: their target is checked where it lives.
+        """
+        rejected = [
+            path
+            for path in paths
+            if not path.is_symlink() and not utils.is_fits_file(path)
+        ]
+        if not rejected:
+            return
+        destination = self.workdir / "rejected_downloads"
+        destination.mkdir(parents=True, exist_ok=True)
+        for path in rejected:
+            path.replace(destination / path.name)
+        names = ", ".join(path.name for path in rejected)
+        raise RuntimeError(
+            f"OBSID={self.obsid} download left files that are not FITS"
+            f" (moved to {destination}): {names}"
+        )
 
     def _download_arc5gl(self, ftypes, revision=None, force=False):
         """
@@ -1094,6 +1130,7 @@ class Observation:
             dest = self.workdir / dest
             if not dest.exists():
                 dest.mkdir(exist_ok=True, parents=True)
+            before = {path: path.stat().st_mtime_ns for path in dest.glob("*")}
             with chdir(dest):
                 arc5gl = Ska.arc5gl.Arc5gl()
                 arc5gl.sendline(f"obsid={self.obsid}")
@@ -1101,6 +1138,16 @@ class Observation:
                     arc5gl.sendline(f"version={revision}")
                 arc5gl.sendline(f"get {src}")
                 del arc5gl
+            # only what this get wrote: other files here (e.g. the filtered evt2) are not
+            # downloads
+            self._reject_non_fits_downloads(
+                [
+                    path
+                    for path in dest.glob("*")
+                    if ".fits" in path.name
+                    and before.get(path) != path.stat().st_mtime_ns
+                ]
+            )
 
     @logging_call_decorator
     def download(self, ftypes=None, revision=None, force=False):

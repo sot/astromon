@@ -699,3 +699,30 @@ def test_get_rebased_offsets_leaves_a_bytes_no_version_row_unrebased(tmp_path):
     assert np.isfinite(result["dy_rebased"][0])
     assert np.isnan(result["dy_rebased"][1])
     assert list(result["calalign_source"]) == ["reconstructed", ""]
+
+
+@pytest.mark.parametrize(
+    ("payload", "compress", "expected"),
+    [
+        (None, False, True),
+        (None, True, True),
+        (b"", False, False),
+        (bytes(2880), False, False),
+        (b"<html><body><h1>408 Request Time-out</h1>", False, False),
+        (b"<html><body><h1>503 Service Unavailable</h1>", True, False),
+    ],
+    ids=["fits", "fits.gz", "empty", "zero-filled", "html", "html.gz"],
+)
+def test_is_fits_file(tmp_path, payload, compress, expected):
+    import gzip  # noqa: PLC0415
+
+    path = tmp_path / ("file.fits.gz" if compress else "file.fits")
+    if payload is None:
+        fits.PrimaryHDU().writeto(path)
+    elif compress:
+        with gzip.open(path, "wb") as fh:
+            fh.write(payload)
+    else:
+        path.write_bytes(payload)
+
+    assert utils.is_fits_file(path) is expected
