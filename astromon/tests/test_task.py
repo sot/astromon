@@ -1193,3 +1193,30 @@ def test_a_version_bump_reruns_the_tasks_downstream(request):
     new.run_task(obs, "use")
 
     assert runs == ["make", "use"]
+
+
+def test_a_bumped_task_rerun_alone_still_reruns_what_used_its_output(request):
+    """A dependent must not look valid again just because the bumped task already reran:
+    process() reruns celldetect, and gaussian_detect is only requested later."""
+    obs = get_obs("8007", request)
+    old, _ = _versioned_pipeline(version=1)
+    old.run_task(obs, "make")
+    old.run_task(obs, "use")
+    new, runs = _versioned_pipeline(version=2)
+
+    new.run_task(obs, "make")
+
+    assert "use" in new.get_tasks_to_run(obs, requested_tasks=["use"])
+    new.run_task(obs, "use")
+    assert runs == ["make", "use"]
+
+
+def test_invalidating_a_result_keeps_the_version_that_made_it(request):
+    obs = get_obs("8007", request)
+    old, _ = _versioned_pipeline(version=1)
+    old.run_task(obs, "make")
+    new, _ = _versioned_pipeline(version=2)
+
+    new.tasks["make"].invalidate_result(obs, follow_dependents=False)
+
+    assert new.tasks["make"].get_result(obs).version == 1

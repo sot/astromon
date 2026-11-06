@@ -378,7 +378,9 @@ class Task:
         # if rv is None, there is nothing to clear
         if rv is not None:
             rv.return_code = ReturnCode.INVALID
-            self.set_result(obs, rv)
+            # keeps the version that made the result, so _run can still tell a rerun
+            # for a new version apart from any other
+            self._write_result(obs, rv)
 
         logger.debug(f"{obs} Cleared result of task {self.name} in {obs.workdir}.")
 
@@ -425,6 +427,10 @@ class Task:
             The return value to be stored.
         """
         return_value.version = self.version
+        self._write_result(obs, return_value)
+
+    def _write_result(self, obs, return_value):
+        """Write `return_value` as it is, version included."""
         # never writing to the archive directory
         cache_file = obs.workdir / self.subdir / f"task_{self.name}.json"
         cache_file.parent.mkdir(parents=True, exist_ok=True)
@@ -557,6 +563,16 @@ class Task:
         If an input is missing, an exception will be raised.
         """
         start = CxoTime.now()
+
+        # A result made by another version of this task means its outputs are about to
+        # change, so whatever consumed them is out of date too -- even if it is only
+        # requested later, after this task's new result already looks valid.
+        previous = self.get_result(obs)
+        if previous is not None and previous.version != self.version:
+            manager = self._manager()
+            if manager is not None:
+                for dependent in manager.get_dependents(self.name).values():
+                    dependent.invalidate_result(obs, follow_dependents=False)
 
         # download
         if self._download:
