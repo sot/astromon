@@ -758,7 +758,9 @@ def test_a_download_that_is_not_fits_is_moved_aside_and_fails(tmp_path, monkeypa
     with pytest.raises(RuntimeError, match="not FITS"):
         obs._download_archive(["evt2"])
 
-    rejected = obs.workdir / "rejected_downloads" / "acisf08007N002_evt2.fits.gz"
+    rejected = (
+        obs.workdir / "rejected_downloads" / "primary" / "acisf08007N002_evt2.fits.gz"
+    )
     assert rejected.exists()
     assert not (obs.workdir / "primary" / "acisf08007N002_evt2.fits.gz").exists()
     assert (obs.workdir / "primary" / "acisf08007_000N002_fov1.fits.gz").exists()
@@ -776,7 +778,10 @@ def test_a_zero_filled_file_is_rejected(tmp_path, monkeypatch):
         obs._download_archive(["evt2"])
 
     assert (
-        obs.workdir / "rejected_downloads" / "acisf08007_000N002_msk1.fits"
+        obs.workdir
+        / "rejected_downloads"
+        / "secondary"
+        / "acisf08007_000N002_msk1.fits"
     ).exists()
 
 
@@ -794,3 +799,36 @@ def test_a_download_of_fits_files_completes(tmp_path, monkeypatch):
 
     assert obs._archive_download_marker().exists()
     assert not (obs.workdir / "rejected_downloads").exists()
+
+
+def test_the_filtered_evt2_is_not_checked_as_a_download(tmp_path, monkeypatch):
+    """filter_events writes it; a bad one is the pipeline's problem, not a bad download."""
+    obs = _download_leaving(
+        tmp_path,
+        monkeypatch,
+        {
+            "primary/8007_evt2_filtered.fits.gz": b"not fits",
+            "primary/acisf08007N002_evt2.fits.gz": None,
+        },
+    )
+
+    obs._download_archive(["evt2"])
+
+    assert obs._archive_download_marker().exists()
+
+
+def test_rejected_files_of_the_same_name_do_not_overwrite_each_other(
+    tmp_path, monkeypatch
+):
+    obs = _download_leaving(
+        tmp_path,
+        monkeypatch,
+        {"primary/same.fits": b"<html>", "secondary/same.fits": b"\x00" * 100},
+    )
+
+    with pytest.raises(RuntimeError, match="not FITS"):
+        obs._download_archive(["evt2"])
+
+    rejected = obs.workdir / "rejected_downloads"
+    assert (rejected / "primary" / "same.fits").read_bytes() == b"<html>"
+    assert (rejected / "secondary" / "same.fits").read_bytes() == b"\x00" * 100

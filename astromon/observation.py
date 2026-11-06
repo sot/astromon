@@ -142,6 +142,18 @@ CDA_CATEGORY_ID_MAP = collections.defaultdict(
 ARCHIVE_DIR = utils.ASTROMON_DATA_DIR / "xray_observations"
 
 
+#: Meta key of a cached source table: the task run it was made from (see
+#: Observation._task_run_stamp).
+TASK_RUN_KEY = "TASKRUN"
+
+
+def _with_task_run(sources: table.Table, run_stamp) -> table.Table:
+    """`sources` with the task run it was made from in its meta, when known."""
+    if isinstance(run_stamp, str):
+        sources.meta[TASK_RUN_KEY] = run_stamp
+    return sources
+
+
 def _flag_brightest_source(snr_arr: np.ndarray) -> np.ndarray:
     """Return a bool array with True for the single highest-SNR source.
 
@@ -1037,7 +1049,8 @@ class Observation:
                 for subdir in ("primary", "secondary")
                 if (self.workdir / subdir).is_dir()
                 for path in (self.workdir / subdir).iterdir()
-                if ".fits" in path.name
+                # the filtered evt2 is filter_events' output, not a download
+                if ".fits" in path.name and "_filtered" not in path.name
             ]
         )
 
@@ -1057,26 +1070,28 @@ class Observation:
         marker.parent.mkdir(parents=True, exist_ok=True)
         marker.write_text("download_chandra_obsid completed\n")
 
-    def _reject_non_fits_downloads(self, paths: list[Path]) -> None:
-        """Move any of `paths` that is not FITS to ``rejected_downloads/``, then raise.
+    def _reject_non_fits_downloads(
+        self, paths: list[Path], move_all: bool = False
+    ) -> None:
+        """Move `paths` that are not FITS to ``rejected_downloads/<dir>/``, then raise.
 
         A download can leave an error page (HTTP 408/503) under a FITS file name, or a
         file of NUL bytes when a write is torn; every later task that reads it then
         fails far from the cause. Moving it aside makes the next attempt fetch it again
-        (no completion marker is written), and keeps it to look at. Symlinks are
-        skipped: their target is checked where it lives.
+        (no completion marker is written), and keeps it to look at. With `move_all`,
+        every one of `paths` is moved once any is bad: arc5gl skips a file type whose
+        other files are still there, so a partly bad fetch must leave nothing behind.
+        Symlinks are skipped: their target is checked where it lives.
         """
-        rejected = [
-            path
-            for path in paths
-            if not path.is_symlink() and not utils.is_fits_file(path)
-        ]
+        files = [path for path in paths if not path.is_symlink()]
+        rejected = [path for path in files if not utils.is_fits_file(path)]
         if not rejected:
             return
         destination = self.workdir / "rejected_downloads"
-        destination.mkdir(parents=True, exist_ok=True)
-        for path in rejected:
-            path.replace(destination / path.name)
+        for path in files if move_all else rejected:
+            target = destination / path.parent.name / path.name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            path.replace(target)
         names = ", ".join(path.name for path in rejected)
         raise RuntimeError(
             f"OBSID={self.obsid} download left files that are not FITS"
@@ -1130,7 +1145,8 @@ class Observation:
             dest = self.workdir / dest
             if not dest.exists():
                 dest.mkdir(exist_ok=True, parents=True)
-            before = {path: path.stat().st_mtime_ns for path in dest.glob("*")}
+            # lstat: a broken symlink here (e.g. to a moved archive) must not stop it
+            before = {path: path.lstat().st_mtime_ns for path in dest.glob("*")}
             with chdir(dest):
                 arc5gl = Ska.arc5gl.Arc5gl()
                 arc5gl.sendline(f"obsid={self.obsid}")
@@ -1145,8 +1161,9 @@ class Observation:
                     path
                     for path in dest.glob("*")
                     if ".fits" in path.name
-                    and before.get(path) != path.stat().st_mtime_ns
-                ]
+                    and before.get(path) != path.lstat().st_mtime_ns
+                ],
+                move_all=True,
             )
 
     @logging_call_decorator
@@ -1567,10 +1584,42 @@ class Observation:
         warning: see :meth:`_without_excluded_seeds`.
         """
         sources = self._cached_sources(version=version, astromon_format=astromon_format)
+        cached_run = sources.meta.get(TASK_RUN_KEY)
+        current_run = self._task_run_stamp(version)
+        if (
+            cached_run is not None
+            and current_run is not None
+            and cached_run != current_run
+        ):
+            # cached from an earlier run of the task; that run's outputs are gone
+            logger.info(
+                f"{self} {version}: cached sources are from task run {cached_run},"
+                f" the task last ran as {current_run}; recomputing"
+            )
+            self._cached_sources.invalidate_result(
+                version=version, astromon_format=astromon_format
+            )
+            sources = self._cached_sources(
+                version=version, astromon_format=astromon_format
+            )
+        sources.meta.pop(TASK_RUN_KEY, None)
         sources = self._with_current_angles(sources)
         if version == "gaussian_detect":
             sources = self._without_excluded_seeds(sources, version)
         return sources
+
+    def _task_run_stamp(self, version: str) -> str | None:
+        """``"<task version>|<end of run>"`` for the stored result of task `version`.
+
+        Stored in each cached source table (as ``TASK_RUN_KEY``) and compared on read:
+        a cache made from an earlier run of the task is recomputed. None when the task
+        has no stored result.
+        """
+        task = TASKS.tasks.get(version)
+        result = task.get_result(self) if task is not None else None
+        if result is None:
+            return None
+        return f"{result.version}|{result.stop.iso}"
 
     def _without_excluded_seeds(
         self, sources: table.Table, version: str
@@ -1671,16 +1720,17 @@ class Observation:
             ]
         )
 
+        run_stamp = self._task_run_stamp(version)
         if (
             TASKS.tasks[version].get_result(self) is not None
             and TASKS.tasks[version].get_result(self).return_code != ReturnCode.OK
         ):
-            return table.Table(dtype=dtype)
+            return _with_task_run(table.Table(dtype=dtype), run_stamp)
 
         sources = self._get_sources(version=version)
 
         if len(sources) == 0:
-            return table.Table(dtype=dtype)
+            return _with_task_run(table.Table(dtype=dtype), run_stamp)
 
         sources["detect_method"] = version
 
@@ -1692,10 +1742,11 @@ class Observation:
 
         db.conform_to_dtype(sources, "astromon_xray_src")
 
-        return (
+        return _with_task_run(
             table.Table(sources[dtype.names], dtype=dtype)
             if astromon_format
-            else sources
+            else sources,
+            run_stamp,
         )
 
     def _pileup_value(self, src):

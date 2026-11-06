@@ -96,6 +96,59 @@ def test_an_arc5gl_download_that_is_not_fits_is_moved_aside(tmp_path, monkeypatc
         obs._download_arc5gl(["fov"])
 
     assert (
-        obs.workdir / "rejected_downloads" / "acisf08007_000N002_fov1.fits.gz"
+        obs.workdir
+        / "rejected_downloads"
+        / "primary"
+        / "acisf08007_000N002_fov1.fits.gz"
     ).exists()
     assert not (primary / "acisf08007_000N002_fov1.fits.gz").exists()
+
+
+def test_a_retry_after_a_partly_bad_arc5gl_get_fetches_again(tmp_path, monkeypatch):
+    """One bad asol segment among good ones: moving only it aside left the good ones,
+    which made the retry skip the download and lose the bad segment for good."""
+    import pytest  # noqa: PLC0415
+    from astropy.io import fits  # noqa: PLC0415
+
+    obs = _obs(tmp_path, monkeypatch)
+    secondary = obs.workdir / "secondary"
+    gets = []
+
+    class FakeArc5gl:
+        def sendline(self, line: str) -> None:
+            if line.startswith("get"):
+                gets.append(line)
+                secondary.mkdir(parents=True, exist_ok=True)
+                fits.PrimaryHDU().writeto(
+                    secondary / "pcadf08007_000N001_asol1.fits", overwrite=True
+                )
+                second = secondary / "pcadf08007_001N001_asol1.fits"
+                if len(gets) == 1:
+                    second.write_bytes(b"<html>503</html>")
+                else:
+                    fits.PrimaryHDU().writeto(second, overwrite=True)
+
+    monkeypatch.setattr(observation.Ska.arc5gl, "Arc5gl", FakeArc5gl)
+
+    with pytest.raises(RuntimeError, match="not FITS"):
+        obs._download_arc5gl(["asol"])
+    obs._download_arc5gl(["asol"])
+
+    assert len(gets) == 2
+    assert (secondary / "pcadf08007_001N001_asol1.fits").exists()
+
+
+def test_a_broken_symlink_in_the_destination_does_not_stop_a_download(
+    tmp_path, monkeypatch
+):
+    import os  # noqa: PLC0415
+
+    obs = _obs(tmp_path, monkeypatch)
+    secondary = obs.workdir / "secondary"
+    secondary.mkdir(parents=True)
+    os.symlink(tmp_path / "gone" / "old_asol1.fits", secondary / "stale_link.fits")
+    sent = _stub_arc5gl(monkeypatch)
+
+    obs._download_arc5gl(["msk"])
+
+    assert sent[-1].startswith("get")

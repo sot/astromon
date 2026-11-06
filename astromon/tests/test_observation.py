@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 from astropy import table
 from astropy.io import fits
+from cxotime import CxoTime
 from Quaternion import Quat
 
 from astromon import observation
@@ -1867,3 +1868,75 @@ def test_find_zeroth_order_ignores_events_without_a_sky_position(tmp_path):
 
     assert zo_x == pytest.approx(4096.0, abs=1.0)
     assert zo_y == pytest.approx(4100.0, abs=1.0)
+
+
+# ─── a cached source table belongs to one run of its task ───────────────────
+#
+# get_cat_obs_data reruns a detection task and then calls get_sources; a table cached
+# from the previous run used to come back unchanged (how celldetect reruns in Sep-Oct
+# 2026 left obspar-era tables in use).
+
+
+def _obs_with_stamped_caches(first: table.Table, second: table.Table, current: str):
+    obs = _obs_with_cache(first)
+    obs._cached_sources.side_effect = [first, second]
+    obs._task_run_stamp.return_value = current
+    return obs
+
+
+def test_a_cache_from_an_earlier_run_of_its_task_is_recomputed():
+    old, new = _stale_sources(), _stale_sources()[:1]
+    old.meta["TASKRUN"] = "0|2026-10-05 22:08:24.000"
+    new.meta["TASKRUN"] = "0|2026-11-06 10:00:00.000"
+    obs = _obs_with_stamped_caches(old, new, current="0|2026-11-06 10:00:00.000")
+
+    sources = observation.Observation.get_sources(obs, version="celldetect")
+
+    obs._cached_sources.invalidate_result.assert_called_once_with(
+        version="celldetect", astromon_format=True
+    )
+    assert len(sources) == 1
+    assert "TASKRUN" not in sources.meta
+
+
+@pytest.mark.parametrize("stamp", [None, "0|2026-11-06 10:00:00.000"])
+def test_an_unstamped_or_current_cache_is_used_as_is(stamp):
+    cached = _stale_sources()
+    if stamp is not None:
+        cached.meta["TASKRUN"] = stamp
+    obs = _obs_with_stamped_caches(
+        cached, cached[:0], current="0|2026-11-06 10:00:00.000"
+    )
+
+    sources = observation.Observation.get_sources(obs, version="celldetect")
+
+    obs._cached_sources.invalidate_result.assert_not_called()
+    assert len(sources) == len(cached)
+    assert "TASKRUN" not in sources.meta
+
+
+def test_the_cached_table_carries_its_task_run():
+    obs = Mock()
+    obs._get_sources.return_value = _sources_table()
+    obs._task_run_stamp.return_value = "3|2026-11-06 10:00:00.000"
+
+    with patch.object(
+        observation.TASKS.tasks["celldetect"], "get_result", return_value=None
+    ):
+        cached = _GET_SOURCES_FUNC(obs, version="celldetect")
+
+    assert cached.meta["TASKRUN"] == "3|2026-11-06 10:00:00.000"
+
+
+def test_task_run_stamp_names_the_version_and_the_end_of_the_run(tmp_path):
+    from astromon.task import ReturnValue  # noqa: PLC0415
+
+    obs = _make_observation(tmp_path)
+    task = observation.TASKS.tasks["celldetect"]
+    assert obs._task_run_stamp("celldetect") is None
+    result = ReturnValue(stop=CxoTime("2026-11-06T10:00:00"))
+    task.set_result(obs, result)
+
+    assert (
+        obs._task_run_stamp("celldetect") == f"{task.version}|2026-11-06 10:00:00.000"
+    )
