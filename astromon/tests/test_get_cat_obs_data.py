@@ -395,3 +395,79 @@ def test_process_obsid_without_cleanup_flag_never_calls_cleanup_downloads():
         process_obsid(7001, "/tmp/whatever", cleanup=False)
 
     mock_observation.cleanup_downloads.assert_not_called()
+
+
+# ---- detection outputs reach the archive ----
+#
+# 2026-11-07: the Sep 2026 gaussian redo ran `--versions gaussian_detect` alone.
+# process_obsid archives once right after process() (before gaussian_detect runs)
+# and used to archive again only when more than one version was requested, so not
+# one of those gaussian .src files reached the archive; 167 were later lost with
+# their work dirs.
+
+
+def _run_process_obsid_recording(tmp_path, versions):
+    """Run process_obsid on a stand-in Observation; the archive and task-run events, in order."""
+    from astromon.scripts import get_cat_obs_data  # noqa: PLC0415
+
+    events = []
+    observation = MagicMock()
+    observation.obsid = "7002"
+    observation.workdir = tmp_path / "work" / "obs07" / "7002"
+    observation.workdir.mkdir(parents=True)
+    observation.get_info.return_value = {"obsid": 7002, "ascdsver": "10.8.3"}
+    observation.get_gti_span.return_value = {"gti_start": 1.0, "gti_stop": 2.0}
+    observation.get_sources.side_effect = lambda version: _xray_row(7002, 1)
+    observation.archive.side_effect = lambda *patterns, **kwargs: events.append(
+        ("archive", patterns)
+    )
+
+    def run_tasks(obs, requested_files):
+        events.append(("run", tuple(requested_files)))
+        return {}
+
+    with (
+        patch.object(get_cat_obs_data, "Observation", return_value=observation),
+        patch.object(get_cat_obs_data, "run_tasks", side_effect=run_tasks),
+    ):
+        get_cat_obs_data.process_obsid(
+            7002,
+            str(tmp_path / "work"),
+            archive_dir=str(tmp_path / "archive"),
+            versions=versions,
+            skip_catalog_match=True,
+        )
+    return events
+
+
+def _detection_archives_after(events, requested_file):
+    """How many archive() calls of detection outputs came after `requested_file` was run."""
+    ran_at = events.index(("run", (requested_file,)))
+    # archive() with no patterns archives the detection outputs; with patterns, the results
+    return sum(
+        1
+        for kind, patterns in events[ran_at + 1 :]
+        if kind == "archive" and not patterns
+    )
+
+
+def test_process_obsid_archives_the_output_of_a_gaussian_only_run(tmp_path):
+    events = _run_process_obsid_recording(tmp_path, ("gaussian_detect",))
+
+    assert _detection_archives_after(events, "sources/7002_gaussian_detect.src") == 1
+
+
+def test_process_obsid_archives_gaussian_output_alongside_celldetect(tmp_path):
+    events = _run_process_obsid_recording(tmp_path, ("celldetect", "gaussian_detect"))
+
+    assert _detection_archives_after(events, "sources/7002_gaussian_detect.src") == 1
+
+
+def test_process_obsid_archives_a_celldetect_only_run_once(tmp_path):
+    """celldetect's outputs are archived right after process(); nothing else ran."""
+    events = _run_process_obsid_recording(tmp_path, ("celldetect",))
+
+    assert [patterns for kind, patterns in events if kind == "archive"][0] == ()
+    assert (
+        sum(1 for kind, patterns in events if kind == "archive" and not patterns) == 1
+    )

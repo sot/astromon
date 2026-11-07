@@ -567,8 +567,11 @@ def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
         sources = vstack(all_sources)
         matches = vstack(all_xcorr) if all_xcorr else Table(names=xcorr_cols)
 
-        # Archive any new detection-version output files produced above.
-        if archive_dir and len(versions) > 1:
+        # Archive the detection-version output files produced above. celldetect's were
+        # archived right after process(); any other version, alone or not, made new
+        # ones. (Checking for more than one version left a gaussian_detect-only run's
+        # .src unarchived: the Sep 2026 redo's, later lost with their work dirs.)
+        if archive_dir and set(versions) - {"celldetect"}:
             observation.archive()
 
         _cat_src_parts = [
