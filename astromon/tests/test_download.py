@@ -827,6 +827,88 @@ def test_a_download_cut_off_mid_file_is_moved_aside_and_fails(tmp_path, monkeypa
     assert not obs._archive_download_marker().exists()
 
 
+# --- files already in a downloaded work dir ----------------------------------
+#
+# The completion marker used to mean "nothing to check", so a file torn or cut short
+# before downloads were checked stayed in place for good. 2026-11-06: 3 truncated
+# .fits.gz on Black (3748 and 18188 asol1, 4431 evt2), two behind a marker.
+
+_EVT2 = "primary/acisf08007N002_evt2.fits.gz"
+_MSK = "secondary/acisf08007_000N002_msk1.fits.gz"
+
+
+def _downloaded_work_dir(tmp_path, monkeypatch, files):
+    """An archive Observation whose work dir holds `files` and the completion marker.
+
+    `files` maps relpath to a function that writes the file, or None for a valid one.
+    """
+    past = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d %H:%M:%S")
+    _stub_ocat(monkeypatch, past)
+    _stub_ciao(monkeypatch)
+    obs = _obs(tmp_path)
+    for relpath, writer in files.items():
+        path = obs.workdir / relpath
+        path.parent.mkdir(parents=True, exist_ok=True)
+        (writer or _write_fits)(path)
+    marker = obs._archive_download_marker()
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text("download_chandra_obsid completed\n")
+    return obs
+
+
+def test_a_file_cut_short_in_a_downloaded_work_dir_is_fetched_again(
+    tmp_path, monkeypatch
+):
+    obs = _downloaded_work_dir(
+        tmp_path, monkeypatch, {_EVT2: _write_truncated_fits_gz, _MSK: None}
+    )
+    process = FakeProcess(
+        stdout=b"ok\n", on_communicate=lambda: _write_fits(obs.workdir / _EVT2)
+    )
+    _stub_popen(monkeypatch, process)
+
+    obs._download_archive(["evt2"])
+
+    assert process.communicate_calls == 1
+    assert (
+        obs.workdir / "rejected_downloads" / "primary" / "acisf08007N002_evt2.fits.gz"
+    ).exists()
+    assert observation.utils.is_fits_file(obs.workdir / _EVT2)
+    assert obs._archive_download_marker().exists()
+
+
+def test_a_complete_downloaded_work_dir_is_not_fetched_again(tmp_path, monkeypatch):
+    obs = _downloaded_work_dir(tmp_path, monkeypatch, {_EVT2: None, _MSK: None})
+    process = FakeProcess(stdout=b"ok\n")
+    _stub_popen(monkeypatch, process)
+
+    obs._download_archive(["evt2"])
+    obs._download_archive(["evt2"])
+
+    assert process.communicate_calls == 0
+    assert not (obs.workdir / "rejected_downloads").exists()
+
+
+def test_downloaded_files_are_read_whole_once_per_observation(tmp_path, monkeypatch):
+    """Every task that downloads asks again; an evt2 of up to ~1 GB is read only once."""
+    obs = _downloaded_work_dir(tmp_path, monkeypatch, {_EVT2: None, _MSK: None})
+    read = []
+    is_fits_file = observation.utils.is_fits_file
+    monkeypatch.setattr(
+        observation.utils,
+        "is_fits_file",
+        lambda path: read.append(path.name) or is_fits_file(path),
+    )
+
+    obs._download_archive(["evt2"])
+    obs._download_archive(["evt2"])
+
+    assert sorted(read) == [
+        "acisf08007N002_evt2.fits.gz",
+        "acisf08007_000N002_msk1.fits.gz",
+    ]
+
+
 def test_a_download_of_fits_files_completes(tmp_path, monkeypatch):
     obs = _download_leaving(
         tmp_path,

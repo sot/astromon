@@ -270,6 +270,8 @@ class Observation:
         )
 
         self.cache_dir = self.workdir / "cache"
+        # downloaded files read whole and found complete: path -> (size, mtime_ns)
+        self._verified_downloads: dict[Path, tuple[int, int]] = {}
 
         if archive_regex is None:
             self.archive_regex = [
@@ -922,9 +924,23 @@ class Observation:
         clearing the marker in the first place (see cleanup_downloads' and
         _archive_download_marker's docstrings). Trusting repro/ here would
         silently defeat that retry path.
+
+        Nor does the marker vouch for the files: one torn or cut short before
+        downloads were checked would stay for good (3748's asol1, 2026-11-06). So the
+        downloaded files are checked too (read whole once per Observation); a bad one
+        is moved to ``rejected_downloads/`` and the marker removed, to download again.
         """
         marker = self._archive_download_marker()
         if not marker.exists():
+            return False
+        if bad := self._bad_downloads(self._downloaded_files()):
+            destination = self._set_aside_downloads(bad)
+            marker.unlink()
+            logger.warning(
+                f"{self} {', '.join(path.name for path in bad)} in the work dir"
+                f" are not complete FITS files: moved to {destination}, downloading"
+                " again"
+            )
             return False
         logger.debug(f"{self} {marker} present, skipping download")
         self._fix_archive_bpix()
@@ -1043,16 +1059,7 @@ class Observation:
                     f"(exit code {process.returncode})"
                 )
 
-        self._reject_non_fits_downloads(
-            [
-                path
-                for subdir in ("primary", "secondary")
-                if (self.workdir / subdir).is_dir()
-                for path in (self.workdir / subdir).iterdir()
-                # the filtered evt2 is filter_events' output, not a download
-                if ".fits" in path.name and "_filtered" not in path.name
-            ]
-        )
+        self._reject_non_fits_downloads(self._downloaded_files())
 
         # download_chandra_obsid follows the official CDA layout, which differs
         # from the arc5gl layout that the rest of the pipeline expects:
@@ -1083,20 +1090,60 @@ class Observation:
         other files are still there, so a partly bad fetch must leave nothing behind.
         Symlinks are skipped: their target is checked where it lives.
         """
-        files = [path for path in paths if not path.is_symlink()]
-        rejected = [path for path in files if not utils.is_fits_file(path)]
+        rejected = self._bad_downloads(paths)
         if not rejected:
             return
-        destination = self.workdir / "rejected_downloads"
-        for path in files if move_all else rejected:
-            target = destination / path.parent.name / path.name
-            target.parent.mkdir(parents=True, exist_ok=True)
-            path.replace(target)
+        destination = self._set_aside_downloads(paths if move_all else rejected)
         names = ", ".join(path.name for path in rejected)
         raise RuntimeError(
             f"OBSID={self.obsid} download left files that are not FITS"
             f" (moved to {destination}): {names}"
         )
+
+    def _downloaded_files(self) -> list[Path]:
+        """The downloaded FITS files in ``primary/`` and ``secondary/``."""
+        return [
+            path
+            for subdir in ("primary", "secondary")
+            if (self.workdir / subdir).is_dir()
+            for path in (self.workdir / subdir).iterdir()
+            # the filtered evt2 is filter_events' output, not a download
+            if ".fits" in path.name and "_filtered" not in path.name
+        ]
+
+    def _bad_downloads(self, paths: list[Path]) -> list[Path]:
+        """Those of `paths` that are not complete FITS files (see utils.is_fits_file).
+
+        Each file is read whole once per Observation: every task that downloads asks
+        again, and an evt2 can be ~1 GB. A file is read again if its size or
+        modification time changed. Symlinks are skipped: their target is checked
+        where it lives.
+        """
+        bad = []
+        for path in paths:
+            if path.is_symlink():
+                continue
+            status = path.stat()
+            stamp = (status.st_size, status.st_mtime_ns)
+            if self._verified_downloads.get(path) == stamp:
+                continue
+            if utils.is_fits_file(path):
+                self._verified_downloads[path] = stamp
+            else:
+                bad.append(path)
+        return bad
+
+    def _set_aside_downloads(self, paths: list[Path]) -> Path:
+        """Move `paths` (not symlinks) to ``rejected_downloads/<dir>/``; that root."""
+        destination = self.workdir / "rejected_downloads"
+        for path in paths:
+            if path.is_symlink():
+                continue
+            target = destination / path.parent.name / path.name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            path.replace(target)
+            self._verified_downloads.pop(path, None)
+        return destination
 
     def _download_arc5gl(self, ftypes, revision=None, force=False):
         """
@@ -1138,6 +1185,21 @@ class Observation:
                 dest_files = [
                     path for path in dest_files if utils.is_archive_evt2(path)
                 ]
+            # Present files only mean the type is downloaded if they are whole. arc5gl
+            # skips a type while any of its files is here, so all of them go.
+            in_workdir = [
+                path
+                for path in dest_files
+                if self.workdir in path.parents and ".fits" in path.name
+            ]
+            if dest_files and not force and (bad := self._bad_downloads(in_workdir)):
+                destination = self._set_aside_downloads(in_workdir)
+                logger.warning(
+                    f"{self} {', '.join(path.name for path in bad)} in the work dir"
+                    f" are not complete FITS files: {ftype} moved to {destination},"
+                    " downloading again"
+                )
+                dest_files = [path for path in dest_files if path not in in_workdir]
             if dest_files and not force:
                 logger.info(f"{self}     skipping download of *{ftype}*")
                 continue
