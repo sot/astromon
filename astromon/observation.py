@@ -2650,6 +2650,26 @@ def _seed_and_select_events(events_yag, events_zag, source, box_size, seed_from_
     return fit_source, event_mask
 
 
+def _celldetect_psf_size_path(obs, inputs) -> Path:
+    """The path of celldetect's PSF-size table, which the gaussian fits are scaled by.
+
+    It is an optional input only because celldetect_psf_size writes none when there
+    are no sources. With sources to fit, the task manager makes it first; a direct
+    run of gaussian_detect does not, so celldetect_psf_size is run here instead.
+    """
+    path = inputs.get("psf_size")
+    if path is None:
+        path = obs.file_path(f"sources/{obs.obsid}_psf_size_celldetect.fits")
+        logger.info(f"{obs} no {path.name}; running celldetect_psf_size first")
+        celldetect_psf_size.run(obs)
+        if not Path(path).exists():
+            raise FileNotFoundError(
+                f"{obs} gaussian fits need {path.name}, and celldetect_psf_size"
+                " did not make it"
+            )
+    return Path(path)
+
+
 def _fit_gaussian_sources(  # noqa: PLR0915
     obs, inputs, outputs, seed_from_peak
 ):
@@ -2749,6 +2769,10 @@ def _fit_gaussian_sources(  # noqa: PLR0915
             results.write(outputs["src"], format="fits", overwrite=True)
             return ReturnCode.OK
 
+    # Before the fits: they are wasted if the table they are scaled by is not there.
+    ecf_path = _celldetect_psf_size_path(obs, inputs)
+    ecf = table.Table.read(ecf_path)
+
     events_yag = np.asarray(events["y_angle"])
     events_zag = np.asarray(events["z_angle"])
 
@@ -2766,7 +2790,6 @@ def _fit_gaussian_sources(  # noqa: PLR0915
 
     results = table.Table(results)
 
-    ecf = table.Table.read(inputs["psf_size"])
     pixel_size = 0.4920 if obs.is_acis else 0.13175
     # ecf was written for every celldetect source, but results only has the
     # (possibly filtered and reordered) subset that got a fit attempted --
@@ -2888,7 +2911,7 @@ def _fit_gaussian_sources(  # noqa: PLR0915
 
     results.write(outputs["src"], format="fits", overwrite=True)
 
-    shutil.copyfile(inputs["psf_size"], outputs["psf_size"])
+    shutil.copyfile(ecf_path, outputs["psf_size"])
 
 
 @task(

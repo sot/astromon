@@ -936,6 +936,112 @@ def test_fit_gaussian_sources_matches_ecf_radius_by_component(tmp_path, monkeypa
         assert row["PSFRATIO"] == pytest.approx(expected_psfratio)
 
 
+# The celldetect PSF-size table is an optional input because celldetect_psf_size
+# writes none when celldetect found no sources. gaussian_detect run on its own (not
+# through the task manager) with seeds to fit and no table used to fit every seed
+# and then fail with KeyError: 'psf_size' (obsid 3748, 2026-11-06).
+
+
+def _gaussian_fit_without_psf_size(tmp_path, monkeypatch, *, n_sources=2):
+    """(obs, inputs, outputs, fit calls) for a fit whose psf_size table is missing."""
+    obs = Mock()
+    obs.obsid = "1234"
+    obs.is_acis = True
+    obs.file_path = lambda relative: tmp_path / relative
+    obs.get_info.return_value = {"ra_pnt": 0.0, "dec_pnt": 0.0, "roll_pnt": 0.0}
+    obs._on_acis_streak.return_value = np.zeros(n_sources, dtype=bool)
+    obs._on_grating_arm.return_value = np.zeros(n_sources, dtype=bool)
+    positions = [20.0 * index for index in range(n_sources)]
+    src_path = tmp_path / "sources" / "1234_celldetect.src"
+    _write_celldetect_src(
+        src_path,
+        component=list(range(1, n_sources + 1)),
+        ra=positions,
+        dec=[0.0] * n_sources,
+        snr=[5.0] * n_sources,
+    )
+    events_path = tmp_path / "primary" / "1234_evt2_filtered.fits.gz"
+    rng = np.random.default_rng(0)
+    x = np.concatenate([rng.normal(pos, 0.5, 30) for pos in positions or [0.0]])
+    _write_events(events_path, x=x, y=rng.normal(0.0, 0.5, len(x)))
+    fit_calls = []
+
+    def fit(events, source, box_size=4):
+        fit_calls.append(int(source["COMPONENT"]))
+        return _fake_fit_gaussian_2d(events, source, box_size)
+
+    monkeypatch.setattr(
+        observation.utils, "get_wcs_from_fits_header", lambda *a, **k: _identity_wcs()
+    )
+    monkeypatch.setattr(observation, "radec_to_yagzag", lambda ra, dec, att: (ra, dec))
+    monkeypatch.setattr(
+        observation, "yagzag_to_radec", lambda yag, zag, att: (yag, zag)
+    )
+    monkeypatch.setattr(observation.source_detection, "fit_gaussian_2d", fit)
+    inputs = {"src": src_path, "events": events_path}
+    outputs = {
+        "src": tmp_path / "sources" / "1234_gaussian_detect.src",
+        "psf_size": tmp_path / "sources" / "1234_psf_size_gaussian_detect.fits",
+    }
+    return obs, inputs, outputs, fit_calls
+
+
+def test_fit_gaussian_sources_makes_a_missing_psf_size_table_first(
+    tmp_path, monkeypatch
+):
+    obs, inputs, outputs, _ = _gaussian_fit_without_psf_size(tmp_path, monkeypatch)
+    psf_runs = []
+
+    def run_celldetect_psf_size(task_obs, *args, **kwargs):
+        psf_runs.append(task_obs)
+        _write_psf_size(
+            tmp_path / "sources" / "1234_psf_size_celldetect.fits",
+            component=[1, 2],
+            r=[10.0, 20.0],
+        )
+
+    monkeypatch.setattr(observation.celldetect_psf_size, "run", run_celldetect_psf_size)
+
+    observation._fit_gaussian_sources(obs, inputs, outputs, seed_from_peak=False)
+
+    assert psf_runs == [obs]
+    results = table.Table.read(outputs["src"])
+    results.sort("COMPONENT")
+    assert list(results["ecf_radius"]) == pytest.approx([10.0 * 0.4920, 20.0 * 0.4920])
+
+
+def test_fit_gaussian_sources_without_a_psf_size_table_fails_before_fitting(
+    tmp_path, monkeypatch
+):
+    obs, inputs, outputs, fit_calls = _gaussian_fit_without_psf_size(
+        tmp_path, monkeypatch
+    )
+    monkeypatch.setattr(observation.celldetect_psf_size, "run", lambda *a, **k: None)
+
+    with pytest.raises(FileNotFoundError, match="1234_psf_size_celldetect.fits"):
+        observation._fit_gaussian_sources(obs, inputs, outputs, seed_from_peak=False)
+
+    assert fit_calls == []
+
+
+def test_fit_gaussian_sources_with_no_sources_needs_no_psf_size_table(
+    tmp_path, monkeypatch
+):
+    obs, inputs, outputs, fit_calls = _gaussian_fit_without_psf_size(
+        tmp_path, monkeypatch, n_sources=0
+    )
+    psf_runs = []
+    monkeypatch.setattr(
+        observation.celldetect_psf_size, "run", lambda *a, **k: psf_runs.append(a)
+    )
+
+    observation._fit_gaussian_sources(obs, inputs, outputs, seed_from_peak=False)
+
+    assert psf_runs == []
+    assert fit_calls == []
+    assert len(table.Table.read(outputs["src"])) == 0
+
+
 # --- is_selected --------------------------------------------------------
 #
 # Ocat fields (instr/mode/d_cyc) say nothing about pointed-vs-slew: an ACIS
