@@ -2820,7 +2820,10 @@ def _simple_match_args(name, catalogs, **overrides):
 
 
 # astromon_21 is the one selection stored in astromon_xcorr: flight's, and the one
-# the quarterly status number (calc_astrometry_rms.py) reads.
+# the quarterly status number (calc_astrometry_rms.py) reads. Flight only has
+# celldetect, so it takes celldetect sources only; until 2026-11-07 it took every
+# method's, and gaussian_detect rows stored under it reached the quarterly number
+# (drop_retired_rows.py removes them from a database).
 #
 # "default" is never stored. compute_cross_matches() and db.get_cross_matches()
 # without a name compute it from astromon_obs, astromon_xray_src and
@@ -2846,7 +2849,9 @@ def _simple_match_args(name, catalogs, **overrides):
 CROSS_MATCHES_ARGS = {
     args["name"]: args
     for args in [
-        _simple_match_args("astromon_21", ["RFC", "Tycho2"]),
+        _simple_match_args(
+            "astromon_21", ["RFC", "Tycho2"], detect_method_filter="celldetect"
+        ),
         _simple_match_args(
             "default",
             DEFAULT_CATALOGS,
@@ -2863,6 +2868,31 @@ CROSS_MATCHES_ARGS = {
 #: The selections the pipeline stores in astromon_xcorr. Everything else, the default
 #: selection included, is computed from astromon_cat_src when asked for.
 STORED_SELECTIONS = ("astromon_21",)
+
+
+def stored_selection_mask(xcorr: table.Table) -> np.ndarray:
+    """Which `xcorr` rows the pipeline would still store.
+
+    That is, rows of a selection in :data:`STORED_SELECTIONS`, from a detect method
+    that selection takes. A blank detect_method is a row stored before the column
+    existed, when celldetect was the only method.
+
+    Examples
+    --------
+    >>> from astropy.table import Table
+    >>> rows = Table({"select_name": ["astromon_21", "astromon_21", "astromon_24"],
+    ...               "detect_method": ["celldetect", "gaussian_detect", "celldetect"]})
+    >>> stored_selection_mask(rows).tolist()
+    [True, False, False]
+    """
+    select_names = np.asarray(xcorr["select_name"]).astype(str)
+    methods = np.asarray(xcorr["detect_method"]).astype(str)
+    methods = np.where(methods == "", "celldetect", methods)
+    keep = np.zeros(len(xcorr), dtype=bool)
+    for name in STORED_SELECTIONS:
+        method = CROSS_MATCHES_ARGS[name].get("detect_method_filter")
+        keep |= (select_names == name) & ((method is None) | (methods == method))
+    return keep
 
 
 def stored_cross_matches(

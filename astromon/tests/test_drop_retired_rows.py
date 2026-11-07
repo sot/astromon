@@ -121,3 +121,27 @@ def test_refuses_to_leave_a_stored_match_pointing_at_a_dropped_source(tmp_path):
     else:
         raise AssertionError("expected a refusal")
     assert len(db.get_table("astromon_cat_src", dbfile)) == 5
+
+
+def test_drops_astromon_21_rows_matched_from_gaussian_sources(tmp_path):
+    """astromon_21 takes celldetect sources only; rows stored before it did go.
+    A blank detect_method is a row from before the column existed: celldetect's."""
+    dbfile = tmp_path / "retire.h5"
+    _seed(dbfile)
+    xcorr = _xcorr(
+        [(1, 0, "astromon_21"), (1, 2, "astromon_21"), (2, 1, "astromon_21")]
+    )
+    xcorr["detect_method"] = ["celldetect", "gaussian_detect", ""]
+    db.save("astromon_xcorr", xcorr, dbfile, ignore_obsid=True, expect_existing=True)
+
+    summary = drop_retired_rows.drop_retired(dbfile)
+
+    kept = db.get_table("astromon_xcorr", dbfile)
+    assert sorted(
+        zip(
+            kept["obsid"].tolist(),
+            np.asarray(kept["detect_method"]).astype(str),
+            strict=True,
+        )
+    ) == [(1, "celldetect"), (2, "")]
+    assert summary["xcorr_dropped"] == {"astromon_21 gaussian_detect": 1}

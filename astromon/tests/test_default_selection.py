@@ -200,4 +200,14 @@ def test_the_pipeline_stores_only_astromon_21():
     stored = cross_match.stored_cross_matches(obs, xray, candidates)
     assert set(stored.colnames) == set(db.ASTROMON_XCORR_DTYPE.names)
     assert set(np.asarray(stored["select_name"]).astype(str)) == {"astromon_21"}
-    assert len(stored) == 2  # one per detect_method, RFC beats Tycho2
+    assert len(stored) == 1  # RFC beats Tycho2
+
+
+def test_astromon_21_takes_celldetect_sources_only():
+    """astromon_21 is flight's selection, which had only celldetect to match. Without
+    a filter, gaussian_detect's sources were stored under it too, and the quarterly
+    number (calc_astrometry_rms.py) read them."""
+    stored = cross_match.stored_cross_matches(
+        minimal_obs(), two_method_xray_src(), _candidates("RFC")
+    )
+    assert list(np.asarray(stored["detect_method"]).astype(str)) == ["celldetect"]

@@ -119,9 +119,10 @@ def test_empty_inputs_still_return_the_joined_dtype():
 
 
 def test_selection_keeps_one_row_per_method():
-    """A selection without detect_method_filter must not collapse the two methods."""
+    """A selection without detect_method_filter must not collapse the two methods.
+    (astromon_21 has one now, celldetect; the plain simple method has none.)"""
     matches = cross_match.compute_cross_matches(
-        "astromon_21",
+        "simple",
         astromon_obs=_minimal_obs(99900),
         astromon_xray_src=_two_method_xray_src(99900),
         astromon_cat_src=_minimal_cat_src(99900),

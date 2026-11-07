@@ -4,6 +4,8 @@
 * astromon_xcorr rows of any select_name the pipeline no longer stores (anything but
   :data:`astromon.cross_match.STORED_SELECTIONS`): astromon_22-27 and the
   single-catalog selections. The default selection is computed on demand instead.
+* astromon_xcorr rows of a stored selection from a detect method it no longer takes:
+  astromon_21's gaussian_detect rows, stored until it took celldetect sources only.
 
 Every other row keeps its id, so the stored astromon_21 rows keep pointing at the same
 catalog sources. The run refuses, writing nothing, if a stored row would be left
@@ -23,7 +25,7 @@ from pathlib import Path
 import numpy as np
 
 from astromon import db
-from astromon.cross_match import STORED_SELECTIONS
+from astromon.cross_match import STORED_SELECTIONS, stored_selection_mask
 
 logger = logging.getLogger("drop_retired_rows")
 
@@ -46,7 +48,16 @@ def drop_retired(dbfile: Path, dry_run: bool = False) -> dict:
     catalogs = np.asarray(cat_src["catalog"]).astype(str)
     drop_cat = np.isin(catalogs, RETIRED_CATALOGS)
     select_names = np.asarray(xcorr["select_name"]).astype(str)
-    keep_xcorr = np.isin(select_names, STORED_SELECTIONS)
+    keep_xcorr = stored_selection_mask(xcorr)
+    # a stored selection's rows from a method it no longer takes are named with it
+    dropped_names = np.where(
+        np.isin(select_names, STORED_SELECTIONS),
+        np.char.add(
+            np.char.add(select_names, " "),
+            np.asarray(xcorr["detect_method"]).astype(str),
+        ),
+        select_names,
+    )
 
     dropped_sources = set(
         zip(
@@ -74,7 +85,7 @@ def drop_retired(dbfile: Path, dry_run: bool = False) -> dict:
     summary = {
         "cat_src_dropped": dict(sorted(Counter(catalogs[drop_cat].tolist()).items())),
         "xcorr_dropped": dict(
-            sorted(Counter(select_names[~keep_xcorr].tolist()).items())
+            sorted(Counter(dropped_names[~keep_xcorr].tolist()).items())
         ),
     }
     logger.info(
