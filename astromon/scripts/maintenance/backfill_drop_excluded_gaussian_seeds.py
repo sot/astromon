@@ -26,7 +26,13 @@ exactly the same row-level drop decisions as this column-based approach,
 because nothing else about the fit changed between the archived rows'
 vintage and now -- only this pre-fit seed selection.
 
-Follow this with rebuild_xcorr, since the removed sources may carry matches.
+brightest and near_neighbor_dist describe a source against the rest of its
+observation's gaussian_detect sources, so they are recomputed over the rows left,
+as a fit without the dropped seeds has them. Earlier runs dropped rows without
+that, so the recompute covers every obsid, whether or not this run drops anything.
+
+Then run drop_retired_rows: the removed rows may carry astromon_21 matches, stored
+before astromon_21 took celldetect sources only.
 
 Usage
 -----
@@ -43,9 +49,13 @@ from pathlib import Path
 import numpy as np
 
 from astromon import db
-from astromon.observation import excluded_seed_mask
+from astromon.observation import excluded_seed_mask, with_recomputed_set_columns
 
 logger = logging.getLogger("backfill_drop_excluded_gaussian_seeds")
+
+# A recomputed near_neighbor_dist this close to the stored one is the same value: it
+# is stored as float32, so recomputing it from the stored angles moves the last bits.
+_SAME_DISTANCE_ARCSEC = 1e-3
 
 
 def excluded_seed_gaussian_mask(xray) -> dict[str, np.ndarray]:
@@ -86,13 +96,57 @@ def excluded_seed_gaussian_mask(xray) -> dict[str, np.ndarray]:
     return masks
 
 
+def recomputed_gaussian_set_columns(xray) -> tuple[np.ndarray, np.ndarray]:
+    """brightest and near_neighbor_dist for each row of `xray`.
+
+    They are recomputed over each obsid's gaussian_detect rows; other methods' rows
+    keep their stored values.
+    """
+    brightest = np.asarray(xray["brightest"]).copy()
+    near_neighbor_dist = np.asarray(xray["near_neighbor_dist"]).copy()
+    gaussian = np.flatnonzero(
+        np.asarray(xray["detect_method"]).astype(str) == "gaussian_detect"
+    )
+    if len(gaussian) == 0:
+        return brightest, near_neighbor_dist
+    columns = xray["id", "snr", "y_angle", "z_angle", "brightest", "near_neighbor_dist"]
+    obsids = np.asarray(xray["obsid"])[gaussian]
+    by_obsid = gaussian[np.argsort(obsids, kind="stable")]
+    boundaries = np.flatnonzero(np.diff(np.asarray(xray["obsid"])[by_obsid])) + 1
+    for rows in np.split(by_obsid, boundaries):
+        sources = with_recomputed_set_columns(columns[rows])
+        brightest[rows] = sources["brightest"]
+        near_neighbor_dist[rows] = sources["near_neighbor_dist"]
+    return brightest, near_neighbor_dist
+
+
 def backfill(db_file: Path, dry_run: bool = False) -> dict:
-    """Drop excluded-seed gaussian_detect rows from `db_file`."""
+    """Drop excluded-seed gaussian_detect rows from `db_file`.
+
+    brightest and near_neighbor_dist are then recomputed over the gaussian_detect rows
+    left, in every obsid.
+    """
     db_file = Path(db_file)
     xray = db.get_table("astromon_xray_src", db_file)
     masks = excluded_seed_gaussian_mask(xray)
     drop = masks["crowded"] | masks["grating_arm"] | masks["acis_streak"]
     n_dropped = int(drop.sum())
+
+    kept = xray[~drop]
+    brightest, near_neighbor_dist = recomputed_gaussian_set_columns(kept)
+    brightest_changed = brightest != np.asarray(kept["brightest"])
+    distance_changed = ~np.isclose(
+        near_neighbor_dist,
+        np.asarray(kept["near_neighbor_dist"]),
+        rtol=0,
+        atol=_SAME_DISTANCE_ARCSEC,
+        equal_nan=True,
+    )
+    kept["brightest"][brightest_changed] = brightest[brightest_changed]
+    kept["near_neighbor_dist"][distance_changed] = near_neighbor_dist[distance_changed]
+    changed_obsids = np.unique(
+        np.asarray(kept["obsid"])[brightest_changed | distance_changed]
+    )
 
     logger.info(f"astromon_xray_src rows: {len(xray):,}")
     logger.info(
@@ -102,19 +156,28 @@ def backfill(db_file: Path, dry_run: bool = False) -> dict:
         f"acis_streak: {int(masks['acis_streak'].sum()):,})"
     )
 
+    logger.info(
+        f"recomputed over the gaussian_detect rows left: brightest changes in"
+        f" {int(brightest_changed.sum()):,} rows, near_neighbor_dist in"
+        f" {int(distance_changed.sum()):,} rows, {len(changed_obsids):,} obsids"
+    )
+
     if dry_run:
         logger.info("Dry run -- nothing written.")
-    else:
+    elif n_dropped or len(changed_obsids):
         db.save(
             "astromon_xray_src",
-            xray[~drop],
+            kept,
             db_file,
             ignore_obsid=True,
             expect_existing=True,
         )
         logger.info(
-            "written; run rebuild_xcorr next, since the removed rows may carry matches"
+            "written; run drop_retired_rows next, since the removed rows may carry"
+            " astromon_21 matches"
         )
+    else:
+        logger.info("Nothing to change.")
 
     return {
         "db_file": db_file,
@@ -122,6 +185,9 @@ def backfill(db_file: Path, dry_run: bool = False) -> dict:
         "dropped_crowded": int(masks["crowded"].sum()),
         "dropped_grating_arm": int(masks["grating_arm"].sum()),
         "dropped_acis_streak": int(masks["acis_streak"].sum()),
+        "brightest_changed": int(brightest_changed.sum()),
+        "near_neighbor_dist_changed": int(distance_changed.sum()),
+        "changed_obsids": changed_obsids.tolist(),
     }
 
 

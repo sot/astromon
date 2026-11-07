@@ -1786,6 +1786,29 @@ def test_reading_gaussian_rows_from_allowed_seeds_warns_nothing():
     warning.assert_not_called()
 
 
+def test_reading_gaussian_rows_recomputes_brightest_and_neighbours_over_those_kept():
+    """Both describe a source against the rest of the set, which a fresh fit never
+    gives the dropped seeds: the brightest left is flagged, and a dropped source is
+    nobody's nearest neighbour."""
+    obs = _obs_with_celldetect(_celldetect_with_flags())
+    rows = table.Table(
+        {
+            "id": np.array([3, 4, 5], dtype=np.int32),  # 3: on a streak, dropped
+            "snr": np.array([90.0, 20.0, 10.0], dtype=np.float32),
+            "y_angle": np.array([0.0, 2.0, 30.0]),
+            "z_angle": np.zeros(3),
+            "brightest": np.array([True, False, False]),
+            "near_neighbor_dist": np.array([2.0, 2.0, 28.0], dtype=np.float32),
+        }
+    )
+
+    kept = observation.Observation._without_excluded_seeds(obs, rows, "gaussian_detect")
+
+    assert list(kept["id"]) == [4, 5]
+    assert list(kept["brightest"]) == [True, False]
+    np.testing.assert_allclose(kept["near_neighbor_dist"], [28.0, 28.0])
+
+
 @pytest.mark.parametrize(
     ("version", "filtered"),
     [("gaussian_detect", True), ("celldetect", False), ("peak_gaussian_detect", False)],

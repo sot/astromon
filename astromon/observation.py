@@ -185,6 +185,25 @@ def _flag_brightest_source(snr_arr: np.ndarray) -> np.ndarray:
     return result
 
 
+def with_recomputed_set_columns(sources: table.Table) -> table.Table:
+    """`sources` with brightest and near_neighbor_dist recomputed over these rows.
+
+    Both describe a source against the rest of its observation's sources, so they go
+    stale when rows are dropped: the brightest may be gone, and a dropped source can
+    still be another's nearest neighbour. `sources` is one observation's, with
+    astromon's column names; a column it lacks is not added.
+    """
+    if len(sources) == 0:
+        return sources
+    if "brightest" in sources.colnames and "snr" in sources.colnames:
+        sources["brightest"] = _flag_brightest_source(sources["snr"])
+    if "near_neighbor_dist" in sources.colnames:
+        sources["near_neighbor_dist"] = utils.get_near_neighbor_dist(
+            sources, sources, id_col="id"
+        )
+    return sources
+
+
 @functools.cache
 def ciao_fails(ciao_prefix, workdir):
     try:
@@ -1694,7 +1713,8 @@ class Observation:
         reused task result, backfill_gaussian_yz -- would put them back in the
         database. Seeds are judged by celldetect's own stored flags, the same rule
         as backfill_drop_excluded_gaussian_seeds. A drop is logged: on a fresh fit
-        it means the fit-time filters did not work.
+        it means the fit-time filters did not work. brightest and near_neighbor_dist
+        are then recomputed over the sources left, as a fit without them has them.
         """
         if len(sources) == 0:
             return sources
@@ -1710,7 +1730,8 @@ class Observation:
                 f"{self} {version}: dropped {len(dropped_ids)} source(s) fit from"
                 f" excluded celldetect seeds (ids {dropped_ids})"
             )
-        return sources[~drop]
+            return with_recomputed_set_columns(sources[~drop])
+        return sources
 
     def _with_current_angles(self, sources: table.Table) -> table.Table:
         """`sources` with y/z/r_angle from RA/Dec and the evt2 pointing, cut at 180"."""
@@ -1736,14 +1757,7 @@ class Observation:
         # brightest and near_neighbor_dist were computed over the cached (uncut) set,
         # as _get_sources computes them after its own cut: recompute them over the
         # sources that are left.
-        sources = sources[inside]
-        if "brightest" in sources.colnames and "snr" in sources.colnames:
-            sources["brightest"] = _flag_brightest_source(sources["snr"])
-        if "near_neighbor_dist" in sources.colnames and len(sources) > 0:
-            sources["near_neighbor_dist"] = utils.get_near_neighbor_dist(
-                sources, sources, id_col="id"
-            )
-        return sources
+        return with_recomputed_set_columns(sources[inside])
 
     # The cache file name is `sources__<hash of version, astromon_format>`, as it was
     # when get_sources itself was cached, so the caches already on disk keep being found.

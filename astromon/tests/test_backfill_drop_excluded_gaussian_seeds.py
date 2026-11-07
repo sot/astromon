@@ -18,8 +18,10 @@ def _xray(
     grating_arm=False,
     acis_streak=False,
     brightest=False,
+    snr=0.0,
 ):
     row = Table(np.zeros(1, dtype=db.ASTROMON_XRAY_SRC_DTYPE))
+    row["snr"] = snr
     row["obsid"] = obsid
     row["id"] = source_id
     row["detect_method"] = method
@@ -261,3 +263,70 @@ def test_a_row_matching_multiple_reasons_is_only_counted_once_in_dropped(tmp_pat
         len(xray[np.asarray(xray["detect_method"]).astype(str) == "gaussian_detect"])
         == 0
     )
+
+
+def _three_sources_one_on_an_arm(gaussian_ids: list[int]) -> list[Table]:
+    """Seeds 1 (on a grating arm, the brightest gaussian fit), 2 and 3, 10" and 30"
+    apart; gaussian rows for `gaussian_ids`, flagged as fit over all three."""
+    celldetect = [
+        _xray(2462, 1, "celldetect", y=0.0, z=0.0, nnd=10.0, grating_arm=True),
+        _xray(2462, 2, "celldetect", y=10.0, z=0.0, nnd=10.0),
+        _xray(2462, 3, "celldetect", y=40.0, z=0.0, nnd=30.0),
+    ]
+    gaussian = {
+        1: _xray(
+            2462, 1, "gaussian_detect", y=0.0, z=0.0, nnd=10.0, snr=90.0, brightest=True
+        ),
+        2: _xray(2462, 2, "gaussian_detect", y=10.0, z=0.0, nnd=10.0, snr=20.0),
+        3: _xray(2462, 3, "gaussian_detect", y=40.0, z=0.0, nnd=30.0, snr=5.0),
+    }
+    return celldetect + [gaussian[source_id] for source_id in gaussian_ids]
+
+
+def _gaussian_rows(dbfile) -> Table:
+    xray = db.get_table("astromon_xray_src", dbfile)
+    return xray[np.asarray(xray["detect_method"]).astype(str) == "gaussian_detect"]
+
+
+def test_dropping_the_brightest_row_flags_the_brightest_one_left(tmp_path):
+    """The brightest gaussian source was on a grating arm: a fresh fit never makes
+    it, so the brightest of the rest is flagged, and it is nobody's neighbour."""
+    dbfile = _seed_db(tmp_path, _three_sources_one_on_an_arm([1, 2, 3]))
+
+    result = bf.backfill(dbfile)
+
+    assert result["dropped"] == 1
+    gaussian = _gaussian_rows(dbfile)
+    assert list(gaussian["id"]) == [2, 3]
+    assert list(gaussian["brightest"]) == [1, 0]
+    np.testing.assert_allclose(gaussian["near_neighbor_dist"], [30.0, 30.0])
+
+
+def test_rows_dropped_before_the_recompute_have_their_flags_repaired(tmp_path):
+    """Rows dropped by an earlier run left the rest's flags as they were: a rerun has
+    nothing to drop but still repairs them, and leaves celldetect's alone."""
+    dbfile = _seed_db(tmp_path, _three_sources_one_on_an_arm([2, 3]))
+
+    result = bf.backfill(dbfile)
+
+    assert result["dropped"] == 0
+    assert result["brightest_changed"] == 1
+    assert result["near_neighbor_dist_changed"] == 1
+    gaussian = _gaussian_rows(dbfile)
+    assert list(gaussian["brightest"]) == [1, 0]
+    np.testing.assert_allclose(gaussian["near_neighbor_dist"], [30.0, 30.0])
+    xray = db.get_table("astromon_xray_src", dbfile)
+    celldetect = xray[np.asarray(xray["detect_method"]).astype(str) == "celldetect"]
+    np.testing.assert_allclose(celldetect["near_neighbor_dist"], [10.0, 10.0, 30.0])
+
+
+def test_flags_already_right_are_not_counted_or_rewritten(tmp_path):
+    dbfile = _seed_db(tmp_path, _three_sources_one_on_an_arm([2, 3]))
+    bf.backfill(dbfile)
+    before = dbfile.read_bytes()
+
+    result = bf.backfill(dbfile)
+
+    assert result["brightest_changed"] == 0
+    assert result["near_neighbor_dist_changed"] == 0
+    assert dbfile.read_bytes() == before
