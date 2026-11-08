@@ -172,10 +172,13 @@ def backfill(db_file: Path, dry_run: bool = False) -> dict:
             ignore_obsid=True,
             expect_existing=True,
         )
-        logger.info(
-            "written; run drop_retired_rows next, since the removed rows may carry"
-            " astromon_21 matches"
-        )
+        if n_dropped:
+            logger.info(
+                "written; run drop_retired_rows next, since the removed rows may carry"
+                " astromon_21 matches"
+            )
+        else:
+            logger.info("written")
     else:
         logger.info("Nothing to change.")
 

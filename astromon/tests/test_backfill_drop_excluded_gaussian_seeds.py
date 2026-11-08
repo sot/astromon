@@ -1,5 +1,7 @@
 """Tests for removing gaussian_detect rows whose celldetect seed is excluded."""
 
+import logging
+
 import numpy as np
 from astropy.table import Table, vstack
 
@@ -330,3 +332,23 @@ def test_flags_already_right_are_not_counted_or_rewritten(tmp_path):
     assert result["brightest_changed"] == 0
     assert result["near_neighbor_dist_changed"] == 0
     assert dbfile.read_bytes() == before
+
+
+def test_a_run_that_drops_rows_sends_you_to_drop_retired_rows(tmp_path, caplog):
+    dbfile = _seed_db(tmp_path, _three_sources_one_on_an_arm([1, 2, 3]))
+
+    with caplog.at_level(logging.INFO, logger=bf.logger.name):
+        bf.backfill(dbfile)
+
+    assert "drop_retired_rows" in caplog.text
+
+
+def test_a_run_that_only_repairs_flags_does_not(tmp_path, caplog):
+    """Nothing was dropped, so no astromon_21 rows can have lost their source."""
+    dbfile = _seed_db(tmp_path, _three_sources_one_on_an_arm([2, 3]))
+
+    with caplog.at_level(logging.INFO, logger=bf.logger.name):
+        result = bf.backfill(dbfile)
+
+    assert result["brightest_changed"] == 1, "it did write"
+    assert "drop_retired_rows" not in caplog.text
