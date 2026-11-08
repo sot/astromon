@@ -56,6 +56,7 @@ from astromon import db
 from astromon.cross_match import (
     CROSS_MATCHES_ARGS,
     compute_cross_matches,
+    stored_selection_mask,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -177,6 +178,36 @@ def _check_rebuild_does_not_lose_matches(
     logger.warning(message + " Proceeding because force was requested.")
 
 
+def _check_rebuild_replaces_only_stored_rows(existing: Table, force: bool) -> None:
+    """Refuse a rebuild whose obsids hold rows the pipeline no longer stores.
+
+    Rows of a retired selection, or of a stored selection from a detect method it no
+    longer takes (astromon_21's gaussian_detect rows), would be dropped by the rebuild,
+    not recomputed. They are not lost matches, so the loss check would blame the wrong
+    thing; drop_retired_rows is the tool that drops them, across the database.
+    """
+    retired = ~stored_selection_mask(existing)
+    if not retired.any():
+        return
+    labels = Counter(
+        f"{select_name} {detect_method}"
+        for select_name, detect_method in zip(
+            np.asarray(existing["select_name"]).astype(str)[retired],
+            np.asarray(existing["detect_method"]).astype(str)[retired],
+            strict=True,
+        )
+    )
+    detail = ", ".join(f"{label}: {count}" for label, count in sorted(labels.items()))
+    message = (
+        f"{int(retired.sum())} existing xcorr row(s) for these obsids are of selections"
+        f" or detect methods the pipeline no longer stores ({detail}). A rebuild would"
+        " drop them without saying so. Run drop_retired_rows first, then retry."
+    )
+    if not force:
+        raise RuntimeError(message + " Pass force=True to rebuild anyway.")
+    logger.warning(message + " Proceeding because force was requested.")
+
+
 def recompute(
     select_names: Sequence[str], obs: Table, xray: Table, cat: Table
 ) -> Table | None:
@@ -243,6 +274,8 @@ def rebuild(
 
     target = np.isin(np.asarray(xcorr["obsid"]), obsids)
     logger.info(f"existing xcorr rows for these obsids: {int(target.sum()):,}")
+    existing = xcorr[target]
+    _check_rebuild_replaces_only_stored_rows(existing, force=force)
 
     # Restrict the inputs once, then run each selection over the subset.
     obs_sub = obs[np.isin(np.asarray(obs["obsid"]), obsids)]
@@ -257,7 +290,9 @@ def rebuild(
     n_new = len(new) if new is not None else 0
     logger.info(f"rebuilt {n_new:,} rows, replacing {int(target.sum()):,}")
 
-    _check_rebuild_does_not_lose_matches(xcorr[target], new, force=force)
+    _check_rebuild_does_not_lose_matches(
+        existing[stored_selection_mask(existing)], new, force=force
+    )
 
     kept = xcorr[~target]
     combined = vstack([kept, new], metadata_conflicts="silent") if n_new else kept

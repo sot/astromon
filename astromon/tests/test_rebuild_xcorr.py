@@ -210,8 +210,8 @@ def test_rebuild_refuses_when_recompute_finds_fewer_matches(tmp_path):
     db.save("astromon_cat_src", cat, dbfile, ignore_obsid=True)
     original = vstack(
         [
-            _xcorr_row(select_name="astromon_25", obsid=7001, c_id=1, x_id=1),
-            _xcorr_row(select_name="astromon_25", obsid=7001, c_id=1, x_id=2),
+            _xcorr_row(select_name="astromon_21", obsid=7001, c_id=1, x_id=1),
+            _xcorr_row(select_name="astromon_21", obsid=7001, c_id=1, x_id=2),
         ],
         metadata_conflicts="silent",
     )
@@ -224,7 +224,7 @@ def test_rebuild_refuses_when_recompute_finds_fewer_matches(tmp_path):
     db.save("astromon_obs", _obs_table(7001), dbfile, ignore_obsid=True)
 
     def one_row_only(select_names, obs, xray, cat):
-        return _xcorr_row(select_name="astromon_25", obsid=7001, c_id=1, x_id=1)[
+        return _xcorr_row(select_name="astromon_21", obsid=7001, c_id=1, x_id=1)[
             list(db.ASTROMON_XCORR_DTYPE.names)
         ]
 
@@ -246,8 +246,8 @@ def test_rebuild_with_force_accepts_fewer_matches(tmp_path):
     db.save("astromon_cat_src", cat, dbfile, ignore_obsid=True)
     original = vstack(
         [
-            _xcorr_row(select_name="astromon_25", obsid=7001, c_id=1, x_id=1),
-            _xcorr_row(select_name="astromon_25", obsid=7001, c_id=1, x_id=2),
+            _xcorr_row(select_name="astromon_21", obsid=7001, c_id=1, x_id=1),
+            _xcorr_row(select_name="astromon_21", obsid=7001, c_id=1, x_id=2),
         ],
         metadata_conflicts="silent",
     )
@@ -260,7 +260,7 @@ def test_rebuild_with_force_accepts_fewer_matches(tmp_path):
     db.save("astromon_obs", _obs_table(7001), dbfile, ignore_obsid=True)
 
     def one_row_only(select_names, obs, xray, cat):
-        return _xcorr_row(select_name="astromon_25", obsid=7001, c_id=1, x_id=1)[
+        return _xcorr_row(select_name="astromon_21", obsid=7001, c_id=1, x_id=1)[
             list(db.ASTROMON_XCORR_DTYPE.names)
         ]
 
@@ -269,6 +269,51 @@ def test_rebuild_with_force_accepts_fewer_matches(tmp_path):
 
     stored = db.get_table("astromon_xcorr", dbfile)
     assert len(stored) == 1
+
+
+def test_rebuild_refuses_rows_the_pipeline_no_longer_stores_and_says_why(tmp_path):
+    """astromon_21's gaussian_detect rows are not lost matches: astromon_21 takes
+    celldetect sources only. The refusal used to blame missing catalog candidates
+    and send you to requery_cat_src."""
+    from astromon.scripts.maintenance import rebuild_xcorr
+
+    dbfile = tmp_path / "gaussian_rows.h5"
+    cat = _cat_src_row(catalog="RFC", obsid=7001, celldetect_x_id=1)
+    cat["id"] = 1
+    db.save("astromon_cat_src", cat, dbfile, ignore_obsid=True)
+    original = vstack(
+        [
+            _xcorr_row(select_name="astromon_21", obsid=7001, c_id=1, x_id=1),
+            _xcorr_row(
+                select_name="astromon_21",
+                obsid=7001,
+                c_id=1,
+                x_id=1,
+                detect_method="gaussian_detect",
+            ),
+        ],
+        metadata_conflicts="silent",
+    )
+    db.save("astromon_xcorr", original, dbfile, ignore_obsid=True)
+    xray = Table(np.zeros(2, dtype=db.ASTROMON_XRAY_SRC_DTYPE))
+    xray["obsid"] = 7001
+    xray["id"] = 1
+    xray["detect_method"] = ["celldetect", "gaussian_detect"]
+    db.save("astromon_xray_src", xray, dbfile, ignore_obsid=True)
+    db.save("astromon_obs", _obs_table(7001), dbfile, ignore_obsid=True)
+
+    def celldetect_only(select_names, obs, xray, cat):
+        return _xcorr_row(select_name="astromon_21", obsid=7001, c_id=1, x_id=1)[
+            list(db.ASTROMON_XCORR_DTYPE.names)
+        ]
+
+    with patch.object(rebuild_xcorr, "recompute", celldetect_only):
+        with pytest.raises(RuntimeError, match="drop_retired_rows") as refusal:
+            rebuild_xcorr.rebuild(dbfile, obsids=[7001])
+
+    assert "astromon_21 gaussian_detect" in str(refusal.value)
+    assert "requery_cat_src" not in str(refusal.value)
+    assert len(db.get_table("astromon_xcorr", dbfile)) == 2, "nothing written"
 
 
 # ─── rebuild_xcorr and the per-method x_id remap ─────────────────────────────
