@@ -154,15 +154,14 @@ def run_xcorr_for_obsids(
     new_xray: Table,
     new_obs: Table,
 ) -> Table:
-    """Re-run astromon_21 xcorr once per obsid, across all detect_methods.
+    """Re-run astromon_21 xcorr once per obsid.
 
-    simple_cross_match matches candidates to x-ray sources by position for every
-    detect_method present in `astromon_xray_src`, so it only needs to be called
-    once per obsid with the full (all-methods) xray slice.
+    astromon_21 matches celldetect sources only: compute_cross_matches drops the
+    other detect methods' sources first, so passing every method's rows is fine.
 
     Returns
     -------
-    Table of astromon_21 xcorr rows with detect_method column.
+    Table of astromon_21 xcorr rows, all celldetect.
     """
     xcorr_cols = list(db.ASTROMON_XCORR_DTYPE.names)
     obs_by_id = {int(row["obsid"]): Table([row]) for row in new_obs}
