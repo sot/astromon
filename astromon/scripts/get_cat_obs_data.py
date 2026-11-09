@@ -327,7 +327,7 @@ def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
         ``Observation.cleanup_downloads`` for the full list.  Default False.
     skip_catalog_match : bool
         If True, skip the catalog rough_match/candidate-query step entirely
-        (RFC/ICRF3/Tycho2/USNO-B1.0/2MASS/SDSS rough_match, plus the GaiaAGN/
+        (RFC/ICRF3/Tycho2 rough_match, plus the GaiaAGN/
         GaiaQSO/MilliquasGaia/DESIV161 queries) and the
         cross-match computation that depends on it. Detection still runs and
         astromon_xray_src is still saved; astromon_cat_src/astromon_xcorr come
@@ -414,12 +414,16 @@ def process_obsid(  # noqa: PLR0915, PLR0912, PLR0917
                 )
             )
             obs_time = CxoTime(obspar["date_obs"][0])
-            # RFC and ICRF3 are local caches (no network), as is Tycho2; the default
-            # selection matches against all three. USNO-B1.0/2MASS/SDSS are VizieR queries.
+            # RFC, ICRF3 and Tycho2 are local caches (no network) and are the only
+            # rough_match catalogs in the default selection. USNO-B1.0/2MASS/SDSS were
+            # queried here historically for catalogs outside that selection, but they
+            # are live VizieR queries with no local index, so including them made every
+            # obsid's processing depend on VizieR being reachable for catalogs nothing
+            # downstream uses.
             match_candidates = rough_match(
                 celldetect_sources,
                 obs_time,
-                catalogs=("RFC", "ICRF3", "Tycho2", "USNO-B1.0", "2MASS", "SDSS"),
+                catalogs=("RFC", "ICRF3", "Tycho2"),
             )
             # rough_match already sets one row per (source, candidate) pair, so
             # assign_cat_src_ids only stamps the remaining bookkeeping fields.

@@ -315,10 +315,17 @@ def main():
     )
     versions = tuple(args.versions)
 
+    # force=True: astromon/__init__.py already called basic_logger("astromon",
+    # level="CRITICAL") at import time, and basic_logger does nothing once the
+    # logger already has handlers -- without force=True this call is a silent
+    # no-op, the logger stays at CRITICAL, and every logger.info/.debug/.error
+    # call below (including the traceback this module's own except-block logs)
+    # is dropped, leaving only the final "RESULT: ..." print in each obsid's log.
     basic_logger(
         "astromon",
         level="DEBUG",
         format="%(asctime)s %(funcName)-25s: %(message)s",
+        force=True,
     )
     logger = logging.getLogger("astromon")
 
