@@ -730,52 +730,47 @@ def test_get_desi_v161_candidates_empty_pos():
     assert set(cross_match.CROSS_MATCH_DTYPE.names).issubset(set(result.colnames))
 
 
-def test_get_desi_v161_candidates_mocked_vizier():
-    """get_desi_v161_candidates filters OType and ZWARN correctly from a mocked response."""
-    pos = coords.SkyCoord([_COSMOS_DESI_RA], [_COSMOS_DESI_DEC], unit="deg")
+def test_filter_and_dedupe_desi_rows_excludes_star_type():
+    """_filter_and_dedupe_desi_rows filters SPECTYPE correctly."""
     fake_rows = Table(
         {
-            "RAICRS": np.array(
+            "TARGET_RA": np.array(
                 [_COSMOS_DESI_RA, _COSMOS_DESI_RA + 0.0001], dtype=float
             ),
-            "DEICRS": np.array([_COSMOS_DESI_DEC, _COSMOS_DESI_DEC], dtype=float),
-            "TargetID": np.array(
+            "TARGET_DEC": np.array([_COSMOS_DESI_DEC, _COSMOS_DESI_DEC], dtype=float),
+            "TARGETID": np.array(
                 [_COSMOS_DESI_TARGET_ID, 99999999999999999], dtype=np.int64
             ),
-            "OType": ["QSO", "STAR"],  # STAR should be filtered out
+            "SPECTYPE": ["QSO", "STAR"],  # STAR should be filtered out
             "ZWARN": np.array([0, 0], dtype=int),
-            "delChi2": np.array([500.0, 500.0], dtype=float),
+            "DELTACHI2": np.array([500.0, 500.0], dtype=float),
         }
     )
 
-    with patch.object(cross_match, "_query_vizier_region", return_value=[fake_rows]):
-        result = cross_match.get_desi_v161_candidates(pos, radius=3 * u.arcsec)
+    result = cross_match._filter_and_dedupe_desi_rows(fake_rows)
 
     assert len(result) == 1, "STAR-type row should be excluded"
-    assert result["catalog"][0] == "DESIV161"
     assert result["name"][0] == f"DESIV161-{_COSMOS_DESI_TARGET_ID}"
     assert np.isclose(result["ra"][0], _COSMOS_DESI_RA, atol=1e-4)
     assert np.isclose(result["dec"][0], _COSMOS_DESI_DEC, atol=1e-4)
 
 
-def test_get_desi_v161_candidates_zwarn_filter():
-    """ZWARN != 0 sources are excluded even if OType is QSO or GALAXY."""
-    pos = coords.SkyCoord([_COSMOS_DESI_RA], [_COSMOS_DESI_DEC], unit="deg")
+def test_filter_and_dedupe_desi_rows_zwarn_filter():
+    """ZWARN != 0 sources are excluded even if SPECTYPE is QSO or GALAXY."""
     fake_rows = Table(
         {
-            "RAICRS": np.array([_COSMOS_DESI_RA, _COSMOS_DESI_RA], dtype=float),
-            "DEICRS": np.array([_COSMOS_DESI_DEC, _COSMOS_DESI_DEC], dtype=float),
-            "TargetID": np.array(
+            "TARGET_RA": np.array([_COSMOS_DESI_RA, _COSMOS_DESI_RA], dtype=float),
+            "TARGET_DEC": np.array([_COSMOS_DESI_DEC, _COSMOS_DESI_DEC], dtype=float),
+            "TARGETID": np.array(
                 [_COSMOS_DESI_TARGET_ID, 11111111111111111], dtype=np.int64
             ),
-            "OType": ["QSO", "GALAXY"],
+            "SPECTYPE": ["QSO", "GALAXY"],
             "ZWARN": np.array([0, 4], dtype=int),  # second has SMALL_DELTA_CHI2 bit set
-            "delChi2": np.array([500.0, 900.0], dtype=float),
+            "DELTACHI2": np.array([500.0, 900.0], dtype=float),
         }
     )
 
-    with patch.object(cross_match, "_query_vizier_region", return_value=[fake_rows]):
-        result = cross_match.get_desi_v161_candidates(pos, radius=3 * u.arcsec)
+    result = cross_match._filter_and_dedupe_desi_rows(fake_rows)
 
     assert len(result) == 1, "ZWARN=4 row should be excluded"
     assert result["name"][0] == f"DESIV161-{_COSMOS_DESI_TARGET_ID}"
@@ -818,7 +813,7 @@ def test_dedupe_desi_by_delchi2_same_targetid_keeps_the_better_copy():
     )
 
 
-def test_get_desi_v161_candidates_position_dedup_handles_a_rounding_boundary():
+def test_filter_and_dedupe_desi_rows_handles_a_rounding_boundary():
     """Two positions straddling a rounding boundary must still be grouped.
 
     obsid 3000's real duplicate pair is exactly this shape: ra=190.544187 and
@@ -828,28 +823,26 @@ def test_get_desi_v161_candidates_position_dedup_handles_a_rounding_boundary():
     is the failure that let 12 of 122 known duplicates survive the first version
     of the fix.
     """
-    pos = coords.SkyCoord([_COSMOS_DESI_RA], [_COSMOS_DESI_DEC], unit="deg")
     fake_rows = Table(
         {
-            "RAICRS": np.array([190.544187, 190.544196], dtype=float),
-            "DEICRS": np.array([33.284073, 33.284073], dtype=float),
-            "TargetID": np.array(
+            "TARGET_RA": np.array([190.544187, 190.544196], dtype=float),
+            "TARGET_DEC": np.array([33.284073, 33.284073], dtype=float),
+            "TARGETID": np.array(
                 [2305843020496374046, 39632945912218912], dtype=np.int64
             ),
-            "OType": ["GALAXY", "GALAXY"],
+            "SPECTYPE": ["GALAXY", "GALAXY"],
             "ZWARN": np.array([0, 0], dtype=int),
-            "delChi2": np.array([128268.3, 395323.8], dtype=float),
+            "DELTACHI2": np.array([128268.3, 395323.8], dtype=float),
         }
     )
 
-    with patch.object(cross_match, "_query_vizier_region", return_value=[fake_rows]):
-        result = cross_match.get_desi_v161_candidates(pos, radius=3 * u.arcsec)
+    result = cross_match._filter_and_dedupe_desi_rows(fake_rows)
 
     assert len(result) == 1, '0.033" apart is the same object, not two'
     assert result["name"][0] == "DESIV161-39632945912218912"
 
 
-def test_get_desi_v161_candidates_position_dedup_at_desis_own_accuracy_limit():
+def test_filter_and_dedupe_desi_rows_at_desis_own_accuracy_limit():
     """A genuine duplicate 0.0508" apart must merge -- and a real distinct
     object 1.6" away in the same anchor group must not.
 
@@ -861,23 +854,21 @@ def test_get_desi_v161_candidates_position_dedup_at_desis_own_accuracy_limit():
     precision of a repeat observation and leaves real duplicates like this one
     unmerged.
     """
-    pos = coords.SkyCoord([_COSMOS_DESI_RA], [_COSMOS_DESI_DEC], unit="deg")
     fake_rows = Table(
         {
-            "RAICRS": np.array([194.915384, 194.915246, 194.915256], dtype=float),
-            "DEICRS": np.array([27.954351, 27.953920, 27.953909], dtype=float),
-            "TargetID": np.array(
+            "TARGET_RA": np.array([194.915384, 194.915246, 194.915256], dtype=float),
+            "TARGET_DEC": np.array([27.954351, 27.953920, 27.953909], dtype=float),
+            "TARGETID": np.array(
                 [1092755086376973, 2305843020093724629, 39628438616675080],
                 dtype=np.int64,
             ),
-            "OType": ["QSO", "QSO", "QSO"],
+            "SPECTYPE": ["QSO", "QSO", "QSO"],
             "ZWARN": np.array([0, 0, 0], dtype=int),
-            "delChi2": np.array([1000.0, 500.0, 5000.0], dtype=float),
+            "DELTACHI2": np.array([1000.0, 500.0, 5000.0], dtype=float),
         }
     )
 
-    with patch.object(cross_match, "_query_vizier_region", return_value=[fake_rows]):
-        result = cross_match.get_desi_v161_candidates(pos, radius=3 * u.arcsec)
+    result = cross_match._filter_and_dedupe_desi_rows(fake_rows)
 
     names = sorted(result["name"])
     assert names == ["DESIV161-1092755086376973", "DESIV161-39628438616675080"], (
@@ -886,7 +877,7 @@ def test_get_desi_v161_candidates_position_dedup_at_desis_own_accuracy_limit():
     )
 
 
-def test_get_desi_v161_candidates_prefers_higher_delchi2_different_targetid():
+def test_filter_and_dedupe_desi_rows_prefers_higher_delchi2_different_targetid():
     """Two different TargetIDs at the same position: DESI's own repeat targeting
     of one physical object across survey phases, not two real sources.
 
@@ -897,22 +888,20 @@ def test_get_desi_v161_candidates_prefers_higher_delchi2_different_targetid():
     table order. Position is not exposed as a query column here, so the
     dedup keys on (ra, dec) directly.
     """
-    pos = coords.SkyCoord([_COSMOS_DESI_RA], [_COSMOS_DESI_DEC], unit="deg")
     fake_rows = Table(
         {
-            "RAICRS": np.array([_COSMOS_DESI_RA, _COSMOS_DESI_RA], dtype=float),
-            "DEICRS": np.array([_COSMOS_DESI_DEC, _COSMOS_DESI_DEC], dtype=float),
-            "TargetID": np.array(
+            "TARGET_RA": np.array([_COSMOS_DESI_RA, _COSMOS_DESI_RA], dtype=float),
+            "TARGET_DEC": np.array([_COSMOS_DESI_DEC, _COSMOS_DESI_DEC], dtype=float),
+            "TARGETID": np.array(
                 [2305843020869671679, 39633335797940469], dtype=np.int64
             ),
-            "OType": ["QSO", "QSO"],
+            "SPECTYPE": ["QSO", "QSO"],
             "ZWARN": np.array([0, 0], dtype=int),
-            "delChi2": np.array([3517.9, 35610.5], dtype=float),
+            "DELTACHI2": np.array([3517.9, 35610.5], dtype=float),
         }
     )
 
-    with patch.object(cross_match, "_query_vizier_region", return_value=[fake_rows]):
-        result = cross_match.get_desi_v161_candidates(pos, radius=3 * u.arcsec)
+    result = cross_match._filter_and_dedupe_desi_rows(fake_rows)
 
     assert len(result) == 1, "same physical position, one row"
     assert result["name"][0] == "DESIV161-39633335797940469", (
@@ -920,27 +909,27 @@ def test_get_desi_v161_candidates_prefers_higher_delchi2_different_targetid():
     )
 
 
-def test_get_desi_v161_candidates_position_dedup_leaves_real_pairs_alone():
+def test_filter_and_dedupe_desi_rows_leaves_real_pairs_alone():
     """Two genuinely different, well-separated sources must both survive."""
-    pos = coords.SkyCoord([_COSMOS_DESI_RA], [_COSMOS_DESI_DEC], unit="deg")
     fake_rows = Table(
         {
-            "RAICRS": np.array([_COSMOS_DESI_RA, _COSMOS_DESI_RA + 0.001], dtype=float),
-            "DEICRS": np.array([_COSMOS_DESI_DEC, _COSMOS_DESI_DEC], dtype=float),
-            "TargetID": np.array([111, 222], dtype=np.int64),
-            "OType": ["QSO", "GALAXY"],
+            "TARGET_RA": np.array(
+                [_COSMOS_DESI_RA, _COSMOS_DESI_RA + 0.001], dtype=float
+            ),
+            "TARGET_DEC": np.array([_COSMOS_DESI_DEC, _COSMOS_DESI_DEC], dtype=float),
+            "TARGETID": np.array([111, 222], dtype=np.int64),
+            "SPECTYPE": ["QSO", "GALAXY"],
             "ZWARN": np.array([0, 0], dtype=int),
-            "delChi2": np.array([500.0, 500.0], dtype=float),
+            "DELTACHI2": np.array([500.0, 500.0], dtype=float),
         }
     )
 
-    with patch.object(cross_match, "_query_vizier_region", return_value=[fake_rows]):
-        result = cross_match.get_desi_v161_candidates(pos, radius=5 * u.arcsec)
+    result = cross_match._filter_and_dedupe_desi_rows(fake_rows)
 
     assert len(result) == 2, '0.001 deg (3.6") apart is not a duplicate position'
 
 
-def test_get_desi_v161_candidates_filters_before_deduping_by_targetid():
+def test_filter_and_dedupe_desi_rows_filters_before_deduping_by_targetid():
     """A ZWARN failure on one repeat observation must not sink the whole TargetID.
 
     obsid 234.948429/43.228229 in the live database is exactly this: the same
@@ -949,44 +938,52 @@ def test_get_desi_v161_candidates_filters_before_deduping_by_targetid():
     after deduplication could pick the ZWARN=2048 row by table order, discard it,
     and lose the TargetID entirely even though a good observation exists.
     """
-    pos = coords.SkyCoord([_COSMOS_DESI_RA], [_COSMOS_DESI_DEC], unit="deg")
     fake_rows = Table(
         {
-            "RAICRS": np.array([_COSMOS_DESI_RA, _COSMOS_DESI_RA], dtype=float),
-            "DEICRS": np.array([_COSMOS_DESI_DEC, _COSMOS_DESI_DEC], dtype=float),
-            "TargetID": np.array(
+            "TARGET_RA": np.array([_COSMOS_DESI_RA, _COSMOS_DESI_RA], dtype=float),
+            "TARGET_DEC": np.array([_COSMOS_DESI_DEC, _COSMOS_DESI_DEC], dtype=float),
+            "TARGETID": np.array(
                 [_COSMOS_DESI_TARGET_ID, _COSMOS_DESI_TARGET_ID], dtype=np.int64
             ),
-            "OType": ["QSO", "QSO"],
+            "SPECTYPE": ["QSO", "QSO"],
             "ZWARN": np.array([2048, 0], dtype=int),  # bad row listed first
-            "delChi2": np.array([109260.6, 287295.6], dtype=float),
+            "DELTACHI2": np.array([109260.6, 287295.6], dtype=float),
         }
     )
 
-    with patch.object(cross_match, "_query_vizier_region", return_value=[fake_rows]):
-        result = cross_match.get_desi_v161_candidates(pos, radius=3 * u.arcsec)
+    result = cross_match._filter_and_dedupe_desi_rows(fake_rows)
 
     assert len(result) == 1, "the ZWARN=0 observation must survive"
     assert result["name"][0] == f"DESIV161-{_COSMOS_DESI_TARGET_ID}"
 
 
-def test_get_desi_v161_candidates_vizier_failure_raises():
-    """Same for DESI: a failed query is not evidence of an empty field.
+def test_get_desi_v161_candidates_cone_searches_the_local_catalog():
+    """get_desi_v161_candidates is a cone search over the local cached catalog.
 
-    A real VizieR read timeout on a pooled query is what exposed this -- it was
-    reported as "no DESI candidates" for a hundred obsids at once.
+    Replaces the old VizieR-mocking test of the same behavior: filtering and
+    deduplication now happen once, at catalog-build time
+    (:func:`_filter_and_dedupe_desi_rows`, tested directly above), not per
+    query. This only needs to check the remaining job -- finding the cached
+    catalog's rows near *pos* -- so it patches :func:`get_desi_v161_catalog`
+    instead of the (now unused, for this catalog) VizieR boundary.
     """
     pos = coords.SkyCoord([_COSMOS_DESI_RA], [_COSMOS_DESI_DEC], unit="deg")
+    fake_catalog = Table(
+        {
+            "name": ["DESIV161-near", "DESIV161-far"],
+            "ra": np.array(
+                [_COSMOS_DESI_RA + 0.0001, _COSMOS_DESI_RA + 10], dtype=float
+            ),
+            "dec": np.array([_COSMOS_DESI_DEC, _COSMOS_DESI_DEC], dtype=float),
+        }
+    )
 
-    with (
-        patch.object(
-            cross_match,
-            "_query_vizier_region",
-            side_effect=RuntimeError("VizieR unavailable"),
-        ),
-        pytest.raises(cross_match.CatalogQueryFailed, match="DESIV161"),
-    ):
-        cross_match.get_desi_v161_candidates(pos, radius=3 * u.arcsec)
+    with patch.object(cross_match, "get_desi_v161_catalog", return_value=fake_catalog):
+        result = cross_match.get_desi_v161_candidates(pos, radius=3 * u.arcsec)
+
+    assert len(result) == 1, "only the nearby row is within radius"
+    assert result["catalog"][0] == "DESIV161"
+    assert result["name"][0] == "DESIV161-near"
 
 
 @pytest.mark.skipif(not HAS_INTERNET, reason="Requires network access")

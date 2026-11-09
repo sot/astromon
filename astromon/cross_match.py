@@ -16,6 +16,7 @@ from astropy import units as u
 from astropy.io import votable as votable_io
 from astroquery.vizier import Vizier
 from cxotime import CxoTime
+from scipy.spatial import cKDTree
 from Ska.DBI import DBI
 from ska_helpers.retry import retry
 
@@ -1766,13 +1767,23 @@ def _group_by_position(
     happened for real: 12 of 122 known duplicates survived the first version of
     this fix for exactly that reason.
 
-    Union-find on pairwise separation has no boundary to straddle. Quadratic in
-    the number of rows, which is fine here -- one query's candidate list is a
-    handful to a few hundred rows, not the whole database.
+    Union-find on pairwise separation has no boundary to straddle. A cKDTree
+    finds the close pairs (``query_pairs``, chord distance on the unit sphere)
+    instead of comparing every row to every other row, so this scales to
+    building the whole local catalog (~1.2M rows) in one call, not just a
+    single query's candidate list.
     """
-    ra, dec = np.asarray(ra), np.asarray(dec)
+    ra, dec = np.asarray(ra, dtype=float), np.asarray(dec, dtype=float)
     n = len(ra)
-    parent = list(range(n))
+    ra_rad, dec_rad = np.radians(ra), np.radians(dec)
+    cos_dec = np.cos(dec_rad)
+    xyz = np.column_stack(
+        [cos_dec * np.cos(ra_rad), cos_dec * np.sin(ra_rad), np.sin(dec_rad)]
+    )
+    chord = 2 * np.sin(np.radians(tolerance_arcsec / 3600.0) / 2)
+    pairs = cKDTree(xyz).query_pairs(r=chord, output_type="ndarray")
+
+    parent = np.arange(n)
 
     def find(i: int) -> int:
         while parent[i] != i:
@@ -1780,16 +1791,140 @@ def _group_by_position(
             i = parent[i]
         return i
 
-    for i in range(n):
-        dra = (ra - ra[i]) * np.cos(np.radians(dec[i]))
-        ddec = dec - dec[i]
-        close = np.flatnonzero(np.hypot(dra, ddec) * 3600 < tolerance_arcsec)
-        for j in close:
-            ri, rj = find(i), find(int(j))
-            if ri != rj:
-                parent[ri] = rj
+    for i, j in pairs:
+        ri, rj = find(i), find(j)
+        if ri != rj:
+            parent[ri] = rj
 
     return np.array([find(i) for i in range(n)])
+
+
+# DESI DR1 ("iron" reduction, v0) zall-pix summary catalog, published directly by
+# the DESI collaboration -- the same data VizieR mirrors as V/161 (confirmed via
+# VizieR's own V/161 description: it is the DESI DR1 redshift catalog, not EDR,
+# despite this module's earlier assumption), but independent of CDS/VizieR
+# (unavailable since 2026-10-28, no ETA; see astromon.tycho2_local_index for the
+# same situation with Tycho2). A fixed historical data release (dated 2023-10-31,
+# matching VizieR's "DESI Collaboration 2023" citation), so -- like ICRF3 --
+# there is no age check, only a version pin.
+_DESI_V161_RAW_URL = (
+    "https://data.desi.lbl.gov/public/dr1/spectro/redux/iron/zcatalog/v0/"
+    "zall-pix-iron.fits"
+)
+_DESI_V161_VERSION = "DESI-DR1-iron-v0-zall-pix"
+_DESI_V161_CACHE_PATH = _ASTROMON_DATA_DIR / "desi_v161_catalog.fits"
+
+
+def _filter_and_dedupe_desi_rows(desi: table.Table) -> table.Table:
+    """Reduce raw DESI zcatalog rows to one row per real QSO/GALAXY.
+
+    `desi` has DESI's own native column names (``TARGETID``, ``TARGET_RA``,
+    ``TARGET_DEC``, ``SPECTYPE``, ``ZWARN``, ``DELTACHI2``), the same whether it
+    came from the raw DR1 file (:func:`_build_desi_v161_catalog`) or a test's
+    synthetic rows. Keeps only spectroscopically confirmed quasars/galaxies with
+    a reliable redshift (``SPECTYPE`` in ``{'QSO', 'GALAXY'}``, ``ZWARN == 0``),
+    then collapses DESI's own repeat targeting of one physical object -- both
+    within a TargetID's repeat observations and across different TargetIDs at
+    the same position -- to the single best (highest-delChi2) row via
+    :func:`_dedupe_desi_by_delchi2`. The filter must run first: a TargetID's
+    better observation can have ZWARN=0 while a worse one for the *same*
+    TargetID has ZWARN != 0, and deduplicating first risks keeping the bad one
+    by table order and discarding the TargetID entirely.
+
+    Returns a table with columns ``name`` (``DESIV161-{TargetID}``), ``ra``,
+    ``dec``.
+    """
+    spectype = np.array([s.strip() for s in desi["SPECTYPE"].astype(str)])
+    keep = np.isin(spectype, ["QSO", "GALAXY"]) & (
+        np.asarray(desi["ZWARN"], dtype=int) == 0
+    )
+    desi = desi[keep]
+
+    desi = table.Table(
+        {
+            "TargetID": np.asarray(desi["TARGETID"]),
+            "RAICRS": np.asarray(desi["TARGET_RA"], dtype=float),
+            "DEICRS": np.asarray(desi["TARGET_DEC"], dtype=float),
+            "delChi2": np.asarray(desi["DELTACHI2"], dtype=float),
+        }
+    )
+    desi = _dedupe_desi_by_delchi2(desi)
+
+    return table.Table(
+        {
+            "name": np.array([f"DESIV161-{tid}" for tid in desi["TargetID"]]),
+            "ra": np.asarray(desi["RAICRS"], dtype=float),
+            "dec": np.asarray(desi["DEICRS"], dtype=float),
+        }
+    )
+
+
+def _build_desi_v161_catalog(cache_path: Path) -> table.Table:
+    """Download the DESI DR1 zall-pix catalog and build the local DESIV161 table.
+
+    Downloads the ~21 GB raw FITS summary catalog (every DESI DR1 spectrum, all
+    survey programs -- the main survey, much larger than EDR) to a temporary
+    file, filters and deduplicates it with :func:`_filter_and_dedupe_desi_rows`,
+    and writes the surviving rows (``name``, ``ra``, ``dec``) to `cache_path`.
+    The raw download is removed afterwards; only the small filtered table is
+    kept.
+
+    The temporary download needs ~21 GB of free space; set ``TMPDIR`` to a
+    volume with enough room before calling this (Python's ``tempfile`` honors
+    it) if the default temp location does not have it.
+    """
+    import tempfile  # noqa: PLC0415
+
+    columns = ["TARGETID", "TARGET_RA", "TARGET_DEC", "SPECTYPE", "ZWARN", "DELTACHI2"]
+    with tempfile.TemporaryDirectory() as tmpdir:
+        raw_path = Path(tmpdir) / "zall-pix-iron.fits"
+        logger.info(f"Downloading DESI DR1 zall-pix catalog → {raw_path}")
+        urllib.request.urlretrieve(_DESI_V161_RAW_URL, raw_path)
+
+        with io.fits.open(raw_path, memmap=True) as hdul:
+            data = hdul[1].data
+            desi = table.Table({c: np.asarray(data[c]) for c in columns})
+            n_raw = len(data)
+
+    catalog = _filter_and_dedupe_desi_rows(desi)
+    logger.info(f"  {len(catalog)} rows after filtering and deduplication (of {n_raw})")
+
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    catalog.write(cache_path, format="fits", overwrite=True)
+    _record_catalog_version(cache_path, _DESI_V161_VERSION)
+    logger.info(f"  Saved {len(catalog)} DESIV161 sources to {cache_path}")
+    return catalog
+
+
+def get_desi_v161_catalog(
+    cache_path: Path | None = None, force_rebuild: bool = False
+) -> table.Table:
+    """Return the local DESIV161 (QSO/GALAXY, ZWARN=0) catalog, building it if needed.
+
+    Downloads and filters the DESI DR1 zall-pix catalog (several minutes, ~21 GB
+    transient download) on first use, then reuses the small cached result;
+    see :func:`_build_desi_v161_catalog`. Refreshed only if the cache is absent,
+    ``force_rebuild=True``, or the pinned release (:data:`_DESI_V161_VERSION`)
+    changes -- this is a fixed historical DESI data release, not something that
+    gets updated in place.
+
+    Parameters
+    ----------
+    cache_path
+        Override the default cache location
+        (default: ``$ASTROMON_DATA_DIR/desi_v161_catalog.fits``).
+    force_rebuild
+        Rebuild even if a cached copy with the current release already exists.
+    """
+    if cache_path is None:
+        cache_path = _DESI_V161_CACHE_PATH
+    cache_path = Path(cache_path)
+    if force_rebuild or _cache_needs_refresh(cache_path, _DESI_V161_VERSION):
+        return _build_desi_v161_catalog(cache_path)
+    logger.debug(f"Loading cached DESIV161 catalog from {cache_path}")
+    return _read_catalog_cached(
+        cache_path, lambda p: table.Table.read(p, format="fits")
+    )
 
 
 def get_desi_v161_candidates(
@@ -1797,21 +1932,19 @@ def get_desi_v161_candidates(
     radius: u.Quantity = 3 * u.arcsec,
     logging_tag: str = "",
 ) -> table.Table:
-    """Query DESI EDR spectroscopic catalog (VizieR V/161) for QSOs and galaxies.
+    """Cone-search the local DESI DR1 spectroscopic catalog for QSOs and galaxies.
 
-    Cone-searches the DESI Early Data Release spectroscopic catalog around each
-    position in *pos*, keeping only targets with:
-
-    * ``OType`` in ``{'QSO', 'GALAXY'}`` — spectroscopically confirmed quasars
-      or galaxies (excludes STAR-typed objects and blank types).
-    * ``ZWARN == 0`` — reliable redshift / spectral-type classification; no
-      known quality issues with the fiber or template fit.
+    Searches the local DESIV161 catalog (:func:`get_desi_v161_catalog` --
+    DESI's own DR1 (main survey) data release, filtered to spectroscopically
+    confirmed QSOs and galaxies with a reliable redshift and deduplicated to one
+    row per physical object; see :func:`_build_desi_v161_catalog`) around each
+    position in *pos*.
 
     DESI positions come from Legacy Survey DR9 imaging and are accurate to
     ≲ 0.1 arcsec for point-like sources — comparable to Gaia, so no position
-    upgrade step is needed.  The DESI EDR footprint (~4100 sq deg in discrete
-    survey-validation tiles) is the primary coverage limitation; sources outside
-    the footprint return no results.
+    upgrade step is needed.  DR1's footprint (the first 13 months of the main
+    survey, much larger than EDR's ~4100 sq deg validation tiles) is still the
+    primary coverage limitation; sources outside it return no results.
 
     Parameters
     ----------
@@ -1829,9 +1962,9 @@ def get_desi_v161_candidates(
 
     Notes
     -----
-    VizieR catalog V/161 (DESI Collaboration 2023): the DESI Early Data
-    Release (EDR) spectroscopic redshift catalog, containing ~3.5 M spectra
-    from the commissioning, survey-validation, and early main-survey phases.
+    DESI Collaboration 2023/2026, Data Release 1 (DR1, "iron" reduction): ~18.7 M
+    spectra from the first 13 months of the main survey (13.1 M galaxies, 1.6 M
+    quasars, 4 M stars). VizieR mirrors the same data as V/161.
 
     Examples
     --------
@@ -1840,59 +1973,9 @@ def get_desi_v161_candidates(
     >>> pos = SkyCoord([36.45], [−4.59], unit='deg')
     >>> t = get_desi_v161_candidates(pos, radius=3 * u.arcsec)  # doctest: +SKIP
     """
-    if not pos.isscalar and len(pos) == 0:
-        logger.debug(f"{logging_tag} DESIV161 has no results")
-        return table.Table(dtype=CROSS_MATCH_DTYPE)
-
-    vizier = Vizier(
-        columns=["RAICRS", "DEICRS", "TargetID", "OType", "ZWARN", "delChi2"],
-        row_limit=-1,
+    return _local_catalog_near(
+        get_desi_v161_catalog(), "DESIV161", pos, radius, logging_tag
     )
-
-    try:
-        result = _query_vizier_region(vizier, pos, radius, "V/161")
-        tables = list(result)
-    except Exception as exc:
-        # Returning an empty table here reports an absence that was never measured.
-        raise CatalogQueryFailed(
-            f"{logging_tag} DESIV161 VizieR query failed: {exc}"
-        ) from exc
-
-    if not tables:
-        logger.debug(f"{logging_tag} DESIV161 has no results")
-        return table.Table(dtype=CROSS_MATCH_DTYPE)
-
-    desi = table.vstack(tables, metadata_conflicts="silent")
-
-    # Filter first: spectroscopic type QSO or GALAXY, reliable redshift. Must
-    # happen before deduplication -- see _dedupe_desi_by_delchi2.
-    type_arr = np.array([str(t).strip() for t in desi["OType"]])
-    zwarn_arr = np.array(desi["ZWARN"], dtype=int)
-    keep = np.isin(type_arr, ["QSO", "GALAXY"]) & (zwarn_arr == 0)
-    desi = desi[keep]
-
-    if len(desi) == 0:
-        logger.debug(f"{logging_tag} DESIV161 has no QSO/GALAXY results with ZWARN=0")
-        return table.Table(dtype=CROSS_MATCH_DTYPE)
-
-    # Collapse DESI's own repeat targeting of one physical object -- both within
-    # a TargetID's repeat observations and across different TargetIDs at the
-    # same position -- to the single best (highest-delChi2) row.
-    desi = _dedupe_desi_by_delchi2(desi)
-
-    output = table.Table(data=np.zeros(len(desi), dtype=CROSS_MATCH_DTYPE))
-    output["ra"] = np.array(desi["RAICRS"], dtype=float)
-    output["dec"] = np.array(desi["DEICRS"], dtype=float)
-    output["catalog"] = "DESIV161"
-    output["name"] = [f"DESIV161-{tid}" for tid in desi["TargetID"]]
-    output["mag"] = table.MaskedColumn(
-        dtype=np.float32, length=len(desi), mask=np.ones(len(desi), dtype=bool)
-    )
-
-    logger.debug(
-        f"{logging_tag} DESIV161: {len(output)} QSO/GALAXY results with ZWARN=0"
-    )
-    return output
 
 
 def get_desi_v161_by_obsid(
@@ -1901,7 +1984,7 @@ def get_desi_v161_by_obsid(
     batch_size: int = BATCHED_POSITIONS_PER_QUERY,
     logging_tag: str = "",
 ) -> dict:
-    """Query DESI EDR once for many observations, then split the answer per obsid.
+    """Query the local DESI catalog once for many observations, split per obsid.
 
     `positions` maps a key (an obsid) to that observation's `SkyCoord`. Returns a
     table per key, with the same contents :func:`get_desi_v161_candidates` would
